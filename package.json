@@ -1,0 +1,21 @@
+{
+  "name": "roogps",
+  "private": true,
+  "workspaces": [
+    "web",
+    "ingest"
+  ],
+  "scripts": {
+    "dev": "npx concurrently \"npm run dev:web\" \"npm run dev:ingest\"",
+    "dev:web": "npm run dev --prefix web",
+    "dev:ingest": "npm run dev --prefix ingest",
+    "build": "npm run build --prefix web && npm run build --prefix ingest",
+    "build:web": "npm run build --prefix web",
+    "build:ingest": "npm run build --prefix ingest",
+    "clean": "node -e \"require('fs').rmSync('web/.next',{recursive:true,force:true}); console.log('Cleaned web/.next');\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3"
+  }
+}

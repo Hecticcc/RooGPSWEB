@@ -2,6 +2,40 @@
 
 Use these steps to check if the ingest on your VPS (Vultr) is running and receiving GPS data.
 
+## How to redeploy the ingest
+
+After you change the ingest code (parser, shutdown, etc.), push to Git or keep the repo locally, then do one of the following.
+
+### Option A: From your PC (rsync + SSH)
+
+From your **local machine** (PowerShell or Git Bash), in the repo root:
+
+```bash
+VPS_IP=149.28.160.198 VPS_USER=root SUPABASE_URL=https://YOUR_PROJECT.supabase.co SUPABASE_SERVICE_ROLE_KEY=your_service_role_key ./scripts/deploy-ingest-from-local.sh
+```
+
+Replace `VPS_IP`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` with your values. This script:
+
+1. Rsyncs the repo to the VPS (excluding node_modules, .git, etc.).
+2. SSHs in and runs `npm install`, `npm run build:ingest`.
+3. Writes `ingest/.env` and runs `sudo systemctl restart roogps-ingest`.
+
+**Requires:** `rsync` and `ssh` (e.g. WSL, Git Bash, or macOS/Linux). Windows users can use Git Bash or WSL.
+
+### Option B: On the VPS (Git pull)
+
+If the server was set up with **Git clone** (e.g. by the Vultr startup script), SSH in and run:
+
+```bash
+cd /opt/roogps
+git pull
+npm install
+npm run build:ingest
+sudo systemctl restart roogps-ingest
+```
+
+Make sure you’ve pushed your latest code to the branch the server uses (e.g. `main`) before pulling.
+
 ## 1. Run the check script on the VPS
 
 SSH into your Vultr server, then run the project’s check script:

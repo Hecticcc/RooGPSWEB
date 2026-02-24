@@ -83,8 +83,6 @@ EnvironmentFile=$INGEST_DIR/.env
 ExecStart=$(command -v node) dist/index.js
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

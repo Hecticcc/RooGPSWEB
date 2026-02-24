@@ -28,6 +28,7 @@ let rejectedUnknownDevice = 0;
 let deadletterWrites = 0;
 let fallbackWrites = 0;
 let errors = 0;
+let lastError: string | null = null;
 let shuttingDown = false;
 
 const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
@@ -63,6 +64,7 @@ function appendDeadletter(deviceId: string, raw: string) {
     deadletterWrites++;
   } catch (e) {
     errors++;
+    lastError = `deadletter write: ${e}`;
     log('error', 'deadletter write failed', { err: String(e) });
   }
 }
@@ -75,6 +77,7 @@ function appendFallback(raw: string) {
     fallbackWrites++;
   } catch (e) {
     errors++;
+    lastError = `fallback write: ${e}`;
     log('error', 'fallback write failed', { err: String(e) });
   }
 }
@@ -84,6 +87,7 @@ async function ensureDevice(deviceId: string): Promise<boolean> {
   const { data, error } = await supabase.from('devices').select('id').eq('id', deviceId).maybeSingle();
   if (error) {
     errors++;
+    lastError = `devices check: ${error.message}`;
     log('error', 'devices check failed', { err: error.message });
     return false;
   }
@@ -122,6 +126,7 @@ async function insertLocation(parsed: ReturnType<typeof parsePT60Line>): Promise
       await sleep(delay);
     } else {
       errors++;
+      lastError = `locations insert: ${insertErr.message}`;
       log('error', 'locations insert failed after retries', { err: insertErr.message });
       appendFallback(parsed.raw_payload);
       return false;
@@ -153,20 +158,29 @@ function handleLine(line: string) {
   });
 }
 
+const clientSockets = new Set<net.Socket>();
+
 const server = net.createServer((socket) => {
   if (shuttingDown) {
     socket.destroy();
     return;
   }
   connections++;
+  clientSockets.add(socket);
   let buffer = '';
   const bufferByteLimit = Math.max(1024, Math.min(MAX_SOCKET_BUFFER_BYTES, 10 * 1024 * 1024));
   socket.setEncoding('utf8');
+  const removeSocket = () => {
+    clientSockets.delete(socket);
+  };
+  socket.once('close', removeSocket);
+  socket.once('error', removeSocket);
   socket.on('data', (chunk) => {
     buffer += chunk;
     const byteLength = Buffer.byteLength(buffer, 'utf8');
     if (byteLength > bufferByteLimit) {
       errors++;
+      lastError = `socket buffer exceeded (limit ${bufferByteLimit})`;
       log('warn', 'socket buffer exceeded limit', { limit: bufferByteLimit });
       socket.destroy();
       connections--;
@@ -182,11 +196,23 @@ const server = net.createServer((socket) => {
     if (buffer.trim()) handleLine(buffer);
     connections--;
   });
-  socket.on('error', () => {
+  socket.on('error', (err: Error) => {
     connections--;
     errors++;
+    lastError = `socket error: ${err.message}`;
   });
 });
+
+function closeAllSockets() {
+  for (const s of clientSockets) {
+    try {
+      s.destroy();
+    } catch {
+      // ignore
+    }
+  }
+  clientSockets.clear();
+}
 
 server.listen(INGEST_PORT, INGEST_HOST, () => {
   log('info', `TCP ingest listening on ${INGEST_HOST}:${INGEST_PORT}`);
@@ -205,6 +231,7 @@ const healthServer = http.createServer((_req, res) => {
       fallback_writes: fallbackWrites,
       rejected_unknown_device: rejectedUnknownDevice,
       errors,
+      ...(lastError && { last_error: lastError }),
     })
   );
 });
@@ -217,6 +244,7 @@ function gracefulShutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   log('info', `received ${signal}, shutting down`);
+  closeAllSockets();
   server.close(() => {
     healthServer.close(() => {
       log('info', 'shutdown complete');
@@ -226,7 +254,7 @@ function gracefulShutdown(signal: string) {
   const forceExit = setTimeout(() => {
     log('warn', 'shutdown timeout, forcing exit');
     process.exit(1);
-  }, 15000);
+  }, 5000);
   forceExit.unref();
 }
 

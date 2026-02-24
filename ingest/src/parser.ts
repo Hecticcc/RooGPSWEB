@@ -100,12 +100,13 @@ export function parsePT60Line(line: string): ParsedLocation | null {
     const t = tokens[i];
     const num = parseFloat(t);
     if (t.length >= 10 && /^\d+$/.test(t) && !gps_time) gps_time = parseTime(t);
-    if (!isNaN(num) && latitude === null && Math.abs(num) <= 9000 && (Math.abs(num) > 90 || (t.includes('.') && num >= 0))) {
+    const isDecimalDeg = t.includes('.');
+    if (!isNaN(num) && latitude === null && Math.abs(num) <= 9000 && (Math.abs(num) > 90 || (isDecimalDeg && num >= -90 && num <= 90))) {
       const next = tokens[i + 1];
       if (next === 'N' || next === 'S') continue;
       latitude = Math.abs(num) > 90 ? toDecimalDegrees(num, false) : num;
     }
-    if (!isNaN(num) && longitude === null && Math.abs(num) <= 18000 && (Math.abs(num) > 180 || (t.includes('.') && num >= 0))) {
+    if (!isNaN(num) && longitude === null && Math.abs(num) <= 18000 && (Math.abs(num) > 180 || (isDecimalDeg && num >= -180 && num <= 180))) {
       const next = tokens[i + 1];
       if (next === 'E' || next === 'W') continue;
       longitude = Math.abs(num) > 180 ? toDecimalDegrees(num, true) : num;
@@ -115,21 +116,34 @@ export function parsePT60Line(line: string): ParsedLocation | null {
       course_deg = num;
     }
   }
-  const latIdx = tokens.findIndex((t) => {
+  const latIdx = latitude === null
+    ? tokens.findIndex((t) => {
+        const n = parseFloat(t);
+        return !isNaN(n) && t.includes('.') && n >= -90 && n <= 90;
+      })
+    : -1;
+  const fallbackLatIdx = latIdx >= 0 ? latIdx : tokens.findIndex((t) => {
     const n = parseFloat(t);
     return !isNaN(n) && (Math.abs(n) <= 90 || (Math.abs(n) > 90 && Math.abs(n) <= 9000));
   });
-  const lonIdx = tokens.findIndex((t, i) => {
-    if (i <= latIdx && latIdx >= 0) return false;
+  const lonIdx = longitude === null
+    ? tokens.findIndex((t, i) => {
+        if (i <= fallbackLatIdx && fallbackLatIdx >= 0) return false;
+        const n = parseFloat(t);
+        return !isNaN(n) && t.includes('.') && n >= -180 && n <= 180;
+      })
+    : -1;
+  const fallbackLonIdx = lonIdx >= 0 ? lonIdx : tokens.findIndex((t, i) => {
+    if (i <= fallbackLatIdx && fallbackLatIdx >= 0) return false;
     const n = parseFloat(t);
     return !isNaN(n) && (Math.abs(n) <= 180 || (Math.abs(n) > 180 && Math.abs(n) <= 18000));
   });
-  if (latIdx >= 0 && latitude === null) {
-    const n = parseFloat(tokens[latIdx]);
+  if (fallbackLatIdx >= 0 && latitude === null) {
+    const n = parseFloat(tokens[fallbackLatIdx]);
     latitude = Math.abs(n) > 90 ? toDecimalDegrees(n, false) : n;
   }
-  if (lonIdx >= 0 && longitude === null) {
-    const n = parseFloat(tokens[lonIdx]);
+  if (fallbackLonIdx >= 0 && longitude === null) {
+    const n = parseFloat(tokens[fallbackLonIdx]);
     longitude = Math.abs(n) > 180 ? toDecimalDegrees(n, true) : n;
   }
   if (speed_kph === null) {

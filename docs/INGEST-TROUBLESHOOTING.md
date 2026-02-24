@@ -71,7 +71,7 @@ The tracker must send data **to the VPS**:
 - **Format:** PT60-L style lines starting with `&&`, ending with `\r\n`, e.g.  
   `&&867747070319866,240223123456,A,2234.5678,N,11345.1234,E,25.5,180,0\r\n`
 
-The **device ID** is the **first field after `&&`** (before the first comma). That exact value must exist as a device in the RooGPS dashboard. If the ingest shows `rejected_unknown_device` with a device_id like `:120`, either add a device with that ID in the dashboard or reconfigure the GPS so the first field is your full device ID (e.g. IMEI).
+The **device ID** is the value the parser extracts (first or second field after `&&`, depending on format). That exact value must exist in the dashboard as the **Device ID** (not the display name). Example: if the tracker sends IMEI `867747070319866`, add a device with **Device ID** `867747070319866` and you can set the **Name** to "car" or "test2". A device with Device ID "car" will only get data if the tracker actually sends "car" in the payload (most hardware sends IMEI).
 
 ## 5. Send a test packet from the VPS
 
@@ -97,10 +97,27 @@ Each line is: `timestamp`, `device_id`, then the **raw line** from the tracker. 
 
 After the next ingest deploy, when a device is rejected the log will also include the raw line (e.g. `"raw": "&&:120,..."`).
 
-## 7. Still no data?
+## 7. Fix "Unknown key name 'StartLimitIntervalSec'" on existing servers
+
+If the ingest was installed with an older startup script, the systemd unit may still contain `StartLimitIntervalSec` / `StartLimitBurst`, which older systemd doesn’t accept. To remove the warning and use the current unit:
+
+On the VPS:
+
+```bash
+sudo sed -i '/StartLimitIntervalSec/d; /StartLimitBurst/d' /etc/systemd/system/roogps-ingest.service
+sudo systemctl daemon-reload
+```
+
+Or re-create the service from the repo (from `scripts/vultr-startup.sh` step 7) and run `systemctl daemon-reload` then `systemctl restart roogps-ingest`.
+
+## 8. Still no data?
 
 - Confirm the **device is added** in the dashboard (device ID must match the **first field after `&&`** in the payload).
 - If the parser shows device_id `:120`, add a device with ID **`:120`** in the dashboard to test, or change the GPS to send the full IMEI as the first field.
 - Confirm **firewall** on the VPS allows **TCP 8011** (e.g. `sudo ufw allow 8011/tcp` and `sudo ufw reload`).
 - Confirm the **GPS device** is configured with the correct server **IP** and **port 8011**.
 - Check **Supabase**: correct `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the ingest `.env` and that the `devices` and `locations` tables exist with the expected schema.
+
+## 9. Shutdown timeout / "forcing exit"
+
+If the ingest hits "shutdown timeout, forcing exit" when systemd stops it, the updated code closes all client TCP connections on SIGTERM so the server can shut down quickly. After pulling and redeploying, restarts should complete without the 15s timeout.

@@ -37,8 +37,12 @@ echo "-------------------"
 HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$HEALTH_PORT" 2>/dev/null || echo "000")
 if [[ "$HEALTH" == "200" ]]; then
   echo "   HTTP 200 OK"
-  curl -s "http://127.0.0.1:$HEALTH_PORT" 2>/dev/null | head -c 500
+  HEALTH_JSON=$(curl -s "http://127.0.0.1:$HEALTH_PORT" 2>/dev/null)
+  echo "$HEALTH_JSON" | head -c 500
   echo ""
+  if echo "$HEALTH_JSON" | grep -q '"last_error"'; then
+    echo "   Last error: $(echo "$HEALTH_JSON" | sed -n 's/.*"last_error":"\([^"]*\)".*/\1/p')"
+  fi
 else
   echo "   Failed (HTTP $HEALTH). Is the service running?"
 fi

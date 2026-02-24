@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const supabase = await createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient(request);
   if (!supabase) {
     return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
   }

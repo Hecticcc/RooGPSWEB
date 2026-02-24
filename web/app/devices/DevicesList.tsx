@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
+import { getAuthHeaders } from '@/lib/api-auth';
 import DevicesListView from './DevicesListView';
 
 type Device = {
@@ -32,14 +33,23 @@ export default function DevicesList() {
   const router = useRouter();
   const supabase = createClient();
 
-  async function load() {
+  async function load(retried = false) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       router.push('/login');
       return;
     }
     setUserEmail(user.email ?? null);
-    const res = await fetch('/api/devices');
+    const authHeaders = await getAuthHeaders(supabase);
+    let res = await fetch('/api/devices', { credentials: 'include', headers: authHeaders });
+    // If 401, try refreshing the session once (handles expired access token, refresh token still valid)
+    if (res.status === 401 && !retried) {
+      const { error: refreshErr } = await supabase.auth.refreshSession();
+      if (!refreshErr) {
+        const newHeaders = await getAuthHeaders(supabase);
+        res = await fetch('/api/devices', { credentials: 'include', headers: newHeaders });
+      }
+    }
     if (!res.ok) {
       setError(res.status === 401 ? 'Session expired' : 'Failed to load devices');
       setLoading(false);
@@ -47,6 +57,7 @@ export default function DevicesList() {
     }
     const data = await res.json();
     setDevices(Array.isArray(data) ? data : []);
+    setError(null);
     setLoading(false);
   }
 
@@ -74,9 +85,29 @@ export default function DevicesList() {
       setError(err.message);
       return;
     }
+    const addedId = newId.trim();
+    const addedName = newName.trim() || null;
     setNewId('');
     setNewName('');
-    load();
+    // Show new device immediately (list + map when it has location)
+    const newDevice: Device = {
+      id: addedId,
+      name: addedName,
+      created_at: new Date().toISOString(),
+      last_seen_at: null,
+      latest_lat: null,
+      latest_lng: null,
+    };
+    setDevices((prev) => [newDevice, ...prev]);
+    setError(null);
+    // Refresh full list from API; if 401, keep optimistic device and show soft message
+    const authHeaders = await getAuthHeaders(supabase);
+    const res = await fetch('/api/devices', { credentials: 'include', headers: authHeaders });
+    if (res.ok) {
+      const data = await res.json();
+      setDevices(Array.isArray(data) ? data : []);
+    }
+    // If 401, list already has the new device; don't overwrite with "Session expired" blocking UI
   }
 
   async function handleSignOut() {
@@ -104,6 +135,11 @@ export default function DevicesList() {
       onNewNameChange={setNewName}
       onAdd={handleAdd}
       onSignOut={handleSignOut}
+      onRetry={() => {
+        setError(null);
+        setLoading(true);
+        load();
+      }}
     />
   );
 }

@@ -28,6 +28,7 @@ type Props = {
   onNewNameChange: (v: string) => void;
   onAdd: (e: React.FormEvent) => void;
   onSignOut: () => void;
+  onRetry?: () => void;
 };
 
 export default function DevicesListView(props: Props) {
@@ -46,6 +47,7 @@ export default function DevicesListView(props: Props) {
     onNewNameChange,
     onAdd,
     onSignOut,
+    onRetry,
   } = props;
 
   const mapMarkers = devices
@@ -128,7 +130,28 @@ export default function DevicesListView(props: Props) {
                   {adding ? 'Adding…' : 'Add'}
                 </button>
               </form>
-              {error ? <p style={{ color: 'var(--error)', fontSize: 14, marginTop: 12 }}>{error}</p> : null}
+              {error ? (
+                <p style={{ color: 'var(--error)', fontSize: 14, marginTop: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <span>{error}</span>
+                  {onRetry ? (
+                    <button
+                      type="button"
+                      onClick={() => onRetry?.()}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: 13,
+                        background: 'var(--accent-muted)',
+                        color: 'var(--accent)',
+                        border: '1px solid var(--accent)',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Try again
+                    </button>
+                  ) : null}
+                </p>
+              ) : null}
             </section>
 
             <section className="dashboard-section">

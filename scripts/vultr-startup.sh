@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RooGPS Ingest – Vultr Startup Script
+# RooGPS Ingest - Vultr Startup Script
 # Paste into Vultr: Server > Settings > Startup Script. Set the variables below.
 # Get code either by CODE_ZIP_URL (no GitHub) or GIT_REPO_URL (clone).
 
@@ -8,17 +8,30 @@ set -e
 # === EDIT WHEN PASTING INTO VULTR (do not commit real keys to git) ===
 SUPABASE_URL="${SUPABASE_URL:-https://emkgmhhdjjsdngzrpwop.supabase.co}"
 SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-YOUR_SERVICE_ROLE_KEY}"
-# Option A – No GitHub: upload a zip of the repo to Supabase Storage (or any URL), set this to the public/signed URL.
+# Option A - No GitHub: upload a zip of the repo to Supabase Storage (or any URL), set this to the public/signed URL.
 # Zip from repo root so unzip gives one folder (e.g. RooGPSWEB/) with package.json, ingest/, web/ inside.
 CODE_ZIP_URL="${CODE_ZIP_URL:-}"
-# Option B – Clone from Git: set this if you don't use CODE_ZIP_URL.
-GIT_REPO_URL="${GIT_REPO_URL:-}"
+# Option B - Clone from Git. For private repo use GITHUB_PAT_B64 (base64 of your token).
+# Create token: GitHub -> Settings -> Developer settings -> Personal access tokens (repo scope).
+# Encode it locally: echo -n "github_pat_xxx" | base64 -w0  then paste below (avoids Vultr stripping raw tokens).
+GITHUB_PAT_B64="${GITHUB_PAT_B64:-}"
+GIT_REPO_OWNER="${GIT_REPO_OWNER:-Hecticcc}"
+GIT_REPO_NAME="${GIT_REPO_NAME:-RooGPSWEB}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
 # =======================================================
 
-if [[ -z "$CODE_ZIP_URL" && -z "$GIT_REPO_URL" ]]; then
-  echo "Error: Set either CODE_ZIP_URL or GIT_REPO_URL so the script can get the code."
-  exit 1
+if [[ -z "$CODE_ZIP_URL" ]]; then
+  if [[ -n "$GITHUB_PAT_B64" ]]; then
+    GITHUB_PAT=$(echo "$GITHUB_PAT_B64" | base64 -d 2>/dev/null || true)
+    if [[ -z "$GITHUB_PAT" ]]; then
+      echo "Error: GITHUB_PAT_B64 is set but failed to decode. Use: echo -n YOUR_TOKEN | base64 -w0"
+      exit 1
+    fi
+    GIT_REPO_URL="https://${GITHUB_PAT}@github.com/${GIT_REPO_OWNER}/${GIT_REPO_NAME}.git"
+  else
+    echo "Error: For private repo set GITHUB_PAT_B64 (base64 of token). Or set CODE_ZIP_URL."
+    exit 1
+  fi
 fi
 
 REPO_DIR="/opt/roogps"
@@ -32,7 +45,7 @@ fi
 
 export SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY
 
-echo "=== RooGPS Ingest – Vultr first-boot setup ==="
+echo "=== RooGPS Ingest - Vultr first-boot setup ==="
 
 echo "[1/7] Apt update and install curl (and git only if using clone)..."
 apt-get update -qq
@@ -121,8 +134,6 @@ EnvironmentFile=$INGEST_DIR/.env
 ExecStart=$NODE_PATH dist/index.js
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target
@@ -135,5 +146,5 @@ systemctl start roogps-ingest
 echo ""
 echo "=== RooGPS Ingest ready ==="
 echo "Ingest:  0.0.0.0:$INGEST_PORT (TCP)"
-echo "Health:  http://$(curl -s ifconfig.me 2>/dev/null || echo 'SERVER_IP'):$HEALTH_PORT/health"
+echo "Health:  http://$(curl -s ifconfig.me 2>/dev/null || echo 'SERVER_IP'):$HEALTH_PORT"
 echo "Check:   systemctl status roogps-ingest"

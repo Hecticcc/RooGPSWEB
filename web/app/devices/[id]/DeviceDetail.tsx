@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
+import { getAuthHeaders } from '@/lib/api-auth';
 import dynamic from 'next/dynamic';
 import AppHeader from '@/components/AppHeader';
 
@@ -48,7 +49,8 @@ export default function DeviceDetail() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function fetchLatest() {
-    const res = await fetch(`/api/devices/${id}/latest`);
+    const headers = await getAuthHeaders(supabase);
+    const res = await fetch(`/api/devices/${id}/latest`, { credentials: 'include', headers });
     if (res.status === 401) {
       router.push('/login');
       return;
@@ -62,7 +64,8 @@ export default function DeviceDetail() {
     setHistoryLoading(true);
     const fromDate = new Date(from).toISOString();
     const toDate = new Date(to).toISOString();
-    const res = await fetch(`/api/devices/${id}/history?from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}&limit=2000`);
+    const headers = await getAuthHeaders(supabase);
+    const res = await fetch(`/api/devices/${id}/history?from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}&limit=2000`, { credentials: 'include', headers });
     setHistoryLoading(false);
     if (res.status === 401) {
       router.push('/login');

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 
-export async function GET() {
-  const supabase = await createServerSupabaseClient();
+export async function GET(request: Request) {
+  const supabase = await createServerSupabaseClient(request);
   if (!supabase) {
     return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
   }

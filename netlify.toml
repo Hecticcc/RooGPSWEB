@@ -1,0 +1,7 @@
+# Netlify: monorepo – install & build from root so Next.js server bundle finds next (fixes "Cannot find module next/dist/server/lib/start-server.js")
+[build]
+  command = "npm run build:web"
+  publish = "web/.next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

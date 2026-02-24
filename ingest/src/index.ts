@@ -145,7 +145,7 @@ function handleLine(line: string) {
     if (REQUIRE_DEVICE_PREEXIST && !exists) {
       rejectedUnknownDevice++;
       appendDeadletter(parsed.device_id, parsed.raw_payload);
-      log('info', 'rejected unknown device', { device_id: parsed.device_id });
+      log('info', 'rejected unknown device', { device_id: parsed.device_id, raw: parsed.raw_payload });
       return;
     }
     if (!exists) return;

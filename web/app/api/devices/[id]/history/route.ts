@@ -10,7 +10,7 @@ export async function GET(
   const from = searchParams.get('from') ?? '';
   const to = searchParams.get('to') ?? '';
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '2000', 10) || 2000, 2000);
-  const supabase = await createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient(request);
   if (!supabase) {
     return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
   }

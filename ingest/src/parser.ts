@@ -63,7 +63,14 @@ export function parsePT60Line(line: string): ParsedLocation | null {
   let speed_kph: number | null = null;
   let course_deg: number | null = null;
   let event_code: string | null = null;
-  if (tokens.length > 0) device_id = tokens[0];
+  if (tokens.length > 0) {
+    device_id = tokens[0];
+    // Some devices send prefix as first field (e.g. ":120") and IMEI as second (e.g. "867747070319866")
+    const looksLikeImei = (s: string) => /^\d{10,20}$/.test(s) && !s.includes(':');
+    if (!looksLikeImei(device_id) && tokens.length > 1 && looksLikeImei(tokens[1])) {
+      device_id = tokens[1];
+    }
+  }
   const validIdx = tokens.findIndex((t) => t === 'A' || t === 'V');
   if (validIdx >= 0) gps_valid = tokens[validIdx] === 'A';
   if (tokens.length > 1 && /^\d{12}$/.test(tokens[1])) gps_time = parseTime(tokens[1]);

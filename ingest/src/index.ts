@@ -3,7 +3,7 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
-import { parsePT60Line } from './parser';
+import { parseIStartekLine, parsePT60Line } from './parser';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -135,14 +135,45 @@ async function insertLocation(parsed: ReturnType<typeof parsePT60Line>): Promise
   return false;
 }
 
+function logParsedMessage(
+  isStartek: ReturnType<typeof parseIStartekLine>,
+  inserted: boolean,
+  reasonIfNot: string | null
+) {
+  try {
+    log('info', 'parsed', {
+      deviceId: isStartek.deviceId,
+      gpsTimeUtc: isStartek.gpsTimeUtc,
+      gpsTimeLocal: isStartek.gpsTimeLocal,
+      lat: isStartek.latitude,
+      lon: isStartek.longitude,
+      speedKph: isStartek.speedKph,
+      batteryVoltageV: isStartek.batteryVoltageV,
+      batteryPercent: isStartek.batteryPercent,
+      inserted,
+      reasonIfNot,
+    });
+  } catch {
+    // never crash on malformed log
+  }
+}
+
 function handleLine(line: string) {
   if (shuttingDown) return;
-  const parsed = parsePT60Line(line);
+  const isStartek = parseIStartekLine(line);
   parsedLines++;
-  if (!parsed) return;
-  if (!parsed.device_id) return;
+  const parsed = parsePT60Line(line);
+  if (!parsed) {
+    logParsedMessage(isStartek, false, 'parse_failed');
+    return;
+  }
+  if (!parsed.device_id) {
+    logParsedMessage(isStartek, false, 'no_device_id');
+    return;
+  }
   if (!supabase) {
     log('warn', 'Supabase not configured');
+    logParsedMessage(isStartek, false, 'no_supabase');
     return;
   }
   ensureDevice(parsed.device_id).then((exists) => {
@@ -151,10 +182,13 @@ function handleLine(line: string) {
       rejectedUnknownDevice++;
       appendDeadletter(parsed.device_id, parsed.raw_payload);
       log('info', 'rejected unknown device', { device_id: parsed.device_id, raw: parsed.raw_payload });
+      logParsedMessage(isStartek, false, 'unknown_device');
       return;
     }
     if (!exists) return;
-    insertLocation(parsed);
+    insertLocation(parsed).then((inserted) => {
+      logParsedMessage(isStartek, inserted, inserted ? null : 'insert_failed');
+    });
   });
 }
 

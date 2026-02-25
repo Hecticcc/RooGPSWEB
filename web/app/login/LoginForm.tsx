@@ -1,109 +1,129 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import Logo from '@/components/Logo';
 
+const REMEMBER_ME_KEY = 'roogps_remember_me';
+const REMEMBER_ME_COOKIE = 'roogps_remember_me';
+
+function setRememberMeCookie(remember: boolean) {
+  if (typeof document === 'undefined') return;
+  const value = remember ? '1' : '0';
+  document.cookie = `${REMEMBER_ME_COOKIE}=${value}; path=/; max-age=120`;
+}
+
+function getStoredRememberMe(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const v = localStorage.getItem(REMEMBER_ME_KEY);
+    return v !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+function setStoredRememberMe(value: boolean) {
+  try {
+    localStorage.setItem(REMEMBER_ME_KEY, String(value));
+  } catch {}
+}
+
 export default function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const supabase = createClient();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (mounted) setRememberMe(getStoredRememberMe());
+  }, [mounted]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
+    setStoredRememberMe(rememberMe);
+    setRememberMeCookie(rememberMe);
     const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
     if (err) {
+      setLoading(false);
       setError(err.message);
       return;
     }
-    router.push('/devices');
-    router.refresh();
+    await new Promise((r) => setTimeout(r, 0));
+    window.location.href = '/track';
   }
 
   return (
     <main className="auth-page">
       <div className="auth-card">
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
-          <Logo size={72} wide />
+        <div className="auth-card-inner">
+          <div className="auth-card-logo">
+            <Logo size={36} wide />
+          </div>
+          <div className="auth-card-title-wrap">
+            <h1 className="auth-card-title">Sign in</h1>
+          </div>
+          <p className="auth-tagline">
+            Sign in to view your trackers and live locations on the map.
+          </p>
+          <form onSubmit={handleSubmit} className="auth-form">
+            <div className="auth-field">
+              <label className="auth-label" htmlFor="login-email">Email</label>
+              <input
+                id="login-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                className="auth-input"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div className="auth-field">
+              <label className="auth-label" htmlFor="login-password">Password</label>
+              <input
+                id="login-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                className="auth-input"
+                placeholder="••••••••"
+              />
+            </div>
+            <div className="auth-field auth-field-remember">
+              <label className="auth-remember-label">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="auth-remember-checkbox"
+                />
+                <span>Remember me</span>
+              </label>
+            </div>
+            {error && <p className="auth-error">{error}</p>}
+            <button type="submit" disabled={loading} className="auth-submit">
+              {loading ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+          <p className="auth-card-footer">
+            No account?{' '}
+            <Link href="/register">Register</Link>
+          </p>
         </div>
-        <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 24, textAlign: 'center', color: 'var(--text)' }}>
-          Sign in
-        </h1>
-        <form onSubmit={handleSubmit}>
-          <label style={{ display: 'block', marginBottom: 8, fontSize: 14, color: 'var(--muted)' }}>
-            Email
-          </label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            style={{
-              width: '100%',
-              padding: '12px 14px',
-              marginBottom: 16,
-              background: 'var(--bg)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--text)',
-              fontSize: 16,
-            }}
-          />
-          <label style={{ display: 'block', marginBottom: 8, fontSize: 14, color: 'var(--muted)' }}>
-            Password
-          </label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-            style={{
-              width: '100%',
-              padding: '12px 14px',
-              marginBottom: 24,
-              background: 'var(--bg)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--text)',
-              fontSize: 16,
-            }}
-          />
-          {error && (
-            <p style={{ color: 'var(--error)', fontSize: 14, marginBottom: 16 }}>{error}</p>
-          )}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: '100%',
-              padding: 14,
-              background: 'var(--accent)',
-              border: 'none',
-              borderRadius: 'var(--radius-sm)',
-              color: 'white',
-              fontSize: 16,
-              fontWeight: 500,
-            }}
-          >
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
-        <p style={{ textAlign: 'center', marginTop: 20, fontSize: 14, color: 'var(--muted)' }}>
-          No account?{' '}
-          <Link href="/register" style={{ color: 'var(--accent)', fontWeight: 500 }}>
-            Register
-          </Link>
-        </p>
       </div>
     </main>
   );

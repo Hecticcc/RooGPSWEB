@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { MapPin } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import Logo from '@/components/Logo';
 
@@ -18,91 +19,74 @@ export default function RegisterForm() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const { error: err } = await supabase.auth.signUp({ email, password });
+    const { data, error: err } = await supabase.auth.signUp({ email, password });
     setLoading(false);
     if (err) {
       setError(err.message);
       return;
     }
-    router.push('/devices');
+    if (data?.user) {
+      await supabase.from('user_roles').upsert(
+        { user_id: data.user.id, role: 'customer' },
+        { onConflict: 'user_id' }
+      );
+    }
+    router.push('/track');
     router.refresh();
   }
 
   return (
     <main className="auth-page">
       <div className="auth-card">
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
-          <Logo size={72} wide />
+        <div className="auth-card-inner">
+          <div className="auth-card-logo">
+            <Logo size={72} wide />
+          </div>
+          <div className="auth-card-title-wrap">
+            <MapPin className="auth-card-title-icon" size={26} strokeWidth={2} />
+            <h1 className="auth-card-title">Create account</h1>
+          </div>
+          <p className="auth-tagline">
+            Get started and add your first tracker to see it on the map.
+          </p>
+          <form onSubmit={handleSubmit} className="auth-form">
+            <div className="auth-field">
+              <label className="auth-label" htmlFor="reg-email">Email</label>
+              <input
+                id="reg-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                className="auth-input"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div className="auth-field">
+              <label className="auth-label" htmlFor="reg-password">Password (min 6 characters)</label>
+              <input
+                id="reg-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+                minLength={6}
+                className="auth-input"
+                placeholder="••••••••"
+              />
+            </div>
+            {error && <p className="auth-error">{error}</p>}
+            <button type="submit" disabled={loading} className="auth-submit">
+              {loading ? 'Creating account…' : 'Register'}
+            </button>
+          </form>
+          <p className="auth-card-footer">
+            Already have an account?{' '}
+            <Link href="/login">Sign in</Link>
+          </p>
         </div>
-        <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 24, textAlign: 'center', color: 'var(--text)' }}>
-          Create account
-        </h1>
-        <form onSubmit={handleSubmit}>
-          <label style={{ display: 'block', marginBottom: 8, fontSize: 14, color: 'var(--muted)' }}>
-            Email
-          </label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            style={{
-              width: '100%',
-              padding: '12px 14px',
-              marginBottom: 16,
-              background: 'var(--bg)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--text)',
-              fontSize: 16,
-            }}
-          />
-          <label style={{ display: 'block', marginBottom: 8, fontSize: 14, color: 'var(--muted)' }}>
-            Password
-          </label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-            minLength={6}
-            style={{
-              width: '100%',
-              padding: '12px 14px',
-              marginBottom: 24,
-              background: 'var(--bg)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--text)',
-              fontSize: 16,
-            }}
-          />
-          {error ? <p style={{ color: 'var(--error)', fontSize: 14, marginBottom: 16 }}>{error}</p> : null}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: '100%',
-              padding: 14,
-              background: 'var(--accent)',
-              border: 'none',
-              borderRadius: 'var(--radius-sm)',
-              color: 'white',
-              fontSize: 16,
-              fontWeight: 500,
-            }}
-          >
-            {loading ? 'Creating account…' : 'Register'}
-          </button>
-        </form>
-        <p style={{ textAlign: 'center', marginTop: 20, fontSize: 14, color: 'var(--muted)' }}>
-          Already have an account?{' '}
-          <Link href="/login" style={{ color: 'var(--accent)', fontWeight: 500 }}>
-            Sign in
-          </Link>
-        </p>
       </div>
     </main>
   );

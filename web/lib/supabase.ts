@@ -9,6 +9,10 @@ if (typeof window !== 'undefined' && (!url || !key)) {
   );
 }
 
+/**
+ * Browser Supabase client. Uses default @supabase/ssr cookie handling so the
+ * server (middleware + layout) sees the same session after sign-in.
+ */
 export function createClient() {
   return createBrowserClient(url ?? '', key ?? '');
 }

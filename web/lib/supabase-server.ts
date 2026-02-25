@@ -1,6 +1,7 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { getSupabaseProjectRef, filterCookiesForProject } from './supabase-cookies';
 
 /**
  * Create Supabase client for API routes. Prefers Authorization: Bearer <token> from the request
@@ -21,13 +22,16 @@ export async function createServerSupabaseClient(request?: Request | null) {
   }
 
   const cookieStore = await cookies();
+  const projectRef = getSupabaseProjectRef();
   return createServerClient(
     url,
     key,
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll();
+          const all = cookieStore.getAll();
+          const filtered = filterCookiesForProject(all, projectRef);
+          return filtered.length ? filtered : all;
         },
         setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
           try {

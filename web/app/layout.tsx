@@ -1,12 +1,15 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
   title: 'RooGPS',
   description: 'GPS device tracking',
-  icons: {
-    icon: '/logo.png',
-  },
+  icons: { icon: '/favicon.png' },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
 };
 
 export default function RootLayout({
@@ -16,9 +19,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="preload" href="/logo.png" as="image" />
-      </head>
+      <head />
       <body>{children}</body>
     </html>
   );

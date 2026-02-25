@@ -20,7 +20,7 @@ export async function GET(
   }
   const { data, error } = await supabase
     .from('locations')
-    .select('latitude, longitude, gps_time, received_at, gps_valid, speed_kph, course_deg, event_code')
+    .select('latitude, longitude, gps_time, received_at, gps_valid, speed_kph, course_deg, event_code, extra')
     .eq('device_id', id)
     .order('received_at', { ascending: false })
     .limit(1)
@@ -31,5 +31,11 @@ export async function GET(
   if (!data) {
     return NextResponse.json(null);
   }
-  return NextResponse.json(data);
+  const extra = (data.extra as { battery?: { percent?: number; voltage_v?: number } } | null) ?? null;
+  const { extra: _e, ...rest } = data;
+  return NextResponse.json({
+    ...rest,
+    battery_percent: extra?.battery?.percent ?? null,
+    battery_voltage_v: extra?.battery?.voltage_v ?? null,
+  });
 }

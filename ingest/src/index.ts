@@ -158,7 +158,22 @@ function logParsedMessage(
   }
 }
 
-function handleLine(line: string) {
+const clientSockets = new Set<net.Socket>();
+/** Last device_id seen on each socket (so we can attribute connection errors to a device) */
+const socketToDeviceId = new Map<net.Socket, string>();
+
+function recordConnectionError(deviceId: string, errorMessage: string) {
+  if (!supabase) return;
+  supabase
+    .from('device_connection_errors')
+    .insert({ device_id: deviceId, error_message: errorMessage })
+    .then(({ error }) => {
+      if (error) log('warn', 'device_connection_errors insert failed', { err: error.message });
+      else log('info', 'recorded connection error for device', { device_id: deviceId, error: errorMessage });
+    });
+}
+
+function handleLine(line: string, socket?: net.Socket) {
   if (shuttingDown) return;
   const isStartek = parseIStartekLine(line);
   parsedLines++;
@@ -171,6 +186,7 @@ function handleLine(line: string) {
     logParsedMessage(isStartek, false, 'no_device_id');
     return;
   }
+  if (socket) socketToDeviceId.set(socket, parsed.device_id);
   if (!supabase) {
     log('warn', 'Supabase not configured');
     logParsedMessage(isStartek, false, 'no_supabase');
@@ -192,8 +208,6 @@ function handleLine(line: string) {
   });
 }
 
-const clientSockets = new Set<net.Socket>();
-
 const server = net.createServer((socket) => {
   if (shuttingDown) {
     socket.destroy();
@@ -206,6 +220,7 @@ const server = net.createServer((socket) => {
   socket.setEncoding('utf8');
   const removeSocket = () => {
     clientSockets.delete(socket);
+    socketToDeviceId.delete(socket);
   };
   socket.once('close', removeSocket);
   socket.once('error', removeSocket);
@@ -223,17 +238,19 @@ const server = net.createServer((socket) => {
     const parts = buffer.split('\r\n');
     buffer = parts.pop() ?? '';
     parts.forEach((p) => {
-      if (p.trim()) handleLine(p);
+      if (p.trim()) handleLine(p, socket);
     });
   });
   socket.on('end', () => {
-    if (buffer.trim()) handleLine(buffer);
+    if (buffer.trim()) handleLine(buffer, socket);
     connections--;
   });
   socket.on('error', (err: Error) => {
     connections--;
     errors++;
     lastError = `socket error: ${err.message}`;
+    const deviceId = socketToDeviceId.get(socket);
+    if (deviceId) recordConnectionError(deviceId, err.message);
   });
 });
 

@@ -13,11 +13,31 @@ export default function Logo({ size = 120, wide = false, inline = false }: Props
       height={h}
       fetchPriority="high"
       decoding="async"
-      style={{ objectFit: 'contain', display: 'block' }}
+      style={{
+        display: 'block',
+        objectFit: 'contain',
+        width: 'auto',
+        height: '100%',
+        maxHeight: h,
+        minHeight: 0,
+      }}
     />
   );
   if (inline) {
-    return <span style={{ display: 'flex', alignItems: 'center', width: w, height: h }}>{img}</span>;
+    return (
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          width: w,
+          height: h,
+          flexShrink: 0,
+          overflow: 'visible',
+        }}
+      >
+        {img}
+      </span>
+    );
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>

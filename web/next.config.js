@@ -6,7 +6,7 @@ const nextConfig = {
   // Ensure server bundle can resolve next when built from monorepo subdir (fixes Netlify "Cannot find module next/dist/server/lib/start-server.js")
   outputFileTracingRoot: path.join(__dirname, '..'),
   async redirects() {
-    return [{ source: '/favicon.ico', destination: '/logo.png', permanent: false }];
+    return [{ source: '/favicon.ico', destination: '/favicon.png', permanent: false }];
   },
 };
 

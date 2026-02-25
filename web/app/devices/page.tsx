@@ -1,7 +1,7 @@
-import DevicesList from './DevicesList';
+import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
-export default function DevicesPage() {
-  return <DevicesList />;
+export default function DevicesRedirect() {
+  redirect('/track');
 }

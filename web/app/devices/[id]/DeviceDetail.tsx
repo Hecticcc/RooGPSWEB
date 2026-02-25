@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import { getAuthHeaders } from '@/lib/api-auth';
 import dynamic from 'next/dynamic';
-import AppHeader from '@/components/AppHeader';
+import AppLoadingIcon from '@/components/AppLoadingIcon';
 
 const MapboxMap = dynamic(() => import('@/components/MapboxMap'), { ssr: false });
 
@@ -19,6 +19,8 @@ type Latest = {
   speed_kph: number | null;
   course_deg: number | null;
   event_code: string | null;
+  battery_percent?: number | null;
+  battery_voltage_v?: number | null;
 };
 
 type HistoryRow = Latest & { id: string };
@@ -43,8 +45,15 @@ export default function DeviceDetail() {
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
   const router = useRouter();
+
+  const HISTORY_PAGE_SIZE = 10;
+  const historyPageCount = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE));
+  const historySlice = history.slice(
+    (historyPage - 1) * HISTORY_PAGE_SIZE,
+    historyPage * HISTORY_PAGE_SIZE
+  );
   const supabase = createClient();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -74,6 +83,7 @@ export default function DeviceDetail() {
     if (!res.ok) return;
     const data = await res.json();
     setHistory(data);
+    setHistoryPage(1);
   }
 
   useEffect(() => {
@@ -83,14 +93,13 @@ export default function DeviceDetail() {
         router.push('/login');
         return;
       }
-      setUserEmail(user.email ?? null);
       const { data: dev, error: devErr } = await supabase
         .from('devices')
         .select('id, name, last_seen_at')
         .eq('id', id)
         .single();
       if (devErr || !dev) {
-        router.push('/devices');
+        router.push('/track');
         return;
       }
       setDevice(dev);
@@ -111,18 +120,11 @@ export default function DeviceDetail() {
     };
   }, [id]);
 
-  async function handleSignOut() {
-    await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
-  }
-
   if (loading || !device) {
     return (
       <main className="dashboard-page">
-        <AppHeader userEmail={userEmail} onSignOut={handleSignOut} />
-        <div className="device-detail-content">
-          <p style={{ color: 'var(--muted)' }}>Loading…</p>
+        <div className="device-detail-content dashboard-content-loading">
+          <AppLoadingIcon />
         </div>
       </main>
     );
@@ -132,10 +134,9 @@ export default function DeviceDetail() {
 
   return (
     <main className="dashboard-page">
-      <AppHeader userEmail={userEmail} onSignOut={handleSignOut} />
       <div className="device-detail-content">
         <header style={{ marginBottom: 24 }}>
-          <Link href="/devices" style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 8, display: 'inline-block' }}>
+          <Link href="/track" style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 8, display: 'inline-block' }}>
             ← Dashboard
           </Link>
           <h1 style={{ fontSize: 22, fontWeight: 600 }}>{device.name || device.id}</h1>
@@ -167,6 +168,27 @@ export default function DeviceDetail() {
             <div>
               <span style={{ color: 'var(--muted)' }}>Event</span>
               <div>{latest.event_code || '—'}</div>
+            </div>
+            <div>
+              <span style={{ color: 'var(--muted)' }}>Battery</span>
+              <div>
+                {latest.battery_percent != null || latest.battery_voltage_v != null ? (
+                  <>
+                    {latest.battery_percent != null && (
+                      <span style={{ color: latest.battery_percent <= 20 ? 'var(--error)' : latest.battery_percent <= 50 ? 'var(--muted)' : 'var(--text)' }}>
+                        {latest.battery_percent}%
+                      </span>
+                    )}
+                    {latest.battery_voltage_v != null && (
+                      <span style={{ marginLeft: latest.battery_percent != null ? 8 : 0, color: 'var(--muted)' }}>
+                        ({latest.battery_voltage_v} V)
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  '—'
+                )}
+              </div>
             </div>
           </div>
         ) : (
@@ -248,7 +270,7 @@ export default function DeviceDetail() {
               </tr>
             </thead>
             <tbody>
-              {history.slice(0, 100).map((row) => (
+              {historySlice.map((row) => (
                 <tr key={row.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '8px 12px' }}>
                     {row.gps_time ? new Date(row.gps_time).toLocaleString() : '—'}
@@ -261,10 +283,48 @@ export default function DeviceDetail() {
             </tbody>
           </table>
         </div>
-        {history.length > 100 && (
-          <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
-            Showing first 100 of {history.length} rows
-          </p>
+        {history.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
+            <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Page {historyPage} of {historyPageCount} · {history.length} total
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                disabled={historyPage <= 1}
+                style={{
+                  padding: '6px 12px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text)',
+                  fontSize: 13,
+                  cursor: historyPage <= 1 ? 'not-allowed' : 'pointer',
+                  opacity: historyPage <= 1 ? 0.6 : 1,
+                }}
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => setHistoryPage((p) => Math.min(historyPageCount, p + 1))}
+                disabled={historyPage >= historyPageCount}
+                style={{
+                  padding: '6px 12px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text)',
+                  fontSize: 13,
+                  cursor: historyPage >= historyPageCount ? 'not-allowed' : 'pointer',
+                  opacity: historyPage >= historyPageCount ? 0.6 : 1,
+                }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
         )}
         {history.length === 0 && !historyLoading && (
           <p style={{ color: 'var(--muted)' }}>No history in this range.</p>

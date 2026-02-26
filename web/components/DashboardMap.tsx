@@ -26,6 +26,7 @@ export type MapMarker = {
   color: string;
   icon?: string | null;
   batteryPercent?: number | null;
+  batteryVoltageV?: number | null;
   lastSeen?: string | null;
   offline?: boolean;
 };
@@ -111,7 +112,9 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
           }
           const name = m.name || m.id;
           const battery =
-            m.batteryPercent != null ? `${m.batteryPercent}%` : '—';
+            m.batteryPercent != null
+              ? `${escapeHtml(String(m.batteryPercent))}%${m.batteryVoltageV != null ? ` <span style="font-size:0.9em;opacity:0.85">(${escapeHtml(String(m.batteryVoltageV))} V)</span>` : ''}`
+              : '—';
           const lastCheck = m.lastSeen
             ? new Date(m.lastSeen).toLocaleString()
             : 'Never';

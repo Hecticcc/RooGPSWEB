@@ -25,6 +25,12 @@ type Latest = {
 
 type HistoryRow = Latest & { id: string };
 
+function formatHistoryTime(receivedAt: string): string {
+  const d = new Date(receivedAt);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium', hour12: false });
+}
+
 type Device = {
   id: string;
   name: string | null;
@@ -273,7 +279,7 @@ export default function DeviceDetail() {
               {historySlice.map((row) => (
                 <tr key={row.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '8px 12px' }}>
-                    {row.gps_time ? new Date(row.gps_time).toLocaleString() : '—'}
+                    {formatHistoryTime(row.received_at)}
                   </td>
                   <td style={{ padding: '8px 12px' }}>{row.gps_valid == null ? '—' : row.gps_valid ? 'Yes' : 'No'}</td>
                   <td style={{ padding: '8px 12px' }}>{row.speed_kph != null ? row.speed_kph : '—'}</td>

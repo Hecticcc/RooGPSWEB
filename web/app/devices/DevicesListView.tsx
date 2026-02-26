@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { Car, Battery, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Shield, ShieldOff, Palette } from 'lucide-react';
 import DashboardMap from '@/components/DashboardMap';
@@ -15,6 +15,10 @@ const TRACKER_ICONS = [
   { id: 'trailer', label: 'Trailer' },
   { id: 'truck', label: 'Truck' },
   { id: 'misc', label: 'Misc' },
+] as const;
+
+const COLOUR_PRESETS = [
+  '#f97316', '#ef4444', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#eab308',
 ] as const;
 
 type Device = {
@@ -97,19 +101,24 @@ export default function DevicesListView(props: Props) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [settingsOpenId]);
 
-  const mapMarkers = devices
-    .filter((d) => d.latest_lat != null && d.latest_lng != null)
-    .map((d) => ({
-      id: d.id,
-      name: d.name,
-      lat: d.latest_lat!,
-      lng: d.latest_lng!,
-      color: d.marker_color ?? '#f97316',
-      icon: d.marker_icon ?? 'car',
-      batteryPercent: d.latest_battery_percent ?? null,
-      lastSeen: d.last_seen_at ?? null,
-      offline: !isOnline(d.last_seen_at),
-    }));
+  const mapMarkers = useMemo(
+    () =>
+      devices
+        .filter((d) => d.latest_lat != null && d.latest_lng != null)
+        .map((d) => ({
+          id: d.id,
+          name: d.name,
+          lat: d.latest_lat!,
+          lng: d.latest_lng!,
+          color: d.marker_color ?? '#f97316',
+          icon: d.marker_icon ?? 'car',
+          batteryPercent: d.latest_battery_percent ?? null,
+          batteryVoltageV: d.latest_battery_voltage_v ?? null,
+          lastSeen: d.last_seen_at ?? null,
+          offline: !isOnline(d.last_seen_at),
+        })),
+    [devices, isOnline]
+  );
 
   return (
     <main className="dashboard-page">
@@ -268,8 +277,12 @@ export default function DevicesListView(props: Props) {
                             </span>
                           )}
                           <span
-                            className="tracker-card-detail-inline"
-                            title={d.latest_battery_voltage_v != null ? `${d.latest_battery_voltage_v} V` : undefined}
+                            className="tracker-card-detail-inline tracker-card-battery"
+                            title={
+                              d.latest_battery_percent != null
+                                ? (d.latest_battery_voltage_v != null ? `${d.latest_battery_voltage_v} V · ` : '') + `${d.latest_battery_percent}%`
+                                : 'Battery: no data in latest update'
+                            }
                             style={{
                               color: d.latest_battery_percent != null
                                 ? d.latest_battery_percent <= 20
@@ -280,7 +293,7 @@ export default function DevicesListView(props: Props) {
                                 : 'var(--muted)',
                             }}
                           >
-                            <Battery size={14} strokeWidth={2} className="tracker-card-detail-icon" />
+                            <Battery size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
                             {d.latest_battery_percent != null ? `${d.latest_battery_percent}%` : '—'}
                           </span>
                           <span className="tracker-card-detail-inline">
@@ -298,8 +311,8 @@ export default function DevicesListView(props: Props) {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setSettingsOpenId(d.id)}
-                        title="Icon & colour settings"
+                        onClick={() => { setSettingsOpenId(d.id); setSettingsTab('appearance'); }}
+                        title="Tracker settings"
                         className="tracker-card-settings-btn tracker-card-settings-btn--top-right"
                         aria-haspopup="dialog"
                       >
@@ -349,63 +362,143 @@ export default function DevicesListView(props: Props) {
                   <X size={20} strokeWidth={2} />
                 </button>
               </div>
+              <div className="tracker-settings-modal-tabs" role="tablist" aria-label="Settings sections">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={settingsTab === 'appearance'}
+                  aria-controls="tracker-settings-panel-appearance"
+                  id="tracker-settings-tab-appearance"
+                  className={`tracker-settings-modal-tab${settingsTab === 'appearance' ? ' tracker-settings-modal-tab--active' : ''}`}
+                  onClick={() => setSettingsTab('appearance')}
+                >
+                  <Palette size={16} strokeWidth={2} />
+                  <span>Appearance</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={settingsTab === 'watchdog'}
+                  aria-controls="tracker-settings-panel-watchdog"
+                  id="tracker-settings-tab-watchdog"
+                  className={`tracker-settings-modal-tab${settingsTab === 'watchdog' ? ' tracker-settings-modal-tab--active' : ''}`}
+                  onClick={() => setSettingsTab('watchdog')}
+                >
+                  <Shield size={16} strokeWidth={2} />
+                  <span>Watch Dog</span>
+                </button>
+              </div>
               <div className="tracker-settings-modal-body">
-                <div className="tracker-settings-modal-section">
-                  <h3 className="tracker-settings-modal-section-title">Icon</h3>
-                  <div className="tracker-card-icon-grid tracker-settings-modal-icon-grid">
-                    {TRACKER_ICONS.map((ico) => (
-                      <button
-                        key={ico.id}
-                        type="button"
-                        title={ico.label}
-                        onClick={() => onSettingsChange(device.id, { marker_icon: ico.id })}
-                        className={`tracker-card-icon-btn${currentIcon === ico.id ? ' tracker-card-icon-btn--active' : ''}`}
-                        style={{ color }}
-                      >
-                        <TrackerIconPreview iconType={ico.id} color={color} size={24} />
-                        <span className="tracker-card-icon-label">{ico.label}</span>
-                      </button>
-                    ))}
+                {settingsTab === 'appearance' && (
+                  <div id="tracker-settings-panel-appearance" role="tabpanel" aria-labelledby="tracker-settings-tab-appearance" className="tracker-settings-modal-panel">
+                    <div className="tracker-settings-modal-section">
+                      <h3 className="tracker-settings-modal-section-title">Icon</h3>
+                      <p className="tracker-settings-modal-hint">Choose how this tracker appears on the map.</p>
+                      <div className="tracker-settings-icon-row" role="group" aria-label="Map icon">
+                        {TRACKER_ICONS.map((ico) => (
+                          <button
+                            key={ico.id}
+                            type="button"
+                            title={ico.label}
+                            onClick={() => onSettingsChange(device.id, { marker_icon: ico.id })}
+                            className={`tracker-settings-icon-btn${currentIcon === ico.id ? ' tracker-settings-icon-btn--active' : ''}`}
+                            aria-pressed={currentIcon === ico.id}
+                            aria-label={ico.label}
+                          >
+                            <TrackerIconPreview iconType={ico.id} color={color} size={28} />
+                          </button>
+                        ))}
+                      </div>
+                      <p className="tracker-settings-modal-selected-label">{TRACKER_ICONS.find((i) => i.id === currentIcon)?.label ?? 'Icon'}</p>
+                    </div>
+                    <div className="tracker-settings-modal-section">
+                      <h3 className="tracker-settings-modal-section-title">Colour</h3>
+                      <p className="tracker-settings-modal-hint">Marker colour on the map.</p>
+                      <div className="tracker-settings-colour-row" role="group" aria-label="Marker colour">
+                        {COLOUR_PRESETS.map((hex) => (
+                          <button
+                            key={hex}
+                            type="button"
+                            title={hex}
+                            onClick={() => onColorChange(device.id, hex)}
+                            className={`tracker-settings-colour-chip${color.toLowerCase() === hex.toLowerCase() ? ' tracker-settings-colour-chip--active' : ''}`}
+                            style={{ backgroundColor: hex }}
+                            aria-pressed={color.toLowerCase() === hex.toLowerCase()}
+                            aria-label={`Colour ${hex}`}
+                          />
+                        ))}
+                        <label className="tracker-settings-colour-custom" title="Custom colour">
+                          <span className="tracker-settings-colour-custom-swatch" style={{ backgroundColor: color }} />
+                          <input
+                            type="color"
+                            value={color}
+                            onChange={(e) => onColorChange(device.id, e.target.value)}
+                            className="tracker-settings-colour-input"
+                            aria-label="Custom colour"
+                          />
+                        </label>
+                      </div>
+                      <div className="tracker-settings-modal-colour-footer">
+                        {colorSaveStatus?.deviceId === device.id && (
+                          <span className="tracker-settings-modal-save-status">
+                            {colorSaveStatus.status === 'saving' && (
+                              <>
+                                <Loader2 size={14} className="tracker-card-save-spinner" />
+                                <span>Saving…</span>
+                              </>
+                            )}
+                            {colorSaveStatus.status === 'saved' && (
+                              <>
+                                <Check size={14} style={{ color: 'var(--success)' }} />
+                                <span style={{ color: 'var(--success)' }}>Saved</span>
+                              </>
+                            )}
+                            {colorSaveStatus.status === 'error' && (
+                              <>
+                                <AlertCircle size={14} style={{ color: 'var(--error)' }} />
+                                <span style={{ color: 'var(--error)' }}>Couldn&apos;t save</span>
+                              </>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="tracker-settings-modal-section">
-                  <h3 className="tracker-settings-modal-section-title">Colour</h3>
-                  <div className="tracker-settings-modal-colour-wrap">
-                    <label className="tracker-settings-modal-colour-picker">
-                      <span className="tracker-settings-modal-colour-swatch" style={{ backgroundColor: color }} />
-                      <input
-                        type="color"
-                        value={color}
-                        onChange={(e) => onColorChange(device.id, e.target.value)}
-                        title="Choose marker colour"
-                        className="tracker-settings-modal-colour-input"
-                      />
-                    </label>
-                    <span className="tracker-settings-modal-colour-hex">{color}</span>
-                    {colorSaveStatus?.deviceId === device.id && (
-                      <span className="tracker-settings-modal-save-status">
-                        {colorSaveStatus.status === 'saving' && (
-                          <>
-                            <Loader2 size={14} className="tracker-card-save-spinner" />
-                            <span>Saving…</span>
-                          </>
-                        )}
-                        {colorSaveStatus.status === 'saved' && (
-                          <>
-                            <Check size={14} style={{ color: 'var(--success)' }} />
-                            <span style={{ color: 'var(--success)' }}>Saved</span>
-                          </>
-                        )}
-                        {colorSaveStatus.status === 'error' && (
-                          <>
-                            <AlertCircle size={14} style={{ color: 'var(--error)' }} />
-                            <span style={{ color: 'var(--error)' }}>Couldn&apos;t save</span>
-                          </>
-                        )}
-                      </span>
-                    )}
+                )}
+                {settingsTab === 'watchdog' && (
+                  <div id="tracker-settings-panel-watchdog" role="tabpanel" aria-labelledby="tracker-settings-tab-watchdog" className="tracker-settings-modal-panel">
+                    <div className="tracker-settings-modal-section">
+                      <h3 className="tracker-settings-modal-section-title">Watch Dog</h3>
+                      <p className="tracker-settings-modal-description">
+                        When armed, you&apos;ll get an alert if this tracker moves (speed &gt; 5 km/h or distance &gt; 50 m from where it was armed).
+                      </p>
+                      <div className="tracker-settings-modal-watchdog-wrap">
+                      <div className="tracker-settings-modal-watchdog-toggle" role="group" aria-label="Watch Dog arm state">
+                        <button
+                          type="button"
+                          onClick={() => onWatchdogToggle(device.id, true)}
+                          disabled={colorSaveStatus?.deviceId === device.id && colorSaveStatus?.status === 'saving'}
+                          className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--arm${device.watchdog_armed ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
+                          title="Arm: alert if tracker moves"
+                        >
+                          {colorSaveStatus?.deviceId === device.id && !device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} strokeWidth={2} />}
+                          <span>Arm</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onWatchdogToggle(device.id, false)}
+                          disabled={colorSaveStatus?.deviceId === device.id && colorSaveStatus?.status === 'saving'}
+                          className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--disarm${!device.watchdog_armed ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
+                          title="Disarm"
+                        >
+                          {colorSaveStatus?.deviceId === device.id && device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <ShieldOff size={18} strokeWidth={2} />}
+                          <span>Disarm</span>
+                        </button>
+                      </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>

@@ -82,16 +82,35 @@ function appendFallback(raw: string) {
   }
 }
 
+let systemSettingsCache: { ingest_accept: boolean; at: number } | null = null;
+const SYSTEM_SETTINGS_TTL_MS = 60 * 1000;
+
+async function getIngestAccept(): Promise<boolean> {
+  if (!supabase) return false;
+  const now = Date.now();
+  if (systemSettingsCache && now - systemSettingsCache.at < SYSTEM_SETTINGS_TTL_MS) {
+    return systemSettingsCache.ingest_accept;
+  }
+  const { data, error } = await supabase.from('system_settings').select('ingest_accept').eq('id', 'default').maybeSingle();
+  if (error || !data) {
+    systemSettingsCache = { ingest_accept: true, at: now };
+    return true;
+  }
+  systemSettingsCache = { ingest_accept: !!data.ingest_accept, at: now };
+  return systemSettingsCache.ingest_accept;
+}
+
 async function ensureDevice(deviceId: string): Promise<boolean> {
   if (!supabase) return false;
-  const { data, error } = await supabase.from('devices').select('id').eq('id', deviceId).maybeSingle();
+  const { data, error } = await supabase.from('devices').select('id, ingest_disabled').eq('id', deviceId).maybeSingle();
   if (error) {
     errors++;
     lastError = `devices check: ${error.message}`;
     log('error', 'devices check failed', { err: error.message });
     return false;
   }
-  return !!data;
+  if (!data || data.ingest_disabled) return false;
+  return true;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -100,6 +119,11 @@ function sleep(ms: number): Promise<void> {
 
 async function insertLocation(parsed: ReturnType<typeof parsePT60Line>): Promise<boolean> {
   if (!supabase || !parsed) return false;
+  const accept = await getIngestAccept();
+  if (!accept) {
+    log('info', 'ingest accept disabled, skipping insert');
+    return false;
+  }
   const row = {
     device_id: parsed.device_id,
     gps_time: parsed.gps_time,
@@ -141,6 +165,7 @@ function logParsedMessage(
   reasonIfNot: string | null
 ) {
   try {
+    const power = (isStartek.extra?.power as { bat_hex?: string } | undefined) ?? undefined;
     log('info', 'parsed', {
       deviceId: isStartek.deviceId,
       gpsTimeUtc: isStartek.gpsTimeUtc,
@@ -150,6 +175,7 @@ function logParsedMessage(
       speedKph: isStartek.speedKph,
       batteryVoltageV: isStartek.batteryVoltageV,
       batteryPercent: isStartek.batteryPercent,
+      batV_hex: power?.bat_hex,
       inserted,
       reasonIfNot,
     });
@@ -208,6 +234,9 @@ function handleLine(line: string, socket?: net.Socket) {
   });
 }
 
+// TCP keepalive: send probes after idle so NAT/firewalls don't close the connection (reduces overnight ECONNRESET)
+const SOCKET_KEEPALIVE_INITIAL_DELAY_MS = 30_000;
+
 const server = net.createServer((socket) => {
   if (shuttingDown) {
     socket.destroy();
@@ -215,6 +244,7 @@ const server = net.createServer((socket) => {
   }
   connections++;
   clientSockets.add(socket);
+  socket.setKeepAlive(true, SOCKET_KEEPALIVE_INITIAL_DELAY_MS);
   let buffer = '';
   const bufferByteLimit = Math.max(1024, Math.min(MAX_SOCKET_BUFFER_BYTES, 10 * 1024 * 1024));
   socket.setEncoding('utf8');
@@ -269,7 +299,26 @@ server.listen(INGEST_PORT, INGEST_HOST, () => {
   log('info', `TCP ingest listening on ${INGEST_HOST}:${INGEST_PORT}`);
 });
 
-const healthServer = http.createServer((_req, res) => {
+const DEADLETTER_MAX_LINES = parseInt(process.env.DEADLETTER_MAX_LINES ?? '200', 10) || 200;
+
+const healthServer = http.createServer((req, res) => {
+  const path = req.url?.split('?')[0] ?? '/';
+  if (path === '/deadletter') {
+    try {
+      const raw = fs.existsSync(DEADLETTER_PATH) ? fs.readFileSync(DEADLETTER_PATH, 'utf8') : '';
+      const lines = raw.trim().split('\n').filter(Boolean);
+      const last = lines.slice(-DEADLETTER_MAX_LINES).map((line) => {
+        const [ts, deviceId, ...rest] = line.split('\t');
+        return { ts, device_id: deviceId, raw: rest.join('\t') };
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ entries: last, total_writes: deadletterWrites }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: String(e) }));
+    }
+    return;
+  }
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(
     JSON.stringify({

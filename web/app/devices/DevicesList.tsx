@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { getAuthHeaders } from '@/lib/api-auth';
@@ -43,6 +43,13 @@ export default function DevicesList() {
   const [highlightedTrackerId, setHighlightedTrackerId] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClient();
+  const colorSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (colorSaveTimeoutRef.current) clearTimeout(colorSaveTimeoutRef.current);
+    };
+  }, []);
 
   async function load(retried = false) {
     const { data: { user } } = await supabase.auth.getUser();
@@ -211,7 +218,18 @@ export default function DevicesList() {
   }
 
   function handleColorChange(deviceId: string, hex: string) {
-    handleSettingsChange(deviceId, { marker_color: hex });
+    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
+    setDevices((prev) =>
+      prev.map((d) => (d.id === deviceId ? { ...d, marker_color: hex } : d))
+    );
+    if (colorSaveTimeoutRef.current) {
+      clearTimeout(colorSaveTimeoutRef.current);
+      colorSaveTimeoutRef.current = null;
+    }
+    colorSaveTimeoutRef.current = setTimeout(() => {
+      colorSaveTimeoutRef.current = null;
+      handleSettingsChange(deviceId, { marker_color: hex });
+    }, 500);
   }
 
   const onlineCount = devices.filter((d) => isOnline(d.last_seen_at)).length;

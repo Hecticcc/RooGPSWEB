@@ -7,7 +7,9 @@ import { Inter } from 'next/font/google';
 import AppHeader from '@/components/AppHeader';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { createClient } from '@/lib/supabase';
-import { LayoutDashboard, Bell, Settings } from 'lucide-react';
+import { LayoutDashboard, Bell, Settings, Shield, LogOut } from 'lucide-react';
+import { isStaffOrAbove, roleLabel } from '@/lib/roles';
+import type { UserRole } from '@/lib/roles';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-dashboard' });
 
@@ -20,11 +22,12 @@ export default function DashboardShell({ children }: Props) {
   const router = useRouter();
   const supabase = createClient();
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (cancelled) return;
       if (!user) {
         router.replace('/login');
@@ -32,9 +35,21 @@ export default function DashboardShell({ children }: Props) {
       }
       setUserEmail(user.email ?? null);
       setAuthChecked(true);
+      // Use same session as client so API sees correct user (avoids cookie/session mismatch)
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = { 'Cache-Control': 'no-cache' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+      fetch('/api/me', { credentials: 'include', cache: 'no-store', headers })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (cancelled) return;
+          setUserRole((data?.role ?? 'customer') as UserRole);
+        });
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [router, supabase.auth]);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -56,9 +71,11 @@ export default function DashboardShell({ children }: Props) {
     { href: '/track/settings', label: 'Settings', icon: Settings },
   ];
 
+  const showAdmin = isStaffOrAbove(userRole);
+
   return (
     <div className={`dashboard-layout ${inter.variable}`}>
-      <AppHeader userEmail={userEmail} onSignOut={handleSignOut} />
+      <AppHeader />
       <div className="dashboard-body">
         <aside className="dashboard-sidebar">
           <nav className="dashboard-nav">
@@ -79,6 +96,28 @@ export default function DashboardShell({ children }: Props) {
               );
             })}
           </nav>
+          <div className="dashboard-sidebar-footer">
+            {userEmail && (
+              <div className="dashboard-sidebar-email" title={userEmail}>
+                {userEmail}
+              </div>
+            )}
+            {userRole && (
+              <div className="dashboard-sidebar-role">
+                {roleLabel(userRole)}
+              </div>
+            )}
+            {showAdmin && (
+              <Link href="/admin" className="dashboard-sidebar-admin" title="Admin">
+                <Shield size={16} />
+                <span>Admin</span>
+              </Link>
+            )}
+            <button type="button" onClick={handleSignOut} className="dashboard-sidebar-logout">
+              <LogOut size={16} />
+              <span>Log out</span>
+            </button>
+          </div>
         </aside>
         <div className="dashboard-main">
           {children}

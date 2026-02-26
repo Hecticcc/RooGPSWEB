@@ -49,7 +49,47 @@ From repo root: `npm run dev:web` (or `npm run dev` to run web + ingest). Ensure
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `NEXT_PUBLIC_MAPBOX_TOKEN`
-5. Do not add the Supabase service role key to the web app.
+5. For the **admin backend** (optional): add `SUPABASE_SERVICE_ROLE_KEY` (server-side only; never exposed to the client) and `INGEST_HEALTH_URL` (e.g. `http://your-ingest-vps:8090`) so admin dashboard and ingest pages can show stats and deadletter. Without these, the app still runs; admin routes will return 503 or show “not configured”.
+
+## Admin backend
+
+The app has a protected **Admin** section at `/admin` for staff and above. Roles are stored in `user_roles` (see migration `20250224000001_user_roles.sql`).
+
+### Roles and permissions
+
+| Role         | Hierarchy | Access |
+|-------------|-----------|--------|
+| Customer    | 0         | Normal app only (dashboard, devices, alerts). No admin. |
+| Staff       | 1         | **Read-only** admin: dashboard stats, users list, devices list, device detail, ingest deadletter, system status. |
+| StaffPlus   | 2         | Staff + **write**: change user role (except to/from Administrator), reassign device, disable device ingest, force mark device offline. |
+| Administrator | 3      | Full access: change any role, disable/delete user, delete device + history, system toggles (maintenance mode, ingest accept/reject), trigger retention cleanup. |
+
+- **Role guard:** `requireRole(request, minRole)` in `web/lib/admin-auth.ts` is used in all admin API routes. Admin pages check role via `/api/me` and redirect if not Staff+.
+- **Server enforcement:** Admin APIs use the service role client only on the server; role is always checked from `user_roles` before any privileged action.
+- **RLS:** `user_roles` is protected by RLS (users read own row; only Administrator can update roles). Admin APIs use the service role key and do not rely on client role alone.
+
+### Admin routes
+
+| Path | Purpose |
+|------|--------|
+| `/admin` | Redirects to `/admin/dashboard`. |
+| `/admin/dashboard` | At-a-glance: total users/devices, online/offline, locations 24h, deadletter count, ingest health. |
+| `/admin/users` | User list (email, role, created, device count, last login). StaffPlus: change role (except Admin). Administrator: change any role, disable user, delete user. |
+| `/admin/devices` | Device list with filters (online/offline/unassigned/low battery). Link to device detail. |
+| `/admin/devices/[deviceId]` | Device metadata, owner, last 20 raw payloads (parsed fields + battery). Actions: reassign, disable ingest, force offline; Administrator: delete device + history. |
+| `/admin/ingest` | Ingest health JSON, deadletter log (unknown device IDs). Copy raw payload, claim device to user. |
+| `/admin/system` | Supabase/ingest status, app version, env. Administrator: toggle maintenance mode, toggle ingest accept, trigger retention cleanup. |
+
+### Environment (admin)
+
+- **Web:** `SUPABASE_SERVICE_ROLE_KEY` – required for admin API routes (server-only).  
+- **Web:** `INGEST_HEALTH_URL` – base URL of ingest health server (e.g. `http://vps:8090`) for dashboard stats and ingest/deadletter pages.  
+- **Web:** `ADMIN_RETENTION_DAYS` – optional; default 90 for retention cleanup job.  
+- **Web:** `NEXT_PUBLIC_APP_VERSION`, `GIT_COMMIT_SHA` (or `VERCEL_GIT_COMMIT_SHA`) – optional; shown on admin System page.
+
+### Database (admin)
+
+- Migration `20250228000001_admin_system_and_ingest_disabled.sql`: adds `devices.ingest_disabled` and table `system_settings` (maintenance_mode, ingest_accept). Ingest service respects these when writing locations.
 
 ## Ingest service (Vultr VPS)
 
@@ -139,6 +179,16 @@ WantedBy=multi-user.target
 Then: `sudo systemctl daemon-reload`, `sudo systemctl enable roogps-ingest`, `sudo systemctl start roogps-ingest`.
 
 **Production behaviour:** Unknown devices (when `REQUIRE_DEVICE_PREEXIST=true`) are written to `ingest/data/deadletter.log`. If Supabase insert fails after retries, the raw line is written to `ingest/data/fallback.log`. Monitor these files and the `/health` JSON (uptime, connections, inserted_rows, deadletter_writes, fallback_writes, errors) for alerts.
+
+### ECONNRESET and overnight disconnects
+
+The ingest health panel may show **Last error: socket error: read ECONNRESET**. That means “connection reset by peer”: the other side (the tracker or something in the network) closed the TCP connection. Common causes overnight:
+
+- **NAT/firewall idle timeout** – No traffic for a long time; the router or carrier closes the connection. The ingest service enables **TCP keepalive** (probes after ~30s idle) to reduce this.
+- **Device sleep / power saving** – The tracker closes the connection or loses power; when it wakes or reconnects, it will open a new connection and send data again.
+- **Carrier or network drop** – Mobile networks can tear down idle connections.
+
+When the connection is reset, no new location or battery data is written until the device connects again and sends a new message. So “GPS comes online” (device reconnects) is correct; position and battery % will only update when the next packet is received and inserted. Battery is stored in `locations.extra.battery` from the same IStartek packet as the position; if you see position updates but not battery, the device may be sending some report types without battery in the payload.
 
 ## PT60-L configuration
 

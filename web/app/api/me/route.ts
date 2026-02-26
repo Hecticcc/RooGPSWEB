@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import type { UserRole } from '@/lib/roles';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   const supabase = await createServerSupabaseClient(request);
   if (!supabase) {

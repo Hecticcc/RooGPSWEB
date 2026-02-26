@@ -206,54 +206,53 @@ export function parseIStartekLine(rawLine: string): IStartekParsed {
       }
     }
 
-    // Battery: first integer 300–2000 before first token containing "|"
-    const pipeIdx = tokens.findIndex((t) => t.includes('|'));
-    const searchTokens = pipeIdx >= 0 ? tokens.slice(0, pipeIdx) : tokens;
-    let batteryRawInt: number | null = null;
-    for (const t of searchTokens) {
-      if (/^\d+$/.test(t)) {
-        const n = parseInt(t, 10);
-        if (n >= 300 && n <= 2000) {
-          batteryRawInt = n;
-          break;
-        }
+    // Battery (iStartek Protocol v2.2): ext-V|bat-V in LAST comma-separated token.
+    // tailToken e.g. "0000|019AE4" => extV_hex=0000, batV_hex=019A (first 4 after pipe), checksum_hex=E4 (last 2). V*100 in hex.
+    const tailToken = tokens.length > 0 ? tokens[tokens.length - 1] : '';
+    let batteryVoltageV: number | null = null;
+    let extVoltageV: number | null = null;
+    let batV_hex: string | null = null;
+    let extV_hex: string | null = null;
+    let checksum_hex: string | null = null;
+
+    if (tailToken.includes('|')) {
+      const [extPart, rightPart] = tailToken.split('|');
+      extV_hex = (extPart ?? '').trim();
+      const right = (rightPart ?? '').trim().replace(/\s/g, '');
+      const isHex = (s: string) => /^[0-9A-Fa-f]+$/.test(s);
+      if (right.length >= 6 && isHex(right)) {
+        batV_hex = right.slice(0, 4);
+        checksum_hex = right.slice(-2);
+      } else if (right.length === 4 && isHex(right)) {
+        batV_hex = right;
+      }
+      if (batV_hex != null) {
+        const batV100 = parseInt(batV_hex, 16);
+        if (!isNaN(batV100)) batteryVoltageV = Math.round((batV100 / 100) * 100) / 100;
+      }
+      if (extV_hex && extV_hex !== '0000' && isHex(extV_hex)) {
+        const extV100 = parseInt(extV_hex, 16);
+        if (!isNaN(extV100)) extVoltageV = Math.round((extV100 / 100) * 100) / 100;
       }
     }
 
-    const candidates = batteryRawInt != null
-      ? {
-          div200: batteryRawInt / 200,
-          div100: batteryRawInt / 100,
-          div1000: batteryRawInt / 1000,
-        }
-      : null;
-
-    empty.extra.battery_raw = {
-      raw_int: batteryRawInt,
-      chosen_scale: null,
-      candidates: candidates ?? {},
+    empty.extra.power = {
+      ext_voltage_v: extVoltageV ?? undefined,
+      battery_voltage_v: batteryVoltageV ?? undefined,
+      bat_hex: batV_hex ?? undefined,
+      ext_hex: extV_hex ?? undefined,
+      checksum_hex: checksum_hex ?? undefined,
+      source: 'tailToken_extV_batV',
     };
 
-    if (batteryRawInt != null && candidates) {
-      const inRange = (v: number) => v >= 3.0 && v <= 4.5;
-      if (inRange(candidates.div200)) {
-        empty.batteryVoltageV = Math.round(candidates.div200 * 100) / 100;
-        (empty.extra.battery_raw as Record<string, unknown>).chosen_scale = 'div200';
-      } else if (inRange(candidates.div100)) {
-        empty.batteryVoltageV = Math.round(candidates.div100 * 100) / 100;
-        (empty.extra.battery_raw as Record<string, unknown>).chosen_scale = 'div100';
-      } else if (inRange(candidates.div1000)) {
-        empty.batteryVoltageV = Math.round(candidates.div1000 * 100) / 100;
-        (empty.extra.battery_raw as Record<string, unknown>).chosen_scale = 'div1000';
-      }
-      if (empty.batteryVoltageV != null) {
-        empty.batteryPercent = Math.max(0, Math.min(100, voltageToPercent(empty.batteryVoltageV)));
-        empty.extra.battery = {
-          voltage_v: empty.batteryVoltageV,
-          percent: empty.batteryPercent,
-          model: 'liion_1s_curve_v1',
-        };
-      }
+    if (batteryVoltageV != null) {
+      empty.batteryVoltageV = batteryVoltageV;
+      empty.batteryPercent = Math.max(0, Math.min(100, voltageToPercent(batteryVoltageV)));
+      empty.extra.battery = {
+        voltage_v: batteryVoltageV,
+        percent: empty.batteryPercent,
+        curve: 'pt60_curve_v1',
+      };
     }
   } catch (e) {
     empty.extra.parseError = String(e);

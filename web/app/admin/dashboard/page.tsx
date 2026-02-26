@@ -21,9 +21,10 @@ type Stats = {
   offline_devices: number;
   locations_last_24h: number;
   deadletter_count: number | null;
-  ingest_health: { status?: string; uptime_seconds?: number; last_error?: string } | null;
+  ingest_health: { status?: string; uptime_seconds?: number; last_error?: string; last_error_at?: string } | null;
   ingest_error: string | null;
-  ingest_heartbeat_at: string | null;
+  ingest_started_at: string | null;
+  last_location_received_at: string | null;
 };
 
 export default function AdminDashboardPage() {
@@ -88,11 +89,19 @@ export default function AdminDashboardPage() {
           <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
             <li>Status: <strong>{stats.ingest_health.status ?? '—'}</strong></li>
             <li>Uptime: {stats.ingest_health.uptime_seconds != null ? `${stats.ingest_health.uptime_seconds}s` : '—'}</li>
-            {stats.ingest_heartbeat_at && (
-              <li>Last heartbeat: {formatAuTime(stats.ingest_heartbeat_at)}</li>
+            {stats.ingest_started_at && (
+              <li>Service started: {formatAuTime(stats.ingest_started_at)}</li>
+            )}
+            {stats.last_location_received_at && (
+              <li>Last data received: {formatAuTime(stats.last_location_received_at)}</li>
             )}
             {stats.ingest_health.last_error && (
-              <li style={{ color: 'var(--error)' }}>Last error: {stats.ingest_health.last_error}</li>
+              <li style={{ color: 'var(--error)' }}>
+                Last error: {stats.ingest_health.last_error}
+                {stats.ingest_health.last_error_at && (
+                  <span className="admin-time" style={{ marginLeft: 6 }}>({formatAuTime(stats.ingest_health.last_error_at)})</span>
+                )}
+              </li>
             )}
           </ul>
         ) : (

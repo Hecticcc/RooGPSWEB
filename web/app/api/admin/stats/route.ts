@@ -27,10 +27,12 @@ export async function GET(request: Request) {
     usersCountRes,
     devicesRes,
     locationsCountRes,
+    lastLocationRes,
   ] = await Promise.all([
     admin.from('user_roles').select('*', { count: 'exact', head: true }),
     admin.from('devices').select('id, last_seen_at'),
     admin.from('locations').select('*', { count: 'exact', head: true }).gte('received_at', since24h),
+    admin.from('locations').select('received_at').order('received_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
 
   const totalUsers = (usersCountRes as { count?: number })?.count ?? 0;
@@ -41,7 +43,7 @@ export async function GET(request: Request) {
   const locationsLast24h = (locationsCountRes as { count?: number })?.count ?? 0;
 
   let deadletterCount: number | null = null;
-  let ingestHealth: { status?: string; uptime_seconds?: number; last_error?: string; deadletter_writes?: number } | null = null;
+  let ingestHealth: { status?: string; uptime_seconds?: number; last_error?: string; last_error_at?: string; deadletter_writes?: number } | null = null;
   let ingestError: string | null = null;
 
   if (INGEST_HEALTH_URL) {
@@ -52,6 +54,7 @@ export async function GET(request: Request) {
         status: data.status,
         uptime_seconds: data.uptime_seconds,
         last_error: data.last_error ?? undefined,
+        last_error_at: data.last_error_at ?? undefined,
         deadletter_writes: data.deadletter_writes,
       };
       deadletterCount = data.deadletter_writes ?? null;
@@ -59,6 +62,8 @@ export async function GET(request: Request) {
       ingestError = e instanceof Error ? e.message : 'Failed to fetch ingest health';
     }
   }
+
+  const lastLocationReceivedAt = (lastLocationRes.data as { received_at?: string } | null)?.received_at ?? null;
 
   return NextResponse.json({
     total_users: totalUsers,
@@ -69,6 +74,7 @@ export async function GET(request: Request) {
     deadletter_count: deadletterCount,
     ingest_health: ingestHealth,
     ingest_error: ingestError,
-    ingest_heartbeat_at: ingestHealth?.uptime_seconds != null ? new Date(Date.now() - ingestHealth.uptime_seconds * 1000).toISOString() : null,
+    ingest_started_at: ingestHealth?.uptime_seconds != null ? new Date(Date.now() - ingestHealth.uptime_seconds * 1000).toISOString() : null,
+    last_location_received_at: lastLocationReceivedAt,
   });
 }

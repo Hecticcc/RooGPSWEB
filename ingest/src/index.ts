@@ -29,6 +29,7 @@ let deadletterWrites = 0;
 let fallbackWrites = 0;
 let errors = 0;
 let lastError: string | null = null;
+let lastErrorAt: number | null = null;
 let shuttingDown = false;
 
 const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
@@ -65,6 +66,7 @@ function appendDeadletter(deviceId: string, raw: string) {
   } catch (e) {
     errors++;
     lastError = `deadletter write: ${e}`;
+    lastErrorAt = Date.now();
     log('error', 'deadletter write failed', { err: String(e) });
   }
 }
@@ -78,6 +80,7 @@ function appendFallback(raw: string) {
   } catch (e) {
     errors++;
     lastError = `fallback write: ${e}`;
+    lastErrorAt = Date.now();
     log('error', 'fallback write failed', { err: String(e) });
   }
 }
@@ -92,7 +95,13 @@ async function getIngestAccept(): Promise<boolean> {
     return systemSettingsCache.ingest_accept;
   }
   const { data, error } = await supabase.from('system_settings').select('ingest_accept').eq('id', 'default').maybeSingle();
-  if (error || !data) {
+  if (error) {
+    lastError = `devices check: ${error.message}`;
+    lastErrorAt = Date.now();
+    systemSettingsCache = { ingest_accept: true, at: now };
+    return true;
+  }
+  if (!data) {
     systemSettingsCache = { ingest_accept: true, at: now };
     return true;
   }
@@ -106,6 +115,7 @@ async function ensureDevice(deviceId: string): Promise<boolean> {
   if (error) {
     errors++;
     lastError = `devices check: ${error.message}`;
+    lastErrorAt = Date.now();
     log('error', 'devices check failed', { err: error.message });
     return false;
   }
@@ -151,6 +161,7 @@ async function insertLocation(parsed: ReturnType<typeof parsePT60Line>): Promise
     } else {
       errors++;
       lastError = `locations insert: ${insertErr.message}`;
+      lastErrorAt = Date.now();
       log('error', 'locations insert failed after retries', { err: insertErr.message });
       appendFallback(parsed.raw_payload);
       return false;
@@ -260,6 +271,7 @@ const server = net.createServer((socket) => {
     if (byteLength > bufferByteLimit) {
       errors++;
       lastError = `socket buffer exceeded (limit ${bufferByteLimit})`;
+      lastErrorAt = Date.now();
       log('warn', 'socket buffer exceeded limit', { limit: bufferByteLimit });
       socket.destroy();
       connections--;
@@ -279,6 +291,7 @@ const server = net.createServer((socket) => {
     connections--;
     errors++;
     lastError = `socket error: ${err.message}`;
+    lastErrorAt = Date.now();
     const deviceId = socketToDeviceId.get(socket);
     if (deviceId) recordConnectionError(deviceId, err.message);
   });
@@ -331,7 +344,7 @@ const healthServer = http.createServer((req, res) => {
       fallback_writes: fallbackWrites,
       rejected_unknown_device: rejectedUnknownDevice,
       errors,
-      ...(lastError && { last_error: lastError }),
+      ...(lastError && { last_error: lastError, last_error_at: lastErrorAt != null ? new Date(lastErrorAt).toISOString() : null }),
     })
   );
 });

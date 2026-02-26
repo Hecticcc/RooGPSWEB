@@ -145,6 +145,11 @@ export default function AdminIngestPage() {
             {health.last_error != null && String(health.last_error) !== '' ? (
               <p className="admin-ingest-health-last-error">
                 Last error: <span style={{ color: 'var(--error)' }}>{String(health.last_error)}</span>
+                {health.last_error_at != null && String(health.last_error_at) !== '' ? (
+                  <span className="admin-time" style={{ marginLeft: 8 }}>
+                    at {new Date(String(health.last_error_at)).toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'Australia/Sydney' })}
+                  </span>
+                ) : null}
               </p>
             ) : null}
           </div>

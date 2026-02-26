@@ -180,15 +180,20 @@ Then: `sudo systemctl daemon-reload`, `sudo systemctl enable roogps-ingest`, `su
 
 **Production behaviour:** Unknown devices (when `REQUIRE_DEVICE_PREEXIST=true`) are written to `ingest/data/deadletter.log`. If Supabase insert fails after retries, the raw line is written to `ingest/data/fallback.log`. Monitor these files and the `/health` JSON (uptime, connections, inserted_rows, deadletter_writes, fallback_writes, errors) for alerts.
 
-### ECONNRESET and overnight disconnects
+### Socket errors: ECONNRESET, ETIMEDOUT, and overnight disconnects
 
-The ingest health panel may show **Last error: socket error: read ECONNRESET**. That means “connection reset by peer”: the other side (the tracker or something in the network) closed the TCP connection. Common causes overnight:
+The ingest health panel may show **Last error** as a socket error. Two common ones:
 
-- **NAT/firewall idle timeout** – No traffic for a long time; the router or carrier closes the connection. The ingest service enables **TCP keepalive** (probes after ~30s idle) to reduce this.
-- **Device sleep / power saving** – The tracker closes the connection or loses power; when it wakes or reconnects, it will open a new connection and send data again.
-- **Carrier or network drop** – Mobile networks can tear down idle connections.
+- **read ECONNRESET** – “Connection reset by peer”: the other side (tracker, NAT, or carrier) closed the TCP connection.
+- **read ETIMEDOUT** – No data was received from the device within the timeout period. The link may be dead (device out of range, sleep, or network drop) but not yet closed; the OS or path gave up waiting.
 
-When the connection is reset, no new location or battery data is written until the device connects again and sends a new message. So “GPS comes online” (device reconnects) is correct; position and battery % will only update when the next packet is received and inserted. Battery is stored in `locations.extra.battery` from the same IStartek packet as the position; if you see position updates but not battery, the device may be sending some report types without battery in the payload.
+Common causes overnight or after long idle:
+
+- **NAT/firewall idle timeout** – No traffic for a long time; router or carrier closes or times out the connection. The ingest service enables **TCP keepalive** (probes after ~30s idle) to reduce this.
+- **Device sleep / power saving** – The tracker stops sending or drops the connection; when it wakes, it will reconnect and send again.
+- **Carrier or network drop** – Mobile networks can tear down or time out idle connections.
+
+When the connection is reset or times out, no new location or battery data is written until the device connects again and sends a new message. Position and battery % update when the next packet is received and inserted. Battery is stored in `locations.extra.battery` from the same IStartek packet as the position; if you see position updates but not battery, the device may be sending some report types without battery in the payload.
 
 ## PT60-L configuration
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { useAdminAuth } from '../AdminAuthContext';
 
 type DeadletterEntry = { ts: string; device_id: string; raw: string };
@@ -16,12 +17,17 @@ export default function AdminIngestPage() {
   const [claiming, setClaiming] = useState<string | null>(null);
   const [claimUserId, setClaimUserId] = useState('');
   const [users, setUsers] = useState<{ id: string; email: string | null }[]>([]);
+  const [resettingLastError, setResettingLastError] = useState(false);
+  const [resettingDeadletter, setResettingDeadletter] = useState(false);
 
-  useEffect(() => {
+  function loadData() {
     const headers = getAuthHeaders();
-    Promise.all([
+    return Promise.all([
       fetch('/api/admin/ingest/health', { credentials: 'include', cache: 'no-store', headers }).then(async (r) => {
-        if (r.ok) return r.json();
+        if (r.ok) {
+          setHealthError(null);
+          return r.json();
+        }
         const body = await r.json().catch(() => ({}));
         setHealthError(body?.error ?? `HTTP ${r.status}`);
         return null;
@@ -32,12 +38,16 @@ export default function AdminIngestPage() {
       fetch('/api/admin/users', { credentials: 'include', cache: 'no-store', headers }).then((r) =>
         r.ok ? r.json() : []
       ),
-    ])
-      .then(([h, d, u]) => {
-        setHealth(h ?? null);
-        setDeadletter(d ?? null);
-        setUsers(u ?? []);
-      })
+    ]).then(([h, d, u]) => {
+      setHealth(h ?? null);
+      setDeadletter(d ?? null);
+      setUsers(Array.isArray(u) ? u : []);
+    });
+  }
+
+  useEffect(() => {
+    setLoading(true);
+    loadData()
       .catch(() => setError('Failed to load'))
       .finally(() => setLoading(false));
   }, [getAuthHeaders]);
@@ -57,6 +67,63 @@ export default function AdminIngestPage() {
       await navigator.clipboard.writeText(raw);
     } catch {
       // ignore
+    }
+  }
+
+  async function resetLastError() {
+    setResettingLastError(true);
+    try {
+      const res = await fetch('/api/admin/ingest/reset-last-error', {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(d.error ?? 'Failed to reset last error');
+        return;
+      }
+      // Clear last_error in UI immediately, then refetch to stay in sync
+      setHealth((prev) =>
+        prev && (prev.last_error != null || prev.last_error_at != null)
+          ? { ...prev, last_error: undefined, last_error_at: undefined }
+          : prev
+      );
+      const headers = getAuthHeaders();
+      const r = await fetch('/api/admin/ingest/health', { credentials: 'include', cache: 'no-store', headers });
+      if (r.ok) setHealth(await r.json());
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to reset last error');
+    } finally {
+      setResettingLastError(false);
+    }
+  }
+
+  async function resetDeadletter() {
+    if (!confirm('Clear all deadletter entries and reset the count? This cannot be undone.')) return;
+    setResettingDeadletter(true);
+    try {
+      const res = await fetch('/api/admin/ingest/deadletter/reset', {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(d.error ?? 'Failed to reset deadletter');
+        return;
+      }
+      const headers = getAuthHeaders();
+      const [h, dl] = await Promise.all([
+        fetch('/api/admin/ingest/health', { credentials: 'include', cache: 'no-store', headers }).then((r) => (r.ok ? r.json() : null)),
+        fetch('/api/admin/ingest/deadletter', { credentials: 'include', cache: 'no-store', headers }).then((r) => (r.ok ? r.json() : null)),
+      ]);
+      setHealth(h ?? null);
+      setDeadletter(dl ?? null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to reset deadletter');
+    } finally {
+      setResettingDeadletter(false);
     }
   }
 
@@ -85,7 +152,7 @@ export default function AdminIngestPage() {
     }
   }
 
-  if (loading) return <p className="admin-time">Loading…</p>;
+  if (loading) return <div className="app-loading"><AppLoadingIcon /></div>;
   if (error) return <p className="admin-time" style={{ color: 'var(--error)' }}>{error}</p>;
 
   return (
@@ -150,6 +217,15 @@ export default function AdminIngestPage() {
                     at {new Date(String(health.last_error_at)).toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'Australia/Sydney' })}
                   </span>
                 ) : null}
+                {' '}
+                <button
+                  type="button"
+                  className="admin-btn"
+                  onClick={resetLastError}
+                  disabled={resettingLastError}
+                >
+                  {resettingLastError ? 'Resetting…' : 'Reset last error'}
+                </button>
               </p>
             ) : null}
           </div>
@@ -169,6 +245,19 @@ export default function AdminIngestPage() {
         <h3>Deadletter (unknown devices)</h3>
         <p className="admin-time">
           Total writes: {deadletter?.total_writes ?? '—'}. Select a user below, then click Claim on a row to assign that device to them.
+          {(deadletter?.total_writes ?? 0) > 0 || (deadletter?.entries?.length ?? 0) > 0 ? (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="admin-btn"
+                onClick={resetDeadletter}
+                disabled={resettingDeadletter}
+              >
+                {resettingDeadletter ? 'Resetting…' : 'Reset deadletter'}
+              </button>
+            </>
+          ) : null}
         </p>
         <div className="admin-form-row admin-ingest-claim-row">
           <label>Claim to user:</label>

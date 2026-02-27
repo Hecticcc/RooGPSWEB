@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAdminAuth } from '../AdminAuthContext';
+import { Trash2 } from 'lucide-react';
+import AppLoadingIcon from '@/components/AppLoadingIcon';
 
 const AU_TZ = 'Australia/Sydney';
 
@@ -34,20 +36,72 @@ export default function AdminDevicesPage() {
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteDeviceId, setConfirmDeleteDeviceId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const isAdministrator = userRole === 'administrator';
+  const deviceToConfirm = confirmDeleteDeviceId ? devices.find((d) => d.id === confirmDeleteDeviceId) : null;
+
+  function loadDevices() {
     const q = filter ? `?filter=${encodeURIComponent(filter)}` : '';
-    fetch(`/api/admin/devices${q}`, { credentials: 'include', cache: 'no-store', headers: getAuthHeaders() })
-      .then((r) => {
-        if (!r.ok) throw new Error('Failed to load devices');
+    return fetch(`/api/admin/devices${q}`, { credentials: 'include', cache: 'no-store', headers: getAuthHeaders() })
+      .then(async (r) => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          const msg = (body as { error?: string })?.error ?? 'Failed to load devices';
+          throw new Error(msg);
+        }
         return r.json();
       })
       .then(setDevices)
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load devices'));
+  }
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      fetch('/api/me', { credentials: 'include', cache: 'no-store', headers: getAuthHeaders() }).then((r) => (r.ok ? r.json() : null)),
+      loadDevices(),
+    ])
+      .then(([meData]) => {
+        setUserRole(meData?.role ?? null);
+      })
       .finally(() => setLoading(false));
   }, [filter, getAuthHeaders]);
 
-  if (loading) return <p className="admin-time">Loading…</p>;
+  useEffect(() => {
+    if (!confirmDeleteDeviceId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setConfirmDeleteDeviceId(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [confirmDeleteDeviceId]);
+
+  async function handleDelete(deviceId: string) {
+    if (!isAdministrator) return;
+    setConfirmDeleteDeviceId(null);
+    setDeletingId(deviceId);
+    try {
+      const res = await fetch(`/api/admin/devices/${encodeURIComponent(deviceId)}/delete`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError((d as { error?: string })?.error ?? 'Delete failed');
+        return;
+      }
+      setDevices((prev) => prev.filter((d) => d.id !== deviceId));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  if (loading) return <div className="app-loading"><AppLoadingIcon /></div>;
   if (error) return <p className="admin-time" style={{ color: 'var(--error)' }}>{error}</p>;
 
   return (
@@ -100,12 +154,67 @@ export default function AdminDevicesPage() {
                   <Link href={`/admin/devices/${encodeURIComponent(d.id)}`} className="admin-btn">
                     View
                   </Link>
+                  {isAdministrator && (
+                    <>
+                      {' '}
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn--danger"
+                        onClick={() => setConfirmDeleteDeviceId(d.id)}
+                        disabled={deletingId === d.id}
+                        title="Delete device and all location history"
+                      >
+                        <Trash2 size={14} aria-hidden />
+                      </button>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {confirmDeleteDeviceId && deviceToConfirm && (
+        <div
+          className="admin-confirm-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-confirm-title"
+          onClick={() => setConfirmDeleteDeviceId(null)}
+        >
+          <div className="admin-confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-confirm-icon-wrap">
+              <Trash2 size={40} strokeWidth={1.5} aria-hidden />
+            </div>
+            <h2 id="admin-confirm-title" className="admin-confirm-title">
+              Delete device?
+            </h2>
+            <p className="admin-confirm-message">
+              This will permanently delete the device and all its location history. This cannot be undone.
+            </p>
+            <p className="admin-confirm-device-id admin-mono">{deviceToConfirm.id}</p>
+            <div className="admin-confirm-actions">
+              <button
+                type="button"
+                className="admin-btn"
+                onClick={() => setConfirmDeleteDeviceId(null)}
+                disabled={deletingId === confirmDeleteDeviceId}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="admin-btn admin-btn--danger"
+                onClick={() => handleDelete(confirmDeleteDeviceId)}
+                disabled={deletingId === confirmDeleteDeviceId}
+              >
+                {deletingId === confirmDeleteDeviceId ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { getMarkerSvgPath } from '@/lib/tracker-icon-svg';
@@ -8,6 +8,23 @@ import { getMarkerSvgPath } from '@/lib/tracker-icon-svg';
 const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 const DEFAULT_CENTER: [number, number] = [133.8, -25.3];
 const DEFAULT_ZOOM = 3;
+
+const STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
+const STYLE_SATELLITE = 'mapbox://styles/mapbox/satellite-streets-v12';
+
+async function reverseGeocode(lng: number, lat: number): Promise<string | null> {
+  if (!token) return null;
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${encodeURIComponent(token)}&limit=1`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { features?: Array<{ place_name?: string }> };
+    const name = data.features?.[0]?.place_name;
+    return name ?? null;
+  } catch {
+    return null;
+  }
+}
 
 function escapeHtml(text: string): string {
   const div = typeof document !== 'undefined' ? document.createElement('div') : null;
@@ -61,19 +78,54 @@ type Props = {
   markers?: MapMarker[];
   onMarkerClick?: (markerId: string) => void;
   onPopupClose?: () => void;
+  /** Show battery voltage in popup (e.g. admin). Default false for user-facing map. */
+  showVoltage?: boolean;
 };
 
-export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose }: Props) {
+function buildPopupHtml(
+  name: string,
+  batteryRowContent: string,
+  lastCheck: string,
+  statusLine: string,
+  address: string | null
+): string {
+  const addressValue = address === null ? 'Loading…' : escapeHtml(address);
+  return `
+  <div class="map-popup">
+    <header class="map-popup__header">
+      <span class="map-popup__title">${escapeHtml(name)}</span>
+    </header>
+    ${statusLine}
+    <div class="map-popup__body">
+      <div class="map-popup__row map-popup__row--address">
+        <span class="map-popup__label">Address</span>
+        <span class="map-popup__value map-popup__address">${addressValue}</span>
+      </div>
+      <div class="map-popup__row">
+        <span class="map-popup__label">Battery</span>
+        <span class="map-popup__value">${batteryRowContent}</span>
+      </div>
+      <div class="map-popup__row map-popup__row--last-check">
+        <span class="map-popup__label">Last check</span>
+        <span class="map-popup__value">${escapeHtml(lastCheck)}</span>
+      </div>
+    </div>
+  </div>
+`;
+}
+
+export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose, showVoltage = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const [mapStyle, setMapStyle] = useState<'dark' | 'satellite'>('dark');
 
   useEffect(() => {
     if (!containerRef.current || !token) return;
     mapboxgl.accessToken = token;
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
+      style: mapStyle === 'satellite' ? STYLE_SATELLITE : STYLE_DARK,
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
     });
@@ -84,7 +136,7 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [mapStyle]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -111,25 +163,18 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
             currentPopup = null;
           }
           const name = m.name || m.id;
-          const battery =
+          const batteryRowContent =
             m.batteryPercent != null
-              ? `${escapeHtml(String(m.batteryPercent))}%${m.batteryVoltageV != null ? ` <span style="font-size:0.9em;opacity:0.85">(${escapeHtml(String(m.batteryVoltageV))} V)</span>` : ''}`
+              ? `${escapeHtml(String(m.batteryPercent))}%${showVoltage && m.batteryVoltageV != null ? ` <span class="map-popup__voltage">(${escapeHtml(String(m.batteryVoltageV))} V)</span>` : ''}`
               : '—';
           const lastCheck = m.lastSeen
             ? new Date(m.lastSeen).toLocaleString()
             : 'Never';
           const statusLine = m.offline
-            ? `<div class="dashboard-map-popup-status dashboard-map-popup-status--offline">Offline · Last known location</div>`
+            ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
             : '';
-          const popupContent = `
-          <div class="dashboard-map-popup">
-            <div class="dashboard-map-popup-title">${escapeHtml(name)}</div>
-            ${statusLine}
-            <div class="dashboard-map-popup-row"><span class="dashboard-map-popup-label">Battery</span> ${escapeHtml(battery)}</div>
-            <div class="dashboard-map-popup-row"><span class="dashboard-map-popup-label">Last check</span> ${escapeHtml(lastCheck)}</div>
-          </div>
-        `;
-          const popup = new mapboxgl.Popup({ offset: 20, closeButton: true })
+          const popupContent = buildPopupHtml(name, batteryRowContent, lastCheck, statusLine, null);
+          const popup = new mapboxgl.Popup({ anchor: 'bottom', offset: [-8, -24], closeButton: true })
             .setLngLat([m.lng, m.lat])
             .setHTML(popupContent)
             .addTo(map);
@@ -137,6 +182,11 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
           popup.on('close', () => {
             currentPopup = null;
             onPopupClose?.();
+          });
+          reverseGeocode(m.lng, m.lat).then((address) => {
+            if (currentPopup !== popup) return;
+            const updated = buildPopupHtml(name, batteryRowContent, lastCheck, statusLine, address ?? '—');
+            popup.setHTML(updated);
           });
         });
       }
@@ -156,7 +206,7 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
       map.setCenter(DEFAULT_CENTER);
       map.setZoom(DEFAULT_ZOOM);
     }
-  }, [markers, onMarkerClick, onPopupClose]);
+  }, [markers, onMarkerClick, onPopupClose, mapStyle, showVoltage]);
 
   if (!token) {
     return (
@@ -180,16 +230,28 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="dashboard-map-container"
-      style={{
-        width: '100%',
-        minHeight: 280,
-        height: '100%',
-        overflow: 'hidden',
-        background: 'var(--surface)',
-      }}
-    />
+    <div className="dashboard-map-container" style={{ position: 'relative', width: '100%', minHeight: 280, height: '100%' }}>
+      <div
+        ref={containerRef}
+        style={{
+          width: '100%',
+          minHeight: 280,
+          height: '100%',
+          overflow: 'hidden',
+          background: 'var(--surface)',
+        }}
+      />
+      {token && (
+        <div className="dashboard-map-style-control">
+          <button
+            type="button"
+            onClick={() => setMapStyle((s) => (s === 'dark' ? 'satellite' : 'dark'))}
+            title={mapStyle === 'dark' ? 'Switch to satellite view' : 'Switch to map view'}
+          >
+            {mapStyle === 'dark' ? 'Satellite' : 'Map'}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

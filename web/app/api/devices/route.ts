@@ -1,6 +1,32 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 
+const SIMBASE_API_BASE = process.env.SIMBASE_API_URL ?? 'https://api.simbase.com/v2';
+const SIMBASE_API_KEY = process.env.SIMBASE_API_KEY ?? '';
+
+/** Fetch Simbase SIM details for one ICCID; returns connection.carrier or null. */
+async function fetchSimbaseCarrier(iccid: string): Promise<string | null> {
+  if (!SIMBASE_API_KEY) return null;
+  try {
+    const base = SIMBASE_API_BASE.replace(/\/$/, '');
+    const url = `${base}/simcards/${encodeURIComponent(iccid)}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${SIMBASE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { connection?: { carrier?: string } };
+    const carrier = data?.connection?.carrier;
+    return typeof carrier === 'string' && carrier.trim() ? carrier.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   const supabase = await createServerSupabaseClient(request);
   if (!supabase) {
@@ -57,5 +83,29 @@ export async function GET(request: Request) {
       };
     })
   );
-  return NextResponse.json(withLocation);
+
+  const { data: tokens } = await supabase
+    .from('activation_tokens')
+    .select('device_id, sim_iccid')
+    .eq('user_id', user.id)
+    .not('device_id', 'is', null)
+    .in('device_id', deviceIds);
+  const iccidByDevice: Record<string, string> = {};
+  for (const t of tokens ?? []) {
+    if (t.sim_iccid) iccidByDevice[t.device_id] = t.sim_iccid;
+  }
+  const uniqueIccids = [...new Set(Object.values(iccidByDevice))];
+  const carrierByIccid: Record<string, string | null> = {};
+  await Promise.all(
+    uniqueIccids.map(async (iccid) => {
+      carrierByIccid[iccid] = await fetchSimbaseCarrier(iccid);
+    })
+  );
+  const withCarrier = withLocation.map((d) => {
+    const iccid = iccidByDevice[d.id];
+    const sim_carrier = iccid ? carrierByIccid[iccid] ?? null : null;
+    return { ...d, sim_carrier };
+  });
+
+  return NextResponse.json(withCarrier);
 }

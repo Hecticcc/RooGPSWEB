@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { getAuthHeaders } from '@/lib/api-auth';
 import { validateTrackerName } from '@/lib/device-constants';
+import type { UserRole } from '@/lib/roles';
 import DevicesListView from './DevicesListView';
 
 type Device = {
@@ -21,6 +22,7 @@ type Device = {
   watchdog_armed?: boolean;
   watchdog_armed_at?: string | null;
   connection_error?: { error_message: string; created_at: string } | null;
+  sim_carrier?: string | null;
 };
 
 const ONLINE_MS = 5 * 60 * 1000;
@@ -41,6 +43,7 @@ export default function DevicesList() {
   const [addFormOpen, setAddFormOpen] = useState(false);
   const [colorSaveStatus, setColorSaveStatus] = useState<{ deviceId: string; status: 'saving' | 'saved' | 'error' } | null>(null);
   const [highlightedTrackerId, setHighlightedTrackerId] = useState<string | null>(null);
+  const [canShowMap, setCanShowMap] = useState<boolean | null>(null);
   const router = useRouter();
   const supabase = createClient();
   const colorSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,6 +78,21 @@ export default function DevicesList() {
     const data = await res.json();
     setDevices(Array.isArray(data) ? data : []);
     setError(null);
+
+    const [subRes, meRes] = await Promise.all([
+      fetch('/api/subscription', { credentials: 'include', headers: authHeaders }),
+      fetch('/api/me', { credentials: 'include', cache: 'no-store', headers: authHeaders }),
+    ]);
+    const role: UserRole = meRes.ok ? ((await meRes.json())?.role ?? 'customer') : 'customer';
+    const isCustomerOnly = role === 'customer';
+    if (subRes.ok) {
+      const subData = await subRes.json();
+      const hasActive = subData.hasActiveSimSubscription === true;
+      const hasEnabled = subData.hasAnyEnabledSim !== false;
+      setCanShowMap(isCustomerOnly ? hasActive && hasEnabled : true);
+    } else {
+      setCanShowMap(isCustomerOnly ? false : true);
+    }
     setLoading(false);
   }
 
@@ -258,6 +276,7 @@ export default function DevicesList() {
       highlightedTrackerId={highlightedTrackerId}
       onMarkerClick={setHighlightedTrackerId}
       onPopupClose={() => setHighlightedTrackerId(null)}
+      hasActiveSimSubscription={canShowMap}
       onRetry={() => {
         setError(null);
         setLoading(true);

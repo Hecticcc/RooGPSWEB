@@ -316,22 +316,52 @@ const DEADLETTER_MAX_LINES = parseInt(process.env.DEADLETTER_MAX_LINES ?? '200',
 
 const healthServer = http.createServer((req, res) => {
   const path = req.url?.split('?')[0] ?? '/';
-  if (path === '/deadletter') {
+  const method = req.method ?? 'GET';
+
+  if (path === '/reset-last-error' && method === 'POST') {
+    lastError = null;
+    lastErrorAt = null;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (path === '/deadletter/reset' && method === 'POST') {
     try {
-      const raw = fs.existsSync(DEADLETTER_PATH) ? fs.readFileSync(DEADLETTER_PATH, 'utf8') : '';
-      const lines = raw.trim().split('\n').filter(Boolean);
-      const last = lines.slice(-DEADLETTER_MAX_LINES).map((line) => {
-        const [ts, deviceId, ...rest] = line.split('\t');
-        return { ts, device_id: deviceId, raw: rest.join('\t') };
-      });
+      ensureDataDir();
+      fs.writeFileSync(DEADLETTER_PATH, '');
+      deadletterWrites = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ entries: last, total_writes: deadletterWrites }));
+      res.end(JSON.stringify({ ok: true }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: String(e) }));
     }
     return;
   }
+
+  if (path === '/deadletter') {
+    if (method === 'GET') {
+      try {
+        const raw = fs.existsSync(DEADLETTER_PATH) ? fs.readFileSync(DEADLETTER_PATH, 'utf8') : '';
+        const lines = raw.trim().split('\n').filter(Boolean);
+        const last = lines.slice(-DEADLETTER_MAX_LINES).map((line) => {
+          const [ts, deviceId, ...rest] = line.split('\t');
+          return { ts, device_id: deviceId, raw: rest.join('\t') };
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ entries: last, total_writes: deadletterWrites }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: String(e) }));
+      }
+    } else {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+    return;
+  }
+
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(
     JSON.stringify({

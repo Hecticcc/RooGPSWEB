@@ -78,6 +78,9 @@ The app has a protected **Admin** section at `/admin` for staff and above. Roles
 | `/admin/devices` | Device list with filters (online/offline/unassigned/low battery). Link to device detail. |
 | `/admin/devices/[deviceId]` | Device metadata, owner, last 20 raw payloads (parsed fields + battery). Actions: reassign, disable ingest, force offline; Administrator: delete device + history. |
 | `/admin/ingest` | Ingest health JSON, deadletter log (unknown device IDs). Copy raw payload, claim device to user. |
+| `/admin/stock` | GPS tracker stock (list by IMEI, add units) and SIM cards (list from [Simbase API](https://developer.simbase.com/)). |
+| `/admin/orders` | Order list. StaffPlus: open order, assign tracker + SIM (fulfil), mark shipped, print activation slip. |
+| `/admin/orders/[id]` | Order detail: items, fulfil per item (dropdown tracker + SIM ICCID), mark shipped, link to print slip. |
 | `/admin/system` | Supabase/ingest status, app version, env. Administrator: toggle maintenance mode, toggle ingest accept, trigger retention cleanup. |
 
 ### Environment (admin)
@@ -85,11 +88,21 @@ The app has a protected **Admin** section at `/admin` for staff and above. Roles
 - **Web:** `SUPABASE_SERVICE_ROLE_KEY` – required for admin API routes (server-only).  
 - **Web:** `INGEST_HEALTH_URL` – base URL of ingest health server (e.g. `http://vps:8090`) for dashboard stats and ingest/deadletter pages.  
 - **Web:** `ADMIN_RETENTION_DAYS` – optional; default 90 for retention cleanup job.  
+- **Web:** `SIMBASE_API_KEY` – optional; Bearer token for Simbase API to list SIM cards on admin Stock page.  
+- **Web:** `SIMBASE_API_URL` – optional; default `https://api.simbase.com/v2` (Simbase API base URL).  
 - **Web:** `NEXT_PUBLIC_APP_VERSION`, `GIT_COMMIT_SHA` (or `VERCEL_GIT_COMMIT_SHA`) – optional; shown on admin System page.
 
 ### Database (admin)
 
 - Migration `20250228000001_admin_system_and_ingest_disabled.sql`: adds `devices.ingest_disabled` and table `system_settings` (maintenance_mode, ingest_accept). Ingest service respects these when writing locations.
+
+### Ordering, fulfilment and activation
+
+- **Schema:** See `docs/schema-audit.md` for how orders, stock and activation map to the existing schema. We reuse `user_roles`, `profiles`, `tracker_stock`, and `devices`; new tables are `orders`, `order_items`, and `activation_tokens`. SIM data stays in Simbase; we only store assigned ICCID on order items.
+- **Migrations:** `20250230000001_orders_fulfilment_activation.sql` creates `orders`, `order_items`, `activation_tokens`, and adds `tracker_stock.order_id`.
+- **Customer:** `/order` (pricing), `/account/orders` (list), `/account/orders/[id]` (detail), `/activate` (enter code to link device). Orders nav is in the track dashboard sidebar.
+- **Admin:** `/admin/orders` (list), `/admin/orders/[id]` (detail: assign tracker + SIM, fulfil, mark shipped, print activation slip). Staff: read-only. StaffPlus: fulfil and mark shipped.
+- **APIs:** `POST/GET /api/orders`, `GET /api/orders/[id]` (customer); `GET /api/admin/orders`, `GET/PATCH /api/admin/orders/[id]` (staff+); `POST /api/activation` (consume code, create/link device).
 
 ## Ingest service (Vultr VPS)
 

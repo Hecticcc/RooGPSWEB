@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { Car, Battery, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Shield, ShieldOff, Palette } from 'lucide-react';
+import { Car, Battery, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Shield, ShieldOff, Palette, Signal } from 'lucide-react';
 import DashboardMap from '@/components/DashboardMap';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import TrackerIconPreview from '@/components/TrackerIconPreview';
@@ -35,6 +35,7 @@ type Device = {
   watchdog_armed?: boolean;
   watchdog_armed_at?: string | null;
   connection_error?: { error_message: string; created_at: string } | null;
+  sim_carrier?: string | null;
 };
 
 type Props = {
@@ -59,6 +60,7 @@ type Props = {
   highlightedTrackerId: string | null;
   onMarkerClick: (markerId: string) => void;
   onPopupClose?: () => void;
+  hasActiveSimSubscription?: boolean | null;
   onRetry?: () => void;
 };
 
@@ -85,6 +87,7 @@ export default function DevicesListView(props: Props) {
     highlightedTrackerId,
     onMarkerClick,
     onPopupClose,
+    hasActiveSimSubscription,
     onRetry,
   } = props;
 
@@ -123,7 +126,21 @@ export default function DevicesListView(props: Props) {
   return (
     <main className="dashboard-page">
       <section className="dashboard-map-wrap">
-        <DashboardMap markers={mapMarkers} onMarkerClick={onMarkerClick} onPopupClose={onPopupClose} />
+        {hasActiveSimSubscription === true ? (
+          <DashboardMap markers={mapMarkers} onMarkerClick={onMarkerClick} onPopupClose={onPopupClose} />
+        ) : (
+          <div className="dashboard-map-placeholder">
+            {hasActiveSimSubscription === null ? (
+              <AppLoadingIcon />
+            ) : (
+              <>
+                <img src="/logo.png" alt="RooGPS" className="dashboard-map-placeholder__logo" width={140} height={56} style={{ height: 56, width: 'auto', objectFit: 'contain' }} />
+                <p className="dashboard-map-placeholder__text">Active subscription required to view live map</p>
+                <Link href="/account/subscription" className="dashboard-map-placeholder__link">View subscription</Link>
+              </>
+            )}
+          </div>
+        )}
       </section>
       <div className="dashboard-content">
         {loading ? (
@@ -300,6 +317,12 @@ export default function DevicesListView(props: Props) {
                             <Clock size={14} strokeWidth={2} className="tracker-card-detail-icon" />
                             {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : 'Never'}
                           </span>
+                          {d.sim_carrier && (
+                            <span className="tracker-card-detail-inline tracker-card-provider" title="Current network provider (Simbase)">
+                              <Signal size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
+                              <span>{d.sim_carrier}</span>
+                            </span>
+                          )}
                           <span
                             className={`tracker-card-watchdog-icon${d.watchdog_armed ? ' tracker-card-watchdog-icon--armed' : ''}`}
                             title={d.watchdog_armed ? 'Watch Dog armed – open settings to disarm' : 'Watch Dog off – open settings to arm'}
@@ -470,7 +493,7 @@ export default function DevicesListView(props: Props) {
                     <div className="tracker-settings-modal-section">
                       <h3 className="tracker-settings-modal-section-title">Watch Dog</h3>
                       <p className="tracker-settings-modal-description">
-                        When armed, you&apos;ll get an alert if this tracker moves (speed &gt; 5 km/h or distance &gt; 50 m from where it was armed).
+                        When Watch Dog is on, you&apos;ll get an alert if this tracker moves—either it goes faster than 5 km/h or travels more than 50 m from where you turned it on.
                       </p>
                       <div className="tracker-settings-modal-watchdog-wrap">
                       <div className="tracker-settings-modal-watchdog-toggle" role="group" aria-label="Watch Dog arm state">

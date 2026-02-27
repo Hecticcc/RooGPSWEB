@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   }
   const admin = createServiceRoleClient();
   if (!admin) {
-    return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+    return NextResponse.json({ error: 'Admin API requires SUPABASE_SERVICE_ROLE_KEY in server environment (see .env.local or deployment env)' }, { status: 503 });
   }
 
   const { searchParams } = new URL(request.url);

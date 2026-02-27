@@ -15,12 +15,22 @@ import {
   Inbox,
   Server,
   ArrowLeft,
+  Package,
+  ShoppingCart,
+  DollarSign,
+  Ticket,
+  Menu,
+  X,
 } from 'lucide-react';
 
 const NAV = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/orders', label: 'Orders', icon: ShoppingCart },
+  { href: '/admin/pricing', label: 'Pricing', icon: DollarSign },
+  { href: '/admin/vouchers', label: 'Vouchers', icon: Ticket },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/devices', label: 'Devices', icon: Smartphone },
+  { href: '/admin/stock', label: 'Stock', icon: Package },
   { href: '/admin/ingest', label: 'Ingest', icon: Inbox },
   { href: '/admin/system', label: 'System', icon: Server },
 ];
@@ -31,6 +41,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [role, setRole] = useState<UserRole | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const closeSidebar = () => setSidebarOpen(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,16 +101,29 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="admin-layout">
+    <div className={`admin-layout ${sidebarOpen ? 'admin-layout--sidebar-open' : ''}`}>
       <header className="admin-header">
         <div className="admin-header-inner">
-          <Link href="/track" className="admin-back">
-            <ArrowLeft size={18} /> Back to app
+          <button
+            type="button"
+            className="admin-menu-btn"
+            aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+            onClick={() => setSidebarOpen((o) => !o)}
+          >
+            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+          <Link href="/track" className="admin-back" onClick={closeSidebar}>
+            <ArrowLeft size={18} aria-hidden />
+            <span>Back to app</span>
           </Link>
-          <h1 className="admin-title">Admin</h1>
           <span className="admin-role">{role}</span>
         </div>
       </header>
+      <div
+        className="admin-sidebar-overlay"
+        aria-hidden="true"
+        onClick={closeSidebar}
+      />
       <div className="admin-body">
         <aside className="admin-sidebar">
           <nav className="admin-nav">
@@ -111,6 +137,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   key={href}
                   href={href}
                   className={`admin-nav-link ${isActive ? 'admin-nav-link--active' : ''}`}
+                  onClick={closeSidebar}
                 >
                   <Icon size={18} />
                   <span>{label}</span>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { useAdminAuth } from '../../AdminAuthContext';
 
 const AU_TZ = 'Australia/Sydney';
@@ -185,7 +186,7 @@ export default function AdminDeviceDetailPage() {
     }
   }
 
-  if (loading) return <p className="admin-time">Loading…</p>;
+  if (loading) return <div className="app-loading"><AppLoadingIcon /></div>;
   if (error) return <p className="admin-time" style={{ color: 'var(--error)' }}>{error}</p>;
   if (!data) return null;
 

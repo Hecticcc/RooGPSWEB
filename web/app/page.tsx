@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { redirect } from 'next/navigation';
 import Logo from '@/components/Logo';
+import MarketingPricing from '@/components/MarketingPricing';
 import {
   Car,
   Bike,
@@ -186,45 +187,18 @@ export default async function HomePage() {
 
           <p className="marketing-pricing-intro">Simple, transparent pricing</p>
 
-          <div className="marketing-pricing-tray">
-            <div className="marketing-pricing-grid">
-              <div className="marketing-price-card marketing-price-hardware">
-                <div className="marketing-price-card-label">Hardware</div>
-                <div className="marketing-price-card-amount">
-                  <span className="marketing-price-currency">$</span>150
-                </div>
-                <div className="marketing-price-card-note">one-time</div>
-              </div>
-              <div className="marketing-price-card">
-                <div className="marketing-price-card-label">Monthly</div>
-                <div className="marketing-price-card-amount">
-                  <span className="marketing-price-currency">$</span>6.99
-                  <span className="marketing-price-period">/month</span>
-                </div>
-              </div>
-              <div className="marketing-price-card marketing-price-card-featured">
-                <div className="marketing-price-badge">Best value</div>
-                <div className="marketing-price-card-label">Yearly</div>
-                <div className="marketing-price-card-amount">
-                  <span className="marketing-price-currency">$</span>5.00
-                  <span className="marketing-price-period">/month</span>
-                </div>
-                <div className="marketing-price-card-note">$60 billed yearly</div>
-                <div className="marketing-price-save">Save $23.88</div>
-              </div>
-            </div>
+          <MarketingPricing />
 
-            <div className="marketing-included">
-              <div className="marketing-included-item"><Wifi size={20} strokeWidth={2} />Unlimited data</div>
-              <div className="marketing-included-item"><Radio size={20} strokeWidth={2} />Multi-carrier networks</div>
-              <div className="marketing-included-item"><Monitor size={20} strokeWidth={2} />Track Anywhere</div>
-            </div>
+          <div className="marketing-included">
+            <div className="marketing-included-item"><Wifi size={20} strokeWidth={2} />Unlimited data</div>
+            <div className="marketing-included-item"><Radio size={20} strokeWidth={2} />Multi-carrier networks</div>
+            <div className="marketing-included-item"><Monitor size={20} strokeWidth={2} />Track Anywhere</div>
           </div>
 
           <div className="marketing-order-wrap">
-            <a href="mailto:info@ruthet.com?subject=RooGPS%20Order" className="marketing-btn marketing-btn-primary marketing-btn-order">
+            <Link href="/order" className="marketing-btn marketing-btn-primary marketing-btn-order">
               Order now
-            </a>
+            </Link>
             <p className="marketing-order-note">No hidden fees. Cancel anytime. 1-year warranty included.</p>
           </div>
         </div>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import Logo from '@/components/Logo';
 
@@ -31,6 +32,8 @@ function setStoredRememberMe(value: boolean) {
 }
 
 export default function LoginForm() {
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirect') || '/track';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
@@ -60,7 +63,8 @@ export default function LoginForm() {
       return;
     }
     await new Promise((r) => setTimeout(r, 0));
-    window.location.href = '/track';
+    const safeRedirect = redirectTo.startsWith('/') && !redirectTo.startsWith('//') ? redirectTo : '/track';
+    window.location.href = safeRedirect;
   }
 
   return (

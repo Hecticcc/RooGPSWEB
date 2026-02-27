@@ -28,11 +28,19 @@ export async function GET(request: Request) {
     devicesRes,
     locationsCountRes,
     lastLocationRes,
+    trackerStockCountRes,
+    newOrders24hRes,
+    ordersByStatusRes,
+    revenueRes,
   ] = await Promise.all([
     admin.from('user_roles').select('*', { count: 'exact', head: true }),
     admin.from('devices').select('id, last_seen_at'),
     admin.from('locations').select('*', { count: 'exact', head: true }).gte('received_at', since24h),
     admin.from('locations').select('received_at').order('received_at', { ascending: false }).limit(1).maybeSingle(),
+    admin.from('tracker_stock').select('*', { count: 'exact', head: true }),
+    admin.from('orders').select('*', { count: 'exact', head: true }).gte('created_at', since24h),
+    admin.from('orders').select('status'),
+    admin.from('orders').select('total_cents').in('status', ['paid', 'fulfilled', 'processing', 'shipped', 'activated']),
   ]);
 
   const totalUsers = (usersCountRes as { count?: number })?.count ?? 0;
@@ -64,6 +72,14 @@ export async function GET(request: Request) {
   }
 
   const lastLocationReceivedAt = (lastLocationRes.data as { received_at?: string } | null)?.received_at ?? null;
+  const tracker_stock_count = (trackerStockCountRes as { count?: number })?.count ?? 0;
+
+  const new_orders_24h = (newOrders24hRes as { count?: number })?.count ?? 0;
+  const ordersByStatus = (ordersByStatusRes.data ?? []) as { status: string }[];
+  const total_orders_incomplete = ordersByStatus.filter((o) => !['activated', 'cancelled'].includes(o.status)).length;
+  const completed_orders = ordersByStatus.filter((o) => o.status === 'activated').length;
+  const revenueCents = (revenueRes.data ?? []) as { total_cents: number | null }[];
+  const revenue = revenueCents.reduce((sum, o) => sum + (o.total_cents ?? 0), 0);
 
   return NextResponse.json({
     total_users: totalUsers,
@@ -76,5 +92,10 @@ export async function GET(request: Request) {
     ingest_error: ingestError,
     ingest_started_at: ingestHealth?.uptime_seconds != null ? new Date(Date.now() - ingestHealth.uptime_seconds * 1000).toISOString() : null,
     last_location_received_at: lastLocationReceivedAt,
+    tracker_stock_count,
+    new_orders_24h,
+    total_orders_incomplete,
+    completed_orders,
+    revenue_cents: revenue,
   });
 }

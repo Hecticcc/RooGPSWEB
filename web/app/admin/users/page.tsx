@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAdminAuth } from '../AdminAuthContext';
+import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { roleLabel } from '@/lib/roles';
 import type { UserRole } from '@/lib/roles';
 
@@ -121,7 +122,7 @@ export default function AdminUsersPage() {
     }
   }
 
-  if (loading) return <p className="admin-time">Loading…</p>;
+  if (loading) return <div className="app-loading"><AppLoadingIcon /></div>;
   if (error) return <p className="admin-time" style={{ color: 'var(--error)' }}>{error}</p>;
 
   return (

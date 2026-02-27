@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { Car, Battery, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Shield, ShieldOff, Palette, Signal } from 'lucide-react';
+import { Car, Battery, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Shield, ShieldOff, Palette, Signal, Pencil, Crosshair, Satellite, Radio } from 'lucide-react';
 import DashboardMap from '@/components/DashboardMap';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import TrackerIconPreview from '@/components/TrackerIconPreview';
-import { TRACKER_NAME_MAX } from '@/lib/device-constants';
+import { TRACKER_NAME_MAX, validateTrackerName } from '@/lib/device-constants';
 
 const TRACKER_ICONS = [
   { id: 'car', label: 'Car' },
@@ -21,6 +21,11 @@ const COLOUR_PRESETS = [
   '#f97316', '#ef4444', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#eab308',
 ] as const;
 
+type DeviceSignal = {
+  gps?: { fix_flag?: string; valid?: boolean; sats?: number; hdop?: number; speed_kmh?: number; course_deg?: number; has_signal?: boolean };
+  gsm?: { csq?: number; percent?: number | null; quality?: string };
+} | null;
+
 type Device = {
   id: string;
   name: string | null;
@@ -30,6 +35,7 @@ type Device = {
   latest_lng?: number | null;
   latest_battery_percent?: number | null;
   latest_battery_voltage_v?: number | null;
+  latest_signal?: DeviceSignal;
   marker_color?: string | null;
   marker_icon?: string | null;
   watchdog_armed?: boolean;
@@ -54,7 +60,7 @@ type Props = {
   onAdd: (e: React.FormEvent) => void;
   onToggleAddForm: () => void;
   onColorChange: (deviceId: string, hex: string) => void;
-  onSettingsChange: (deviceId: string, updates: { marker_color?: string; marker_icon?: string; watchdog_armed?: boolean }) => void;
+  onSettingsChange: (deviceId: string, updates: { marker_color?: string; marker_icon?: string; watchdog_armed?: boolean; name?: string | null }) => void;
   onWatchdogToggle: (deviceId: string, armed: boolean) => void;
   colorSaveStatus: { deviceId: string; status: 'saving' | 'saved' | 'error' } | null;
   highlightedTrackerId: string | null;
@@ -92,17 +98,34 @@ export default function DevicesListView(props: Props) {
   } = props;
 
   const [settingsOpenId, setSettingsOpenId] = useState<string | null>(null);
-  const [settingsTab, setSettingsTab] = useState<'appearance' | 'watchdog'>('appearance');
+  const [settingsTab, setSettingsTab] = useState<'appearance' | 'watchdog' | 'signal'>('appearance');
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
   const modalRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!settingsOpenId) setEditingNameId(null);
+  }, [settingsOpenId]);
 
   useEffect(() => {
     if (!settingsOpenId) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSettingsOpenId(null);
+      if (e.key === 'Escape') {
+        if (editingNameId) setEditingNameId(null);
+        else setSettingsOpenId(null);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [settingsOpenId]);
+  }, [settingsOpenId, editingNameId]);
+
+  useEffect(() => {
+    if (editingNameId) {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    }
+  }, [editingNameId]);
 
   const mapMarkers = useMemo(
     () =>
@@ -317,6 +340,41 @@ export default function DevicesListView(props: Props) {
                             <Clock size={14} strokeWidth={2} className="tracker-card-detail-icon" />
                             {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : 'Never'}
                           </span>
+                          {d.latest_signal?.gps != null && (
+                            <>
+                              <span
+                                className="tracker-card-detail-inline tracker-card-signal-gpsfix"
+                                title={d.latest_signal.gps.valid ? 'GPS fix valid' : 'GPS fix invalid'}
+                                style={{ color: d.latest_signal.gps.valid ? 'var(--success)' : 'var(--muted)' }}
+                              >
+                                <Crosshair size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
+                                {d.latest_signal.gps.valid ? 'Valid' : 'Invalid'}
+                              </span>
+                              <span
+                                className="tracker-card-detail-inline tracker-card-signal-sats"
+                                title={`Satellites: ${d.latest_signal.gps.sats ?? '—'}`}
+                                style={{
+                                  color: (d.latest_signal.gps.sats ?? 0) >= 4 ? 'var(--success)' : (d.latest_signal.gps.sats ?? 0) >= 1 ? 'var(--warn)' : 'var(--muted)',
+                                }}
+                              >
+                                <Satellite size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
+                                {d.latest_signal.gps.sats ?? '—'}
+                              </span>
+                            </>
+                          )}
+                          {d.latest_signal?.gsm != null && (
+                            <span
+                              className="tracker-card-detail-inline tracker-card-signal-gsm"
+                              title={`GSM CSQ ${d.latest_signal.gsm.csq ?? '—'}${d.latest_signal.gsm.percent != null ? ` (${d.latest_signal.gsm.percent}%)` : ''} · ${d.latest_signal.gsm.quality ?? '—'}`}
+                              style={{
+                                color: d.latest_signal.gsm.quality === 'great' || d.latest_signal.gsm.quality === 'good' ? 'var(--success)' : d.latest_signal.gsm.quality === 'ok' ? 'var(--warn)' : 'var(--muted)',
+                              }}
+                            >
+                              <Radio size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
+                              {d.latest_signal.gsm.csq ?? '—'}
+                              {d.latest_signal.gsm.percent != null ? ` (${d.latest_signal.gsm.percent}%)` : ''}
+                            </span>
+                          )}
                           {d.sim_carrier && (
                             <span className="tracker-card-detail-inline tracker-card-provider" title="Current network provider (Simbase)">
                               <Signal size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
@@ -372,12 +430,65 @@ export default function DevicesListView(props: Props) {
           >
             <div className="tracker-settings-modal" onClick={(e) => e.stopPropagation()}>
               <div className="tracker-settings-modal-header">
-                <h2 id="tracker-settings-modal-title" className="tracker-settings-modal-title">
-                  {device.name || device.id}
-                </h2>
+                {editingNameId === device.id ? (
+                  <input
+                    ref={nameInputRef}
+                    type="text"
+                    id="tracker-settings-modal-title"
+                    className="tracker-settings-modal-title-input"
+                    value={editingNameValue}
+                    onChange={(e) => setEditingNameValue(e.target.value.slice(0, TRACKER_NAME_MAX))}
+                    onBlur={() => {
+                      const trimmed = editingNameValue.trim();
+                      const validation = validateTrackerName(trimmed || null);
+                      if (!validation.valid) {
+                        alert(validation.error);
+                        setEditingNameValue(device.name || device.id);
+                        setEditingNameId(null);
+                        return;
+                      }
+                      const newName = trimmed || null;
+                      if (newName !== (device.name ?? null)) {
+                        onSettingsChange(device.id, { name: newName });
+                      }
+                      setEditingNameId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      if (e.key === 'Escape') {
+                        setEditingNameValue(device.name || device.id);
+                        setEditingNameId(null);
+                      }
+                    }}
+                    placeholder="Tracker name"
+                    maxLength={TRACKER_NAME_MAX}
+                    aria-label="Tracker name"
+                  />
+                ) : (
+                  <div className="tracker-settings-modal-title-row">
+                    <h2 id="tracker-settings-modal-title" className="tracker-settings-modal-title">
+                      {device.name || device.id}
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingNameId(device.id);
+                        setEditingNameValue(device.name || device.id);
+                      }}
+                      className="tracker-settings-modal-edit-name"
+                      title="Edit name"
+                      aria-label="Edit tracker name"
+                    >
+                      <Pencil size={16} strokeWidth={2} />
+                    </button>
+                  </div>
+                )}
                 <button
                   type="button"
-                  onClick={() => setSettingsOpenId(null)}
+                  onClick={() => {
+                    if (editingNameId === device.id) setEditingNameId(null);
+                    setSettingsOpenId(null);
+                  }}
                   className="tracker-settings-modal-close"
                   title="Close"
                   aria-label="Close"
@@ -409,6 +520,18 @@ export default function DevicesListView(props: Props) {
                 >
                   <Shield size={16} strokeWidth={2} />
                   <span>Watch Dog</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={settingsTab === 'signal'}
+                  aria-controls="tracker-settings-panel-signal"
+                  id="tracker-settings-tab-signal"
+                  className={`tracker-settings-modal-tab${settingsTab === 'signal' ? ' tracker-settings-modal-tab--active' : ''}`}
+                  onClick={() => setSettingsTab('signal')}
+                >
+                  <Radio size={16} strokeWidth={2} />
+                  <span>Signal</span>
                 </button>
               </div>
               <div className="tracker-settings-modal-body">
@@ -519,6 +642,78 @@ export default function DevicesListView(props: Props) {
                         </button>
                       </div>
                       </div>
+                    </div>
+                  </div>
+                )}
+                {settingsTab === 'signal' && (
+                  <div id="tracker-settings-panel-signal" role="tabpanel" aria-labelledby="tracker-settings-tab-signal" className="tracker-settings-modal-panel">
+                    <div className="tracker-settings-modal-section">
+                      <h3 className="tracker-settings-modal-section-title">Signal (latest update)</h3>
+                      {device.latest_signal ? (
+                        <div className="tracker-settings-signal-grid">
+                          {device.latest_signal.gps != null && (
+                            <>
+                              <div className="tracker-settings-signal-item">
+                                <span className="tracker-settings-signal-label">GPS Fix</span>
+                                <span className="tracker-settings-signal-value" style={{ color: device.latest_signal.gps.valid ? 'var(--success)' : 'var(--muted)' }}>
+                                  {device.latest_signal.gps.fix_flag === 'A' ? 'Valid (A)' : 'Invalid (V)'}
+                                </span>
+                              </div>
+                              <div className="tracker-settings-signal-item">
+                                <span className="tracker-settings-signal-label">Satellites</span>
+                                <span className="tracker-settings-signal-value">{device.latest_signal.gps.sats ?? '—'}</span>
+                              </div>
+                              <div className="tracker-settings-signal-item">
+                                <span className="tracker-settings-signal-label">HDOP</span>
+                                <span className="tracker-settings-signal-value">{device.latest_signal.gps.hdop != null ? device.latest_signal.gps.hdop : '—'}</span>
+                              </div>
+                              <div className="tracker-settings-signal-item">
+                                <span className="tracker-settings-signal-label">Has GPS signal</span>
+                                <span className="tracker-settings-signal-value" style={{ color: device.latest_signal.gps.has_signal ? 'var(--success)' : 'var(--muted)' }}>
+                                  {device.latest_signal.gps.has_signal ? 'Yes' : 'No'}
+                                </span>
+                              </div>
+                              {device.latest_signal.gps.speed_kmh != null && (
+                                <div className="tracker-settings-signal-item">
+                                  <span className="tracker-settings-signal-label">Speed (km/h)</span>
+                                  <span className="tracker-settings-signal-value">{device.latest_signal.gps.speed_kmh}</span>
+                                </div>
+                              )}
+                              {device.latest_signal.gps.course_deg != null && (
+                                <div className="tracker-settings-signal-item">
+                                  <span className="tracker-settings-signal-label">Course (°)</span>
+                                  <span className="tracker-settings-signal-value">{device.latest_signal.gps.course_deg}</span>
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {device.latest_signal.gsm != null && (
+                            <>
+                              <div className="tracker-settings-signal-item">
+                                <span className="tracker-settings-signal-label">GSM CSQ</span>
+                                <span className="tracker-settings-signal-value">{device.latest_signal.gsm.csq ?? '—'}</span>
+                              </div>
+                              <div className="tracker-settings-signal-item">
+                                <span className="tracker-settings-signal-label">GSM %</span>
+                                <span className="tracker-settings-signal-value">{device.latest_signal.gsm.percent != null ? `${device.latest_signal.gsm.percent}%` : '—'}</span>
+                              </div>
+                              <div className="tracker-settings-signal-item">
+                                <span className="tracker-settings-signal-label">GSM quality</span>
+                                <span
+                                  className="tracker-settings-signal-value"
+                                  style={{
+                                    color: device.latest_signal.gsm.quality === 'great' || device.latest_signal.gsm.quality === 'good' ? 'var(--success)' : device.latest_signal.gsm.quality === 'ok' ? 'var(--warn)' : 'var(--muted)',
+                                  }}
+                                >
+                                  {device.latest_signal.gsm.quality ?? '—'}
+                                </span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="admin-time">No signal data in the latest location update. Data appears after the tracker sends a packet using the supported protocol (cmd 000/010/020).</p>
+                      )}
                     </div>
                   </div>
                 )}

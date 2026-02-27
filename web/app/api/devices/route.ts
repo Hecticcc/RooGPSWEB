@@ -70,7 +70,10 @@ export async function GET(request: Request) {
         .order('received_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      const extra = (loc?.extra as { battery?: { percent?: number; voltage_v?: number } } | null) ?? null;
+      const extra = (loc?.extra as {
+        battery?: { percent?: number; voltage_v?: number };
+        signal?: { gps?: { valid?: boolean; sats?: number; hdop?: number; has_signal?: boolean }; gsm?: { csq?: number; percent?: number | null; quality?: string } };
+      } | null) ?? null;
       const connError = latestErrorByDevice[d.id] ?? null;
       return {
         ...d,
@@ -78,6 +81,7 @@ export async function GET(request: Request) {
         latest_lng: loc?.longitude ?? null,
         latest_battery_percent: extra?.battery?.percent ?? null,
         latest_battery_voltage_v: extra?.battery?.voltage_v ?? null,
+        latest_signal: extra?.signal ?? null,
         marker_color: d.marker_color ?? '#f97316',
         connection_error: connError,
       };

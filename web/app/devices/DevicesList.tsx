@@ -199,15 +199,16 @@ export default function DevicesList() {
 
   async function handleSettingsChange(
     deviceId: string,
-    updates: { marker_color?: string; marker_icon?: string; watchdog_armed?: boolean }
+    updates: { marker_color?: string; marker_icon?: string; watchdog_armed?: boolean; name?: string | null }
   ) {
-    if (updates.marker_color === undefined && updates.marker_icon === undefined && updates.watchdog_armed === undefined) return;
+    if (updates.marker_color === undefined && updates.marker_icon === undefined && updates.watchdog_armed === undefined && updates.name === undefined) return;
     setColorSaveStatus({ deviceId, status: 'saving' });
     const authHeaders = await getAuthHeaders(supabase);
-    const body: { marker_color?: string; marker_icon?: string; watchdog_armed?: boolean } = {};
+    const body: { marker_color?: string; marker_icon?: string; watchdog_armed?: boolean; name?: string | null } = {};
     if (updates.marker_color !== undefined && /^#[0-9A-Fa-f]{6}$/.test(updates.marker_color)) body.marker_color = updates.marker_color;
     if (updates.marker_icon !== undefined) body.marker_icon = updates.marker_icon;
     if (updates.watchdog_armed !== undefined) body.watchdog_armed = updates.watchdog_armed;
+    if (updates.name !== undefined) body.name = updates.name === '' ? null : (updates.name ?? null);
     if (Object.keys(body).length === 0) {
       setColorSaveStatus(null);
       return;
@@ -225,7 +226,7 @@ export default function DevicesList() {
     }
     const data = await res.json().catch(() => ({}));
     setDevices((prev) =>
-      prev.map((d) => (d.id === deviceId ? { ...d, ...body, ...(data.watchdog_armed_at !== undefined && { watchdog_armed_at: data.watchdog_armed_at }) } : d))
+      prev.map((d) => (d.id === deviceId ? { ...d, ...body, name: body.name !== undefined ? body.name ?? null : d.name, ...(data.watchdog_armed_at !== undefined && { watchdog_armed_at: data.watchdog_armed_at }) } : d))
     );
     setColorSaveStatus({ deviceId, status: 'saved' });
     setTimeout(() => setColorSaveStatus(null), 2000);

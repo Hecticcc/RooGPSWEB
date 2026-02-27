@@ -94,6 +94,110 @@ function voltageToPercent(v: number): number {
   return 0;
 }
 
+/** GSM CSQ quality label (0-31 or 99 unknown). */
+function gsmQualityLabel(csq: number): string {
+  if (csq <= 5) return 'none';
+  if (csq <= 10) return 'poor';
+  if (csq <= 15) return 'ok';
+  if (csq <= 22) return 'good';
+  if (csq <= 31) return 'great';
+  return 'unknown';
+}
+
+/** iStartek Protocol v2.2: field order for cmd 000/010/020 (after date-time at index 4). */
+const PT60_CMD_POSITION_PARSED = ['000', '010', '020'] as const;
+const DATE_TIME_IDX = 4;
+const FIX_FLAG_IDX = 5;
+const LAT_IDX = 6;
+const LON_IDX = 7;
+const SAT_QUANTITY_IDX = 8;
+const HDOP_IDX = 9;
+const SPEED_IDX = 10;
+const COURSE_IDX = 11;
+const ALTITUDE_IDX = 12;
+const ODOMETER_IDX = 13;
+const CELL_IDX = 14;
+const CSQ_IDX = 15;
+const MIN_TOKENS_POSITION_BASED = 20;
+
+export type SignalGps = {
+  fix_flag: string;
+  valid: boolean;
+  sats: number;
+  hdop: number;
+  speed_kmh: number;
+  course_deg: number;
+  has_signal: boolean;
+};
+
+export type SignalGsm = {
+  csq: number;
+  percent: number | null;
+  quality: string;
+};
+
+export type SignalExtra = {
+  gps: SignalGps;
+  gsm: SignalGsm;
+};
+
+function parsePositionBasedFields(
+  tokens: string[],
+  empty: IStartekParsed,
+  deviceId: string | null
+): void {
+  const cmd = empty.msgType ?? '';
+  if (!PT60_CMD_POSITION_PARSED.includes(cmd as (typeof PT60_CMD_POSITION_PARSED)[number]) || tokens.length < MIN_TOKENS_POSITION_BASED) {
+    return;
+  }
+  const fixFlag = tokens[FIX_FLAG_IDX];
+  if (fixFlag !== 'A' && fixFlag !== 'V') {
+    empty.extra.parseError = `position_based: invalid fix_flag at ${FIX_FLAG_IDX}`;
+    if (deviceId) (empty.extra as Record<string, unknown>).parseErrorDeviceId = deviceId;
+    return;
+  }
+  const lat = parseFloat(tokens[LAT_IDX]);
+  const lon = parseFloat(tokens[LON_IDX]);
+  const satQuantity = parseInt(tokens[SAT_QUANTITY_IDX], 10);
+  const hdop = parseFloat(tokens[HDOP_IDX]);
+  const speedKmh = parseFloat(tokens[SPEED_IDX]);
+  const courseDeg = parseFloat(tokens[COURSE_IDX]);
+  if (isNaN(lat) || isNaN(lon)) {
+    empty.extra.parseError = `position_based: invalid lat/lon at ${LAT_IDX}/${LON_IDX}`;
+    if (deviceId) (empty.extra as Record<string, unknown>).parseErrorDeviceId = deviceId;
+    return;
+  }
+  const gpsFixValid = fixFlag === 'A';
+  empty.gpsValid = gpsFixValid;
+  empty.latitude = parseLatLon(lat, false);
+  empty.longitude = parseLatLon(lon, true);
+  if (!isNaN(speedKmh) && speedKmh >= 0 && speedKmh <= 500) empty.speedKph = speedKmh;
+  if (!isNaN(courseDeg) && courseDeg >= 0 && courseDeg <= 360) empty.courseDeg = courseDeg;
+
+  const csqRaw = parseInt(tokens[CSQ_IDX], 10);
+  const gsmCsq = isNaN(csqRaw) ? 99 : Math.max(0, Math.min(99, csqRaw));
+  const gsmPercent = gsmCsq >= 0 && gsmCsq <= 31 ? Math.round((gsmCsq / 31) * 100) : null;
+  const gsmQuality = gsmQualityLabel(gsmCsq);
+
+  const signal: SignalExtra = {
+    gps: {
+      fix_flag: fixFlag,
+      valid: gpsFixValid,
+      sats: isNaN(satQuantity) ? 0 : Math.max(0, satQuantity),
+      hdop: isNaN(hdop) ? 0 : hdop,
+      speed_kmh: isNaN(speedKmh) ? 0 : speedKmh,
+      course_deg: isNaN(courseDeg) ? 0 : courseDeg,
+      has_signal: gpsFixValid && (isNaN(satQuantity) ? 0 : satQuantity) >= 3,
+    },
+    gsm: {
+      csq: gsmCsq,
+      percent: gsmPercent,
+      quality: gsmQuality,
+    },
+  };
+  empty.extra.signal = signal;
+}
+
 // --- Parsed message type ---
 
 export type IStartekParsed = {
@@ -175,33 +279,39 @@ export function parseIStartekLine(rawLine: string): IStartekParsed {
       }
     }
 
-    // gps valid: "A" or "V" => true (per spec)
-    const validToken = tokens.find((t) => t === 'A' || t === 'V');
-    if (validToken !== undefined) empty.gpsValid = true;
+    // Protocol v2.2 position-based parse for cmd 000/010/020 (exact field order)
+    parsePositionBasedFields(tokens, empty, empty.deviceId);
+    const usedPositionBased = empty.extra.signal != null;
 
-    // latitude / longitude: two consecutive floats in valid range; prefer decimal-degree tokens
-    let latLonFound = false;
-    for (let i = 0; i < tokens.length - 1; i++) {
-      const a = parseFloat(tokens[i]);
-      const b = parseFloat(tokens[i + 1]);
-      if (isNaN(a) || isNaN(b)) continue;
-      const lat = parseLatLon(a, false);
-      const lon = parseLatLon(b, true);
-      if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
-        const hasDecimal = tokens[i].includes('.') || tokens[i + 1].includes('.');
-        if (hasDecimal || !latLonFound) {
-          empty.latitude = lat;
-          empty.longitude = lon;
-          if (tokens[i + 2] !== undefined) {
-            const sp = parseFloat(tokens[i + 2]);
-            if (!isNaN(sp) && sp >= 0 && sp <= 500) empty.speedKph = sp;
+    if (!usedPositionBased) {
+      // gps valid: "A" or "V" => true (per spec) – heuristic when not position-based
+      const validToken = tokens.find((t) => t === 'A' || t === 'V');
+      if (validToken !== undefined) empty.gpsValid = validToken === 'A';
+
+      // latitude / longitude: two consecutive floats in valid range; prefer decimal-degree tokens
+      let latLonFound = false;
+      for (let i = 0; i < tokens.length - 1; i++) {
+        const a = parseFloat(tokens[i]);
+        const b = parseFloat(tokens[i + 1]);
+        if (isNaN(a) || isNaN(b)) continue;
+        const lat = parseLatLon(a, false);
+        const lon = parseLatLon(b, true);
+        if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+          const hasDecimal = tokens[i].includes('.') || tokens[i + 1].includes('.');
+          if (hasDecimal || !latLonFound) {
+            empty.latitude = lat;
+            empty.longitude = lon;
+            if (tokens[i + 2] !== undefined) {
+              const sp = parseFloat(tokens[i + 2]);
+              if (!isNaN(sp) && sp >= 0 && sp <= 500) empty.speedKph = sp;
+            }
+            if (tokens[i + 3] !== undefined) {
+              const crs = parseFloat(tokens[i + 3]);
+              if (!isNaN(crs) && crs >= 0 && crs <= 360) empty.courseDeg = crs;
+            }
+            if (hasDecimal) break;
+            latLonFound = true;
           }
-          if (tokens[i + 3] !== undefined) {
-            const crs = parseFloat(tokens[i + 3]);
-            if (!isNaN(crs) && crs >= 0 && crs <= 360) empty.courseDeg = crs;
-          }
-          if (hasDecimal) break;
-          latLonFound = true;
         }
       }
     }

@@ -3,11 +3,20 @@
  * Run: npm test
  */
 process.env.DEVICE_TIMEZONE = 'Australia/Melbourne';
-import { parseIStartekLine } from './parser';
+import { parseIStartekLine, parsePT60Line } from './parser';
+import type { SignalExtra } from './parser';
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(`Assertion failed: ${msg}`);
 }
+
+// --- Position-based signal (cmd 000/010/020) Sample A: valid fix, sats 6, hdop 4.4, csq 20 ---
+const SAMPLE_A =
+  '&&:122,866069069149704,000,0,,260227075105,A,-38.093690,145.175548,6,4.4,0,0,14,5260,505|2|D070|0152CF42,20,0014,00,00,0002|01A43E';
+
+// --- Position-based Sample B: invalid fix, sats 0, hdop 0.0, csq 15 ---
+const SAMPLE_B =
+  '&&:120,867747070319866,000,0,,260225100251,V,-38.093730,145.175573,0,0.0,0,0,0,745,505|1|30A5|081A1F02,15,0010,00,00,0000|019DD2';
 
 // tailToken "0000|019AE4" => batV_hex=019A => 0x019A=410 => 4.10V => 90%
 const SAMPLE_019A =
@@ -52,6 +61,36 @@ assert(
   `batteryPercent: ${p3.batteryPercent} (expect ~96 ±1)`
 );
 assert((p3.extra.power as { bat_hex?: string })?.bat_hex === '01A0', 'extra.power.bat_hex 01A0');
+
+// --- Position-based (Protocol v2.2) Sample A ---
+const pa = parseIStartekLine(SAMPLE_A);
+const signalA = pa.extra.signal as SignalExtra | undefined;
+assert(signalA != null, 'Sample A must have extra.signal');
+assert(signalA!.gps.valid === true, `Sample A valid fix: ${signalA!.gps.valid}`);
+assert(signalA!.gps.sats === 6, `Sample A sats: ${signalA!.gps.sats}`);
+assert(signalA!.gps.hdop === 4.4, `Sample A hdop: ${signalA!.gps.hdop}`);
+assert(signalA!.gsm.csq === 20, `Sample A csq: ${signalA!.gsm.csq}`);
+assert(pa.latitude === -38.09369, `Sample A latitude: ${pa.latitude}`);
+assert(pa.longitude === 145.175548, `Sample A longitude: ${pa.longitude}`);
+assert(pa.speedKph === 0, `Sample A speed must be 0 (from position 10): ${pa.speedKph}`);
+assert(signalA!.gps.has_signal === true, `Sample A has_signal: ${signalA!.gps.has_signal}`);
+
+// --- Position-based Sample B ---
+const pb = parseIStartekLine(SAMPLE_B);
+const signalB = pb.extra.signal as SignalExtra | undefined;
+assert(signalB != null, 'Sample B must have extra.signal');
+assert(signalB!.gps.valid === false, `Sample B valid fix: ${signalB!.gps.valid}`);
+assert(signalB!.gps.sats === 0, `Sample B sats: ${signalB!.gps.sats}`);
+assert(signalB!.gps.hdop === 0.0, `Sample B hdop: ${signalB!.gps.hdop}`);
+assert(signalB!.gsm.csq === 15, `Sample B csq: ${signalB!.gsm.csq}`);
+assert(signalB!.gps.has_signal === false, `Sample B has_signal: ${signalB!.gps.has_signal}`);
+
+// sats is NOT parsed from speed and speed is NOT parsed as sats
+assert(Boolean(signalA && signalA.gps.sats === 6), 'sats must be 6 from position 8');
+assert(Boolean(signalB && signalB.gps.sats === 0), 'sats must be 0 from position 8');
+const ptA = parsePT60Line(SAMPLE_A);
+assert(ptA != null && ptA.extra?.signal != null, 'parsePT60Line Sample A must have extra.signal');
+assert((ptA!.extra!.signal as SignalExtra).gps.sats === 6, 'PT60 sats 6');
 
 console.log('All parser tests passed.');
 console.log(

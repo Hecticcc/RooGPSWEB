@@ -31,11 +31,15 @@ export async function GET(
   if (!data) {
     return NextResponse.json(null);
   }
-  const extra = (data.extra as { battery?: { percent?: number; voltage_v?: number } } | null) ?? null;
+  const extra = (data.extra as {
+    battery?: { percent?: number; voltage_v?: number };
+    signal?: { gps?: { fix_flag?: string; valid?: boolean; sats?: number; hdop?: number; speed_kmh?: number; course_deg?: number; has_signal?: boolean }; gsm?: { csq?: number; percent?: number | null; quality?: string } };
+  } | null) ?? null;
   const { extra: _e, ...rest } = data;
   return NextResponse.json({
     ...rest,
     battery_percent: extra?.battery?.percent ?? null,
     battery_voltage_v: extra?.battery?.voltage_v ?? null,
+    signal: extra?.signal ?? null,
   });
 }

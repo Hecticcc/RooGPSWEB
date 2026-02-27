@@ -15,6 +15,10 @@ const HEALTH_PORT = parseInt(process.env.HEALTH_PORT ?? '8090', 10);
 const MAX_SOCKET_BUFFER_BYTES = parseInt(process.env.MAX_SOCKET_BUFFER_BYTES ?? '1048576', 10) || 1048576;
 const LOG_MAX_PER_SEC = parseInt(process.env.LOG_MAX_PER_SEC ?? '20', 10) || 20;
 const SUPABASE_RETRIES = parseInt(process.env.SUPABASE_RETRIES ?? '3', 10) || 3;
+/** How long to cache "device exists" (ms). New devices appear within this after being added. */
+const DEVICE_CACHE_TTL_MS = parseInt(process.env.DEVICE_CACHE_TTL_MS ?? '60000', 10) || 60000;
+/** When device not found, retry once after this delay (ms) before deadlettering (handles "just added" / replication lag). */
+const DEVICE_CHECK_RETRY_DELAY_MS = parseInt(process.env.DEVICE_CHECK_RETRY_DELAY_MS ?? '3000', 10) || 3000;
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DEADLETTER_PATH = path.join(DATA_DIR, 'deadletter.log');
@@ -109,7 +113,11 @@ async function getIngestAccept(): Promise<boolean> {
   return systemSettingsCache.ingest_accept;
 }
 
-async function ensureDevice(deviceId: string): Promise<boolean> {
+/** Short-TTL cache so new devices are seen within TTL without restart; also limits DB load per device. */
+const deviceCache = new Map<string, { allowed: boolean; at: number }>();
+const DEVICE_CACHE_NEGATIVE_TTL_MS = Math.min(30000, Math.max(5000, Math.floor(DEVICE_CACHE_TTL_MS / 2)));
+
+async function ensureDeviceFresh(deviceId: string): Promise<boolean> {
   if (!supabase) return false;
   const { data, error } = await supabase.from('devices').select('id, ingest_disabled').eq('id', deviceId).maybeSingle();
   if (error) {
@@ -121,6 +129,18 @@ async function ensureDevice(deviceId: string): Promise<boolean> {
   }
   if (!data || data.ingest_disabled) return false;
   return true;
+}
+
+async function ensureDevice(deviceId: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = deviceCache.get(deviceId);
+  if (cached) {
+    const ttl = cached.allowed ? DEVICE_CACHE_TTL_MS : DEVICE_CACHE_NEGATIVE_TTL_MS;
+    if (now - cached.at < ttl) return cached.allowed;
+  }
+  const allowed = await ensureDeviceFresh(deviceId);
+  deviceCache.set(deviceId, { allowed, at: now });
+  return allowed;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -232,10 +252,22 @@ function handleLine(line: string, socket?: net.Socket) {
   ensureDevice(parsed.device_id).then((exists) => {
     if (shuttingDown) return;
     if (REQUIRE_DEVICE_PREEXIST && !exists) {
-      rejectedUnknownDevice++;
-      appendDeadletter(parsed.device_id, parsed.raw_payload);
-      log('info', 'rejected unknown device', { device_id: parsed.device_id, raw: parsed.raw_payload });
-      logParsedMessage(isStartek, false, 'unknown_device');
+      // Retry once after a short delay so a newly added device (or replication lag) is picked up without restart
+      sleep(DEVICE_CHECK_RETRY_DELAY_MS).then(() => ensureDeviceFresh(parsed.device_id)).then((existsAfterRetry) => {
+        if (shuttingDown) return;
+        if (existsAfterRetry) {
+          deviceCache.set(parsed.device_id, { allowed: true, at: Date.now() });
+          insertLocation(parsed).then((inserted) => {
+            logParsedMessage(isStartek, inserted, inserted ? null : 'insert_failed');
+          });
+          return;
+        }
+        deviceCache.set(parsed.device_id, { allowed: false, at: Date.now() });
+        rejectedUnknownDevice++;
+        appendDeadletter(parsed.device_id, parsed.raw_payload);
+        log('info', 'rejected unknown device', { device_id: parsed.device_id, raw: parsed.raw_payload });
+        logParsedMessage(isStartek, false, 'unknown_device');
+      });
       return;
     }
     if (!exists) return;

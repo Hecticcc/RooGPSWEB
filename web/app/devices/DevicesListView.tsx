@@ -379,20 +379,24 @@ export default function DevicesListView(props: Props) {
                               </span>
                             </>
                           )}
-                          {d.latest_signal?.gsm != null && (
+                          {d.latest_signal?.gsm != null && (() => {
+                            const q = d.latest_signal!.gsm!.quality;
+                            const friendly = q === 'great' ? 'Great' : q === 'good' ? 'Good' : q === 'ok' ? 'Okay' : q === 'poor' ? 'Weak' : 'None';
+                            return (
                             <span
                               className="tracker-card-chip tracker-card-signal-gsm"
-                              title={`GSM CSQ ${d.latest_signal.gsm.csq ?? '—'}${d.latest_signal.gsm.percent != null ? ` (${d.latest_signal.gsm.percent}%)` : ''} · ${d.latest_signal.gsm.quality ?? '—'}`}
+                              title={`Data signal: ${friendly}`}
                               style={{
-                                color: d.latest_signal.gsm.quality === 'great' || d.latest_signal.gsm.quality === 'good' ? 'var(--success)' : d.latest_signal.gsm.quality === 'ok' ? 'var(--warn)' : 'var(--muted)',
+                                color: d.latest_signal!.gsm!.quality === 'great' || d.latest_signal!.gsm!.quality === 'good' ? 'var(--success)' : d.latest_signal!.gsm!.quality === 'ok' ? 'var(--warn)' : 'var(--muted)',
                               }}
                             >
                               <Radio size={12} strokeWidth={2} aria-hidden />
-                              <span>{d.latest_signal.gsm.csq ?? '—'}{d.latest_signal.gsm.percent != null ? ` (${d.latest_signal.gsm.percent}%)` : ''}</span>
+                              <span>{friendly}</span>
                             </span>
-                          )}
+                            );
+                          })()}
                           {d.sim_carrier && (
-                            <span className="tracker-card-chip tracker-card-provider" title="Current network provider (Simbase)">
+                            <span className="tracker-card-chip tracker-card-provider" title="Current network provider">
                               <Signal size={12} strokeWidth={2} aria-hidden />
                               <span>{d.sim_carrier}</span>
                             </span>

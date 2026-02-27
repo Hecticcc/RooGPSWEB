@@ -26,7 +26,7 @@ type Device = {
 };
 
 const ONLINE_MS = 5 * 60 * 1000;
-const POLL_INTERVAL_MS = 30 * 1000; // refresh trackers and map every 30s
+const POLL_INTERVAL_MS = 45 * 1000; // refresh trackers and map every 45s (balance freshness vs server/network load)
 
 function isOnline(lastSeen: string | null): boolean {
   if (!lastSeen) return false;
@@ -54,15 +54,8 @@ export default function DevicesList() {
     };
   }, []);
 
-  async function load(retried = false) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      router.push('/login');
-      return;
-    }
-    const authHeaders = await getAuthHeaders(supabase);
+  async function loadDevices(authHeaders: Record<string, string>, retried = false): Promise<boolean> {
     let res = await fetch('/api/devices', { credentials: 'include', headers: authHeaders });
-    // If 401, try refreshing the session once (handles expired access token, refresh token still valid)
     if (res.status === 401 && !retried) {
       const { error: refreshErr } = await supabase.auth.refreshSession();
       if (!refreshErr) {
@@ -72,13 +65,15 @@ export default function DevicesList() {
     }
     if (!res.ok) {
       setError(res.status === 401 ? 'Session expired' : 'Failed to load devices');
-      setLoading(false);
-      return;
+      return false;
     }
     const data = await res.json();
     setDevices(Array.isArray(data) ? data : []);
     setError(null);
+    return true;
+  }
 
+  async function loadSession(authHeaders: Record<string, string>) {
     const [subRes, meRes] = await Promise.all([
       fetch('/api/subscription', { credentials: 'include', headers: authHeaders }),
       fetch('/api/me', { credentials: 'include', cache: 'no-store', headers: authHeaders }),
@@ -93,21 +88,43 @@ export default function DevicesList() {
     } else {
       setCanShowMap(isCustomerOnly ? false : true);
     }
+  }
+
+  async function load(retried = false) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    const authHeaders = await getAuthHeaders(supabase);
+    const ok = await loadDevices(authHeaders, retried);
+    if (!ok) {
+      setLoading(false);
+      return;
+    }
+    await loadSession(authHeaders);
     setLoading(false);
+  }
+
+  async function pollDevices() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const authHeaders = await getAuthHeaders(supabase);
+    await loadDevices(authHeaders, false);
   }
 
   useEffect(() => {
     load();
   }, []);
 
-  // Auto-refresh trackers and map when tab is visible (no manual refresh needed)
+  // Auto-refresh trackers and map when tab is visible (devices only; subscription/me only on full load)
   useEffect(() => {
     if (loading) return;
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
     function tick() {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        load();
+        pollDevices();
       }
     }
 
@@ -125,7 +142,7 @@ export default function DevicesList() {
 
     function onVisibilityChange() {
       if (document.visibilityState === 'visible') {
-        load(); // refresh once when user returns to tab
+        load(); // full refresh when user returns to tab (devices + subscription + me)
         startPolling();
       } else {
         stopPolling();

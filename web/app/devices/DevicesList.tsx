@@ -83,8 +83,7 @@ export default function DevicesList() {
     if (subRes.ok) {
       const subData = await subRes.json();
       const hasActive = subData.hasActiveSimSubscription === true;
-      const hasEnabled = subData.hasAnyEnabledSim !== false;
-      setCanShowMap(isCustomerOnly ? hasActive && hasEnabled : true);
+      setCanShowMap(isCustomerOnly ? hasActive : true);
     } else {
       setCanShowMap(isCustomerOnly ? false : true);
     }

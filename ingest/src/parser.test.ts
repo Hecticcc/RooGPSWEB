@@ -3,7 +3,7 @@
  * Run: npm test
  */
 process.env.DEVICE_TIMEZONE = 'Australia/Melbourne';
-import { parseIStartekLine, parsePT60Line } from './parser';
+import { parseIStartekLine, parsePT60Line, computeSatelliteConnectivity } from './parser';
 import type { SignalExtra } from './parser';
 
 function assert(cond: boolean, msg: string) {
@@ -91,6 +91,31 @@ assert(Boolean(signalB && signalB.gps.sats === 0), 'sats must be 0 from position
 const ptA = parsePT60Line(SAMPLE_A);
 assert(ptA != null && ptA.extra?.signal != null, 'parsePT60Line Sample A must have extra.signal');
 assert((ptA!.extra!.signal as SignalExtra).gps.sats === 6, 'PT60 sats 6');
+
+// --- Satellite connectivity (HDOP + sats) ---
+assert(signalA?.gps.connectivity != null, 'Sample A must have gps.connectivity');
+assert(signalA!.gps.connectivity!.sats === 6 && signalA!.gps.connectivity!.hdop === 4.4, 'Sample A connectivity sats/hdop');
+assert(signalB?.gps.connectivity != null, 'Sample B must have gps.connectivity');
+assert(signalB!.gps.connectivity!.barPercent === 0 && signalB!.gps.connectivity!.tier === 'poor', 'Sample B invalid fix -> 0% poor');
+
+// 1) sats=8, hdop=1.2 -> barPercent ~80+, tier good, green
+const c1 = computeSatelliteConnectivity(true, 8, 1.2);
+assert(c1.barPercent >= 80, `sats=8 hdop=1.2 barPercent >= 80: ${c1.barPercent}`);
+assert(c1.tier === 'good', `sats=8 hdop=1.2 tier good: ${c1.tier}`);
+
+// 2) sats=6, hdop=4.5 -> satelliteScore 60, modifier 0.6 -> ~36%, tier weak, orange
+const c2 = computeSatelliteConnectivity(true, 6, 4.5);
+assert(c2.barPercent >= 35 && c2.barPercent <= 38, `sats=6 hdop=4.5 barPercent ~36: ${c2.barPercent}`);
+assert(c2.tier === 'weak', `sats=6 hdop=4.5 tier weak: ${c2.tier}`);
+
+// 3) sats=10, hdop=6.5 -> 100 * 0.4 = 40%, tier weak
+const c3 = computeSatelliteConnectivity(true, 10, 6.5);
+assert(c3.barPercent === 40, `sats=10 hdop=6.5 barPercent 40: ${c3.barPercent}`);
+assert(c3.tier === 'weak', `sats=10 hdop=6.5 tier weak: ${c3.tier}`);
+
+// 4) fix invalid -> barPercent 0, red (poor)
+const c4 = computeSatelliteConnectivity(false, 5, 2.0);
+assert(c4.barPercent === 0 && c4.tier === 'poor', `fix invalid -> 0 poor: ${c4.barPercent} ${c4.tier}`);
 
 console.log('All parser tests passed.');
 console.log(

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { Car, Battery, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Shield, ShieldOff, Palette, Signal, Pencil, Crosshair, Satellite, Radio } from 'lucide-react';
+import { Car, Battery, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Shield, ShieldOff, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle } from 'lucide-react';
 import DashboardMap from '@/components/DashboardMap';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import TrackerIconPreview from '@/components/TrackerIconPreview';
@@ -22,7 +22,16 @@ const COLOUR_PRESETS = [
 ] as const;
 
 type DeviceSignal = {
-  gps?: { fix_flag?: string; valid?: boolean; sats?: number; hdop?: number; speed_kmh?: number; course_deg?: number; has_signal?: boolean };
+  gps?: {
+    fix_flag?: string;
+    valid?: boolean;
+    sats?: number;
+    hdop?: number;
+    speed_kmh?: number;
+    course_deg?: number;
+    has_signal?: boolean;
+    connectivity?: { barPercent: number; tier: string; colour: string };
+  };
   gsm?: { csq?: number; percent?: number | null; quality?: string };
 } | null;
 
@@ -298,26 +307,20 @@ export default function DevicesListView(props: Props) {
                         title="Map colour"
                       />
                       <div className="tracker-card-body">
-                        <div className="tracker-card-row">
+                        <div className="tracker-card-primary">
                           <span className="tracker-card-name">{d.name || d.id}</span>
+                        </div>
+                        <div className="tracker-card-details-row">
                           <span
-                            className="tracker-card-status-inline"
+                            className={`tracker-card-chip tracker-card-status-chip`}
                             aria-label={online ? 'Online' : 'Offline'}
+                            style={{ color: online ? 'var(--success)' : 'var(--muted)' }}
                           >
                             <span className={`tracker-card-status-dot ${online ? 'tracker-card-status-dot--online' : 'tracker-card-status-dot--offline'}`} aria-hidden />
-                            <span className="tracker-card-status-text">{online ? 'Online' : 'Offline'}</span>
+                            <span>{online ? 'Online' : 'Offline'}</span>
                           </span>
-                          {d.connection_error && (
-                            <span
-                              className="tracker-card-detail-inline tracker-card-connection-error"
-                              title={`Connection error: ${d.connection_error.error_message} (${new Date(d.connection_error.created_at).toLocaleString()})`}
-                              style={{ color: 'var(--error)' }}
-                            >
-                              <AlertCircle size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-label="Connection error" />
-                            </span>
-                          )}
                           <span
-                            className="tracker-card-detail-inline tracker-card-battery"
+                            className="tracker-card-chip tracker-card-battery"
                             title={
                               d.latest_battery_percent != null
                                 ? (d.latest_battery_voltage_v != null ? `${d.latest_battery_voltage_v} V · ` : '') + `${d.latest_battery_percent}%`
@@ -333,60 +336,74 @@ export default function DevicesListView(props: Props) {
                                 : 'var(--muted)',
                             }}
                           >
-                            <Battery size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
-                            {d.latest_battery_percent != null ? `${d.latest_battery_percent}%` : '—'}
+                            <Battery size={12} strokeWidth={2} aria-hidden />
+                            <span>{d.latest_battery_percent != null ? `${d.latest_battery_percent}%` : '—'}</span>
                           </span>
-                          <span className="tracker-card-detail-inline">
-                            <Clock size={14} strokeWidth={2} className="tracker-card-detail-icon" />
-                            {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : 'Never'}
+                          <span className="tracker-card-chip" title={d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : undefined}>
+                            <Clock size={12} strokeWidth={2} aria-hidden />
+                            <span>
+                              {d.last_seen_at
+                                ? `${new Date(d.last_seen_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}, ${new Date(d.last_seen_at).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}`
+                                : 'Never'}
+                            </span>
                           </span>
+                          {d.connection_error && (
+                            <span
+                              className="tracker-card-chip tracker-card-connection-error"
+                              title={`Connection error: ${d.connection_error.error_message} (${new Date(d.connection_error.created_at).toLocaleString()})`}
+                              style={{ color: 'var(--error)' }}
+                            >
+                              <AlertCircle size={12} strokeWidth={2} aria-label="Connection error" />
+                              <span>Error</span>
+                            </span>
+                          )}
                           {d.latest_signal?.gps != null && (
                             <>
                               <span
-                                className="tracker-card-detail-inline tracker-card-signal-gpsfix"
+                                className="tracker-card-chip tracker-card-signal-gpsfix"
                                 title={d.latest_signal.gps.valid ? 'GPS fix valid' : 'GPS fix invalid'}
                                 style={{ color: d.latest_signal.gps.valid ? 'var(--success)' : 'var(--muted)' }}
                               >
-                                <Crosshair size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
-                                {d.latest_signal.gps.valid ? 'Valid' : 'Invalid'}
+                                <Crosshair size={12} strokeWidth={2} aria-hidden />
+                                <span>{d.latest_signal.gps.valid ? 'Valid' : 'Invalid'}</span>
                               </span>
                               <span
-                                className="tracker-card-detail-inline tracker-card-signal-sats"
+                                className="tracker-card-chip tracker-card-signal-sats"
                                 title={`Satellites: ${d.latest_signal.gps.sats ?? '—'}`}
                                 style={{
                                   color: (d.latest_signal.gps.sats ?? 0) >= 4 ? 'var(--success)' : (d.latest_signal.gps.sats ?? 0) >= 1 ? 'var(--warn)' : 'var(--muted)',
                                 }}
                               >
-                                <Satellite size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
-                                {d.latest_signal.gps.sats ?? '—'}
+                                <Satellite size={12} strokeWidth={2} aria-hidden />
+                                <span>{d.latest_signal.gps.sats ?? '—'}</span>
                               </span>
                             </>
                           )}
                           {d.latest_signal?.gsm != null && (
                             <span
-                              className="tracker-card-detail-inline tracker-card-signal-gsm"
+                              className="tracker-card-chip tracker-card-signal-gsm"
                               title={`GSM CSQ ${d.latest_signal.gsm.csq ?? '—'}${d.latest_signal.gsm.percent != null ? ` (${d.latest_signal.gsm.percent}%)` : ''} · ${d.latest_signal.gsm.quality ?? '—'}`}
                               style={{
                                 color: d.latest_signal.gsm.quality === 'great' || d.latest_signal.gsm.quality === 'good' ? 'var(--success)' : d.latest_signal.gsm.quality === 'ok' ? 'var(--warn)' : 'var(--muted)',
                               }}
                             >
-                              <Radio size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
-                              {d.latest_signal.gsm.csq ?? '—'}
-                              {d.latest_signal.gsm.percent != null ? ` (${d.latest_signal.gsm.percent}%)` : ''}
+                              <Radio size={12} strokeWidth={2} aria-hidden />
+                              <span>{d.latest_signal.gsm.csq ?? '—'}{d.latest_signal.gsm.percent != null ? ` (${d.latest_signal.gsm.percent}%)` : ''}</span>
                             </span>
                           )}
                           {d.sim_carrier && (
-                            <span className="tracker-card-detail-inline tracker-card-provider" title="Current network provider (Simbase)">
-                              <Signal size={14} strokeWidth={2} className="tracker-card-detail-icon" aria-hidden />
+                            <span className="tracker-card-chip tracker-card-provider" title="Current network provider (Simbase)">
+                              <Signal size={12} strokeWidth={2} aria-hidden />
                               <span>{d.sim_carrier}</span>
                             </span>
                           )}
                           <span
-                            className={`tracker-card-watchdog-icon${d.watchdog_armed ? ' tracker-card-watchdog-icon--armed' : ''}`}
+                            className={`tracker-card-chip tracker-card-watchdog-icon${d.watchdog_armed ? ' tracker-card-watchdog-icon--armed' : ''}`}
                             title={d.watchdog_armed ? 'Watch Dog armed – open settings to disarm' : 'Watch Dog off – open settings to arm'}
                             aria-label={d.watchdog_armed ? 'Watch Dog armed' : 'Watch Dog off'}
                           >
-                            <Shield size={16} strokeWidth={2} />
+                            <Shield size={12} strokeWidth={2} />
+                            <span>{d.watchdog_armed ? 'Armed' : 'Off'}</span>
                           </span>
                         </div>
                       </div>
@@ -648,71 +665,87 @@ export default function DevicesListView(props: Props) {
                 {settingsTab === 'signal' && (
                   <div id="tracker-settings-panel-signal" role="tabpanel" aria-labelledby="tracker-settings-tab-signal" className="tracker-settings-modal-panel">
                     <div className="tracker-settings-modal-section">
-                      <h3 className="tracker-settings-modal-section-title">Signal (latest update)</h3>
                       {device.latest_signal ? (
-                        <div className="tracker-settings-signal-grid">
-                          {device.latest_signal.gps != null && (
-                            <>
-                              <div className="tracker-settings-signal-item">
-                                <span className="tracker-settings-signal-label">GPS Fix</span>
-                                <span className="tracker-settings-signal-value" style={{ color: device.latest_signal.gps.valid ? 'var(--success)' : 'var(--muted)' }}>
-                                  {device.latest_signal.gps.fix_flag === 'A' ? 'Valid (A)' : 'Invalid (V)'}
-                                </span>
-                              </div>
-                              <div className="tracker-settings-signal-item">
-                                <span className="tracker-settings-signal-label">Satellites</span>
-                                <span className="tracker-settings-signal-value">{device.latest_signal.gps.sats ?? '—'}</span>
-                              </div>
-                              <div className="tracker-settings-signal-item">
-                                <span className="tracker-settings-signal-label">HDOP</span>
-                                <span className="tracker-settings-signal-value">{device.latest_signal.gps.hdop != null ? device.latest_signal.gps.hdop : '—'}</span>
-                              </div>
-                              <div className="tracker-settings-signal-item">
-                                <span className="tracker-settings-signal-label">Has GPS signal</span>
-                                <span className="tracker-settings-signal-value" style={{ color: device.latest_signal.gps.has_signal ? 'var(--success)' : 'var(--muted)' }}>
-                                  {device.latest_signal.gps.has_signal ? 'Yes' : 'No'}
-                                </span>
-                              </div>
-                              {device.latest_signal.gps.speed_kmh != null && (
-                                <div className="tracker-settings-signal-item">
-                                  <span className="tracker-settings-signal-label">Speed (km/h)</span>
-                                  <span className="tracker-settings-signal-value">{device.latest_signal.gps.speed_kmh}</span>
-                                </div>
-                              )}
-                              {device.latest_signal.gps.course_deg != null && (
-                                <div className="tracker-settings-signal-item">
-                                  <span className="tracker-settings-signal-label">Course (°)</span>
-                                  <span className="tracker-settings-signal-value">{device.latest_signal.gps.course_deg}</span>
-                                </div>
-                              )}
-                            </>
+                        <>
+                          {device.last_seen_at && (
+                            <p className="tracker-settings-signal-updated" aria-label={`Signal data from ${new Date(device.last_seen_at).toLocaleString()}`}>
+                              Updated {new Date(device.last_seen_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}, {new Date(device.last_seen_at).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}
+                            </p>
                           )}
+                          <div className="tracker-settings-signal-simple">
+                          {device.latest_signal.gps != null && (
+                            <div className="tracker-settings-signal-row">
+                              <div className="tracker-settings-signal-row-head">
+                                <span>Location Signal</span>
+                                <span className="tracker-settings-signal-help" title="Indicates the quality and reliability of the current GPS position fix."><HelpCircle size={12} aria-hidden /></span>
+                              </div>
+                              <div
+                                className={`tracker-settings-signal-block tracker-settings-signal-block--${device.latest_signal.gps.has_signal ? 'good' : device.latest_signal.gps.valid ? 'weak' : 'none'}`}
+                                aria-label={device.latest_signal.gps.has_signal ? 'Strong signal' : device.latest_signal.gps.valid ? 'Weak signal' : 'No signal'}
+                              >
+                                {device.latest_signal.gps.has_signal ? (
+                                  <><Check size={18} strokeWidth={2.5} aria-hidden /><span>Strong signal</span></>
+                                ) : device.latest_signal.gps.valid ? (
+                                  <><Crosshair size={18} strokeWidth={2} aria-hidden /><span>Weak signal</span></>
+                                ) : (
+                                  <><X size={18} strokeWidth={2.5} aria-hidden /><span>No signal</span></>
+                                )}
+                              </div>
+                              {!device.latest_signal.gps.has_signal && !device.latest_signal.gps.valid && (
+                                <p className="tracker-settings-signal-location-warning">
+                                  Ensure the tracker has a clear view of the sky for the best GPS signal.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          {device.latest_signal.gps != null && (() => {
+                            const gps = device.latest_signal.gps;
+                            const connectivity = gps?.connectivity;
+                            const barPercent = connectivity != null ? connectivity.barPercent : Math.min(100, ((gps?.sats ?? 0) / 12) * 100);
+                            const tier = connectivity != null ? connectivity.tier : (gps?.sats ?? 0) === 0 ? 'poor' : (gps?.sats ?? 0) <= 3 ? 'fair' : (gps?.sats ?? 0) <= 6 ? 'weak' : 'good';
+                            return (
+                            <div className="tracker-settings-signal-row">
+                              <div className="tracker-settings-signal-row-head">
+                                <span>Satellite Connectivity</span>
+                                <span className="tracker-settings-signal-help" title="GPS accuracy based on satellites and signal quality."><HelpCircle size={12} aria-hidden /></span>
+                              </div>
+                              <div
+                                className={`tracker-settings-signal-block tracker-settings-signal-block--cellular tracker-settings-signal-block--${tier}`}
+                                aria-label={`Satellite connectivity: ${gps?.sats ?? 0} satellites`}
+                              >
+                                <div className="tracker-settings-signal-bar" role="img" aria-hidden>
+                                  <div
+                                    className="tracker-settings-signal-bar-fill"
+                                    style={{ width: `${barPercent}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            );
+                          })()}
                           {device.latest_signal.gsm != null && (
-                            <>
-                              <div className="tracker-settings-signal-item">
-                                <span className="tracker-settings-signal-label">GSM CSQ</span>
-                                <span className="tracker-settings-signal-value">{device.latest_signal.gsm.csq ?? '—'}</span>
+                            <div className="tracker-settings-signal-row">
+                              <div className="tracker-settings-signal-row-head">
+                                <span>Cellular Network Strength</span>
+                                <span className="tracker-settings-signal-help" title="Reflects the strength of the mobile data connection used to transmit real-time tracking information."><HelpCircle size={12} aria-hidden /></span>
                               </div>
-                              <div className="tracker-settings-signal-item">
-                                <span className="tracker-settings-signal-label">GSM %</span>
-                                <span className="tracker-settings-signal-value">{device.latest_signal.gsm.percent != null ? `${device.latest_signal.gsm.percent}%` : '—'}</span>
+                              <div
+                                className={`tracker-settings-signal-block tracker-settings-signal-block--cellular tracker-settings-signal-block--${device.latest_signal.gsm.quality === 'great' || device.latest_signal.gsm.quality === 'good' ? 'good' : device.latest_signal.gsm.quality === 'ok' ? 'weak' : 'none'}`}
+                                aria-label={`Cellular signal ${device.latest_signal.gsm.percent ?? 0}%`}
+                              >
+                                <div className="tracker-settings-signal-bar" role="img" aria-hidden>
+                                  <div
+                                    className="tracker-settings-signal-bar-fill"
+                                    style={{ width: `${device.latest_signal.gsm.percent != null ? device.latest_signal.gsm.percent : 0}%` }}
+                                  />
+                                </div>
                               </div>
-                              <div className="tracker-settings-signal-item">
-                                <span className="tracker-settings-signal-label">GSM quality</span>
-                                <span
-                                  className="tracker-settings-signal-value"
-                                  style={{
-                                    color: device.latest_signal.gsm.quality === 'great' || device.latest_signal.gsm.quality === 'good' ? 'var(--success)' : device.latest_signal.gsm.quality === 'ok' ? 'var(--warn)' : 'var(--muted)',
-                                  }}
-                                >
-                                  {device.latest_signal.gsm.quality ?? '—'}
-                                </span>
-                              </div>
-                            </>
+                            </div>
                           )}
                         </div>
+                        </>
                       ) : (
-                        <p className="admin-time">No signal data in the latest location update. Data appears after the tracker sends a packet using the supported protocol (cmd 000/010/020).</p>
+                        <p className="tracker-settings-signal-empty">No signal data yet. It will appear here after your tracker sends its next update.</p>
                       )}
                     </div>
                   </div>

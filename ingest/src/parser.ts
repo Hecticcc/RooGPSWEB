@@ -120,6 +120,17 @@ const CELL_IDX = 14;
 const CSQ_IDX = 15;
 const MIN_TOKENS_POSITION_BASED = 20;
 
+/** Satellite connectivity tier for UI (bar + colour). Not shown: raw HDOP. */
+export type SatelliteConnectivityTier = 'good' | 'fair' | 'weak' | 'poor';
+
+export type SignalGpsConnectivity = {
+  sats: number;
+  hdop: number;
+  barPercent: number;
+  tier: SatelliteConnectivityTier;
+  colour: SatelliteConnectivityTier;
+};
+
 export type SignalGps = {
   fix_flag: string;
   valid: boolean;
@@ -128,6 +139,7 @@ export type SignalGps = {
   speed_kmh: number;
   course_deg: number;
   has_signal: boolean;
+  connectivity?: SignalGpsConnectivity;
 };
 
 export type SignalGsm = {
@@ -140,6 +152,56 @@ export type SignalExtra = {
   gps: SignalGps;
   gsm: SignalGsm;
 };
+
+/**
+ * Satellite connectivity score from sats + HDOP. Used for bar and colour only; HDOP not shown in UI.
+ * Deterministic, pure function for testing.
+ */
+export function computeSatelliteConnectivity(
+  valid: boolean,
+  sats: number,
+  hdop: number
+): SignalGpsConnectivity {
+  const satsClamped = Math.max(0, Math.min(99, sats));
+  const hdopVal = typeof hdop === 'number' && !Number.isNaN(hdop) ? hdop : 99;
+
+  if (!valid) {
+    return { sats: satsClamped, hdop: hdopVal, barPercent: 0, tier: 'poor', colour: 'poor' };
+  }
+  if (satsClamped < 3) {
+    return { sats: satsClamped, hdop: hdopVal, barPercent: 15, tier: 'poor', colour: 'poor' };
+  }
+
+  const satelliteScore = Math.min((satsClamped / 10) * 100, 100);
+
+  let hdopModifier: number;
+  if (hdopVal <= 1.5) {
+    hdopModifier = 1.0;
+  } else if (hdopVal <= 2.5) {
+    hdopModifier = 0.9;
+  } else if (hdopVal <= 4.0) {
+    hdopModifier = 0.75;
+  } else if (hdopVal <= 6.0) {
+    hdopModifier = 0.6;
+  } else {
+    hdopModifier = 0.4;
+  }
+
+  const barPercent = Math.round(satelliteScore * hdopModifier);
+
+  let tier: SatelliteConnectivityTier;
+  if (barPercent >= 75) {
+    tier = 'good';
+  } else if (barPercent >= 45) {
+    tier = 'fair';
+  } else if (barPercent >= 20) {
+    tier = 'weak';
+  } else {
+    tier = 'poor';
+  }
+
+  return { sats: satsClamped, hdop: hdopVal, barPercent, tier, colour: tier };
+}
 
 function parsePositionBasedFields(
   tokens: string[],
@@ -174,6 +236,10 @@ function parsePositionBasedFields(
   if (!isNaN(speedKmh) && speedKmh >= 0 && speedKmh <= 500) empty.speedKph = speedKmh;
   if (!isNaN(courseDeg) && courseDeg >= 0 && courseDeg <= 360) empty.courseDeg = courseDeg;
 
+  const satsNum = isNaN(satQuantity) ? 0 : Math.max(0, satQuantity);
+  const hdopNum = isNaN(hdop) ? 0 : hdop;
+  const connectivity = computeSatelliteConnectivity(gpsFixValid, satsNum, hdopNum);
+
   const csqRaw = parseInt(tokens[CSQ_IDX], 10);
   const gsmCsq = isNaN(csqRaw) ? 99 : Math.max(0, Math.min(99, csqRaw));
   const gsmPercent = gsmCsq >= 0 && gsmCsq <= 31 ? Math.round((gsmCsq / 31) * 100) : null;
@@ -183,11 +249,12 @@ function parsePositionBasedFields(
     gps: {
       fix_flag: fixFlag,
       valid: gpsFixValid,
-      sats: isNaN(satQuantity) ? 0 : Math.max(0, satQuantity),
-      hdop: isNaN(hdop) ? 0 : hdop,
+      sats: satsNum,
+      hdop: hdopNum,
       speed_kmh: isNaN(speedKmh) ? 0 : speedKmh,
       course_deg: isNaN(courseDeg) ? 0 : courseDeg,
-      has_signal: gpsFixValid && (isNaN(satQuantity) ? 0 : satQuantity) >= 3,
+      has_signal: gpsFixValid && satsNum >= 3,
+      connectivity,
     },
     gsm: {
       csq: gsmCsq,

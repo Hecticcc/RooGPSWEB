@@ -4,15 +4,9 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 const SIMBASE_API_BASE = process.env.SIMBASE_API_URL ?? 'https://api.simbase.com/v2';
 const SIMBASE_API_KEY = process.env.SIMBASE_API_KEY ?? '';
 
-const CARRIER_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min – carrier names change rarely
-const carrierCache = new Map<string, { carrier: string | null; ts: number }>();
-
-/** Fetch Simbase SIM details for one ICCID; returns connection.carrier or null. Cached 5 min. */
+/** Fetch Simbase SIM details for one ICCID; returns connection.carrier or null. */
 async function fetchSimbaseCarrier(iccid: string): Promise<string | null> {
   if (!SIMBASE_API_KEY) return null;
-  const now = Date.now();
-  const hit = carrierCache.get(iccid);
-  if (hit && now - hit.ts < CARRIER_CACHE_TTL_MS) return hit.carrier;
   try {
     const base = SIMBASE_API_BASE.replace(/\/$/, '');
     const url = `${base}/simcards/${encodeURIComponent(iccid)}`;
@@ -24,18 +18,11 @@ async function fetchSimbaseCarrier(iccid: string): Promise<string | null> {
       },
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) {
-      carrierCache.set(iccid, { carrier: null, ts: now });
-      return null;
-    }
+    if (!res.ok) return null;
     const data = (await res.json()) as { connection?: { carrier?: string } };
-    const carrier = typeof data?.connection?.carrier === 'string' && data.connection.carrier.trim()
-      ? data.connection.carrier.trim()
-      : null;
-    carrierCache.set(iccid, { carrier, ts: now });
-    return carrier;
+    const carrier = data?.connection?.carrier;
+    return typeof carrier === 'string' && carrier.trim() ? carrier.trim() : null;
   } catch {
-    carrierCache.set(iccid, { carrier: null, ts: now });
     return null;
   }
 }

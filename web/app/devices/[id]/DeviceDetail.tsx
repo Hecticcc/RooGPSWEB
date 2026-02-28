@@ -6,7 +6,11 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import { getAuthHeaders } from '@/lib/api-auth';
 import dynamic from 'next/dynamic';
+import { MapPin, Route, ChevronLeft, Activity, Gauge, Clock } from 'lucide-react';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
+import BatteryLevelIcon from '@/components/BatteryLevelIcon';
+import TripsTab from '@/app/devices/TripsTab';
+import { getBatteryStatus } from '@/lib/battery';
 
 const MapboxMap = dynamic(() => import('@/components/MapboxMap'), { ssr: false });
 
@@ -37,12 +41,15 @@ type Device = {
   last_seen_at: string | null;
 };
 
+type TabId = 'live' | 'trips';
+
 export default function DeviceDetail() {
   const params = useParams();
   const id = params.id as string;
   const [device, setDevice] = useState<Device | null>(null);
   const [latest, setLatest] = useState<Latest | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [tab, setTab] = useState<TabId>('live');
   const [from, setFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 1);
@@ -99,11 +106,7 @@ export default function DeviceDetail() {
         router.push('/login');
         return;
       }
-      const { data: dev, error: devErr } = await supabase
-        .from('devices')
-        .select('id, name, last_seen_at')
-        .eq('id', id)
-        .single();
+      const { data: dev, error: devErr } = await supabase.from('devices').select('id, name, last_seen_at').eq('id', id).single();
       if (devErr || !dev) {
         router.push('/track');
         return;
@@ -129,7 +132,7 @@ export default function DeviceDetail() {
   if (loading || !device) {
     return (
       <main className="dashboard-page">
-        <div className="device-detail-content dashboard-content-loading">
+        <div className="device-view device-view--loading">
           <AppLoadingIcon />
         </div>
       </main>
@@ -137,205 +140,206 @@ export default function DeviceDetail() {
   }
 
   const hasCoords = latest && latest.latitude != null && latest.longitude != null;
+  const lastSeenDate = device.last_seen_at ? new Date(device.last_seen_at) : null;
+  const isRecent = lastSeenDate && (Date.now() - lastSeenDate.getTime() < 5 * 60 * 1000);
 
   return (
     <main className="dashboard-page">
-      <div className="device-detail-content">
-        <header style={{ marginBottom: 24 }}>
-          <Link href="/track" style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 8, display: 'inline-block' }}>
-            ← Dashboard
+      <div className="device-view">
+        <header className="device-view-header">
+          <Link href="/track" className="device-view-back">
+            <ChevronLeft size={20} strokeWidth={2} aria-hidden />
+            <span>Dashboard</span>
           </Link>
-          <h1 style={{ fontSize: 22, fontWeight: 600 }}>{device.name || device.id}</h1>
-          <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 4 }}>
-            Last seen: {device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : 'Never'}
-          </p>
-        </header>
-
-        <section style={{ marginBottom: 24, padding: 20, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-        <h2 style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>Latest</h2>
-        {latest ? (
-          <div className="device-detail-stats" style={{ fontSize: 14 }}>
-            <div>
-              <span style={{ color: 'var(--muted)' }}>Time</span>
-              <div>{latest.gps_time ? new Date(latest.gps_time).toLocaleString() : '—'}</div>
-            </div>
-            <div>
-              <span style={{ color: 'var(--muted)' }}>Received</span>
-              <div>{new Date(latest.received_at).toLocaleString()}</div>
-            </div>
-            <div>
-              <span style={{ color: 'var(--muted)' }}>GPS valid</span>
-              <div>{latest.gps_valid == null ? '—' : latest.gps_valid ? 'Yes' : 'No'}</div>
-            </div>
-            <div>
-              <span style={{ color: 'var(--muted)' }}>Speed (kph)</span>
-              <div>{latest.speed_kph != null ? latest.speed_kph : '—'}</div>
-            </div>
-            <div>
-              <span style={{ color: 'var(--muted)' }}>Event</span>
-              <div>{latest.event_code || '—'}</div>
-            </div>
-            <div>
-              <span style={{ color: 'var(--muted)' }}>Battery</span>
-              <div>
-                {latest.battery_percent != null || latest.battery_voltage_v != null ? (
-                  <>
-                    {latest.battery_percent != null && (
-                      <span style={{ color: latest.battery_percent <= 20 ? 'var(--error)' : latest.battery_percent <= 50 ? 'var(--muted)' : 'var(--text)' }}>
-                        {latest.battery_percent}%
-                      </span>
-                    )}
-                    {latest.battery_voltage_v != null && (
-                      <span style={{ marginLeft: latest.battery_percent != null ? 8 : 0, color: 'var(--muted)' }}>
-                        ({latest.battery_voltage_v} V)
-                      </span>
-                    )}
-                  </>
-                ) : (
-                  '—'
-                )}
-              </div>
-            </div>
+          <div className="device-view-title-row">
+            <h1 className="device-view-title">{device.name || device.id}</h1>
+            <span className={`device-view-status ${isRecent ? 'device-view-status--online' : ''}`}>
+              {device.last_seen_at
+                ? new Date(device.last_seen_at).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' })
+                : 'Never'}
+            </span>
           </div>
-        ) : (
-          <p style={{ color: 'var(--muted)' }}>No location data yet.</p>
-        )}
-      </section>
 
-        <section className="device-detail-map-wrap" style={{ marginBottom: 24 }}>
-        {hasCoords ? (
-          <MapboxMap
-            lat={latest!.latitude!}
-            lng={latest!.longitude!}
-            history={history.filter((h) => h.latitude != null && h.longitude != null) as { latitude: number; longitude: number }[]}
-          />
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)' }}>
-            No position to show on map
-          </div>
-        )}
-      </section>
-
-        <section style={{ padding: 20, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-          <h2 style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>History</h2>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 16 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>From</span>
-              <input
-                type="datetime-local"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                style={{
-                  padding: '8px 10px',
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  color: 'var(--text)',
-                }}
-              />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>To</span>
-              <input
-                type="datetime-local"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                style={{
-                  padding: '8px 10px',
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  color: 'var(--text)',
-                }}
-              />
-            </label>
+          <div className="device-view-tabs" role="tablist" aria-label="View sections">
             <button
               type="button"
-              onClick={fetchHistory}
-              disabled={historyLoading}
-              style={{
-                padding: '8px 16px',
-                background: 'var(--accent)',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                color: 'white',
-                fontSize: 14,
-              }}
+              role="tab"
+              aria-selected={tab === 'live'}
+              aria-controls="device-view-panel-live"
+              id="device-view-tab-live"
+              className={`device-view-tab ${tab === 'live' ? 'device-view-tab--active' : ''}`}
+              onClick={() => setTab('live')}
             >
-              {historyLoading ? 'Loading…' : 'Load'}
+              <MapPin size={18} strokeWidth={2} aria-hidden />
+              <span>Live</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'trips'}
+              aria-controls="device-view-panel-trips"
+              id="device-view-tab-trips"
+              className={`device-view-tab ${tab === 'trips' ? 'device-view-tab--active' : ''}`}
+              onClick={() => setTab('trips')}
+            >
+              <Route size={18} strokeWidth={2} aria-hidden />
+              <span>Trips</span>
             </button>
           </div>
-        <div className="table-wrap">
-          <table style={{ width: '100%', minWidth: 320, fontSize: 13, borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                <th style={{ padding: '8px 12px', color: 'var(--muted)', fontWeight: 500 }}>Time</th>
-                <th style={{ padding: '8px 12px', color: 'var(--muted)', fontWeight: 500 }}>GPS valid</th>
-                <th style={{ padding: '8px 12px', color: 'var(--muted)', fontWeight: 500 }}>Speed (kph)</th>
-                <th style={{ padding: '8px 12px', color: 'var(--muted)', fontWeight: 500 }}>Event</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historySlice.map((row) => (
-                <tr key={row.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '8px 12px' }}>
-                    {formatHistoryTime(row.received_at)}
-                  </td>
-                  <td style={{ padding: '8px 12px' }}>{row.gps_valid == null ? '—' : row.gps_valid ? 'Yes' : 'No'}</td>
-                  <td style={{ padding: '8px 12px' }}>{row.speed_kph != null ? row.speed_kph : '—'}</td>
-                  <td style={{ padding: '8px 12px' }}>{row.event_code || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {history.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
-            <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Page {historyPage} of {historyPageCount} · {history.length} total
-            </p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
-                disabled={historyPage <= 1}
-                style={{
-                  padding: '6px 12px',
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  color: 'var(--text)',
-                  fontSize: 13,
-                  cursor: historyPage <= 1 ? 'not-allowed' : 'pointer',
-                  opacity: historyPage <= 1 ? 0.6 : 1,
-                }}
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                onClick={() => setHistoryPage((p) => Math.min(historyPageCount, p + 1))}
-                disabled={historyPage >= historyPageCount}
-                style={{
-                  padding: '6px 12px',
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  color: 'var(--text)',
-                  fontSize: 13,
-                  cursor: historyPage >= historyPageCount ? 'not-allowed' : 'pointer',
-                  opacity: historyPage >= historyPageCount ? 0.6 : 1,
-                }}
-              >
-                Next
-              </button>
+        </header>
+
+        {tab === 'live' && (
+          <div id="device-view-panel-live" role="tabpanel" aria-labelledby="device-view-tab-live" className="device-view-panel">
+            <div className="device-view-grid">
+              <section className="device-view-card device-view-card--map">
+                <h2 className="device-view-card-title">Location</h2>
+                {hasCoords ? (
+                  <div className="device-view-map-wrap">
+                    <MapboxMap
+                      lat={latest!.latitude!}
+                      lng={latest!.longitude!}
+                      history={history.filter((h) => h.latitude != null && h.longitude != null) as { latitude: number; longitude: number }[]}
+                    />
+                  </div>
+                ) : (
+                  <div className="device-view-empty">No position to show on map</div>
+                )}
+              </section>
+
+              <section className="device-view-card device-view-card--stats">
+                <h2 className="device-view-card-title">Latest update</h2>
+                {latest ? (
+                  (() => {
+                    const batteryStatus = getBatteryStatus({ voltage_v: latest.battery_voltage_v ?? null, percent: latest.battery_percent ?? null });
+                    return (
+                  <>
+                  <div className="device-view-stats">
+                    <div className="device-view-stat">
+                      <Clock size={16} className="device-view-stat-icon" aria-hidden />
+                      <div>
+                        <span className="device-view-stat-label">Time</span>
+                        <span className="device-view-stat-value">
+                          {latest.gps_time ? new Date(latest.gps_time).toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'medium' }) : '—'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="device-view-stat">
+                      <Gauge size={16} className="device-view-stat-icon" aria-hidden />
+                      <div>
+                        <span className="device-view-stat-label">Speed</span>
+                        <span className="device-view-stat-value">{latest.speed_kph != null ? `${latest.speed_kph} km/h` : '—'}</span>
+                      </div>
+                    </div>
+                    <div className="device-view-stat">
+                      <BatteryLevelIcon tier={batteryStatus.tier} size={16} color={batteryStatus.color.ring} className="device-view-stat-icon" aria-hidden />
+                      <div>
+                        <span className="device-view-stat-label">Battery</span>
+                        <span className="device-view-stat-value" style={{ color: batteryStatus.color.text }}>
+                          {batteryStatus.label}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="device-view-stat">
+                      <Activity size={16} className="device-view-stat-icon" aria-hidden />
+                      <div>
+                        <span className="device-view-stat-label">GPS</span>
+                        <span className="device-view-stat-value">{latest.gps_valid == null ? '—' : latest.gps_valid ? 'Valid' : 'Invalid'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  </>
+                    );
+                  })()
+                ) : (
+                  <p className="device-view-muted">No location data yet.</p>
+                )}
+              </section>
             </div>
+
+            <section className="device-view-card device-view-card--history">
+              <h2 className="device-view-card-title">History</h2>
+              <div className="device-view-history-controls">
+                <label className="device-view-history-label">
+                  <span>From</span>
+                  <input
+                    type="datetime-local"
+                    value={from}
+                    onChange={(e) => setFrom(e.target.value)}
+                    className="device-view-input"
+                  />
+                </label>
+                <label className="device-view-history-label">
+                  <span>To</span>
+                  <input
+                    type="datetime-local"
+                    value={to}
+                    onChange={(e) => setTo(e.target.value)}
+                    className="device-view-input"
+                  />
+                </label>
+                <button type="button" onClick={fetchHistory} disabled={historyLoading} className="device-view-btn device-view-btn--primary">
+                  {historyLoading ? 'Loading…' : 'Load'}
+                </button>
+              </div>
+              <div className="device-view-table-wrap">
+                <table className="device-view-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>GPS</th>
+                      <th>Speed</th>
+                      <th>Event</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historySlice.map((row) => (
+                      <tr key={row.id}>
+                        <td>{formatHistoryTime(row.received_at)}</td>
+                        <td>{row.gps_valid == null ? '—' : row.gps_valid ? 'Yes' : 'No'}</td>
+                        <td>{row.speed_kph != null ? row.speed_kph : '—'}</td>
+                        <td>{row.event_code || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {history.length > 0 && (
+                <div className="device-view-pagination">
+                  <p className="device-view-pagination-info">
+                    Page {historyPage} of {historyPageCount} · {history.length} total
+                  </p>
+                  <div className="device-view-pagination-btns">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                      disabled={historyPage <= 1}
+                      className="device-view-btn device-view-btn--secondary"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryPage((p) => Math.min(historyPageCount, p + 1))}
+                      disabled={historyPage >= historyPageCount}
+                      className="device-view-btn device-view-btn--secondary"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+              {history.length === 0 && !historyLoading && (
+                <p className="device-view-muted">No history in this range.</p>
+              )}
+            </section>
           </div>
         )}
-        {history.length === 0 && !historyLoading && (
-          <p style={{ color: 'var(--muted)' }}>No history in this range.</p>
+
+        {tab === 'trips' && (
+          <div id="device-view-panel-trips" role="tabpanel" aria-labelledby="device-view-tab-trips" className="device-view-panel device-view-panel--trips">
+            <TripsTab deviceId={id} />
+          </div>
         )}
-        </section>
       </div>
     </main>
   );

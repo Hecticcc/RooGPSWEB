@@ -104,6 +104,16 @@ The app has a protected **Admin** section at `/admin` for staff and above. Roles
 - **Admin:** `/admin/orders` (list), `/admin/orders/[id]` (detail: assign tracker + SIM, fulfil, mark shipped, print activation slip). Staff: read-only. StaffPlus: fulfil and mark shipped.
 - **APIs:** `POST/GET /api/orders`, `GET /api/orders/[id]` (customer); `GET /api/admin/orders`, `GET/PATCH /api/admin/orders/[id]` (staff+); `POST /api/activation` (consume code, create/link device).
 
+## Trips: how it works
+
+Trips are derived from location points (GPRS history) and shown in the **Trips** tab of each tracker’s settings (dashboard → device card → Settings → Trips).
+
+- **Schema:** `trips` (summary per trip), `trip_points` (ordered points for the route), `trip_state` (per-device “last processed” for the recompute job). See `docs/schema-audit-trips.md`.
+- **Detection:** Uses `locations` only (no new point storage). A “usable” point has valid fix (A), sats ≥ 3, HDOP in (0, 6], non-zero lat/lon. Trip **start**: two consecutive usable points within 5 min with speed ≥ 3 km/h (or one point with speed ≥ 8). Trip **end**: no usable moving point for 5 minutes, or speed &lt; 1 km/h for 5 minutes, or a gap &gt; 20 minutes. Distance is Haversine between consecutive usable points (GPS glitch filter: discard segment if jump &gt; 2 km in 30 s). Minimum trip: duration ≥ 2 min or distance ≥ 300 m.
+- **Building trips:** Option A (recommended): server-side recompute. Call `POST /api/internal/trips/recompute` (protected by `CRON_SECRET` or `INTERNAL_TRIPS_SECRET`) from a cron job every 5–10 minutes. Query param `?deviceId=...` for one device or omit for all. The job reads new `locations` since `trip_state.last_processed_at`, runs segmentation, inserts `trips` and `trip_points`, and updates `trip_state`.
+- **APIs (customer):** `GET /api/trips?deviceId=...&from=...&to=...` (list), `GET /api/trips/[tripId]` (summary), `GET /api/trips/[tripId]/points` (polyline). All require auth; user may only access their own devices’ trips.
+- **UI:** Trips tab shows Today / Yesterday / Last 7 days / Custom date. Tapping a trip opens a modal with map (start green, end red, route polyline), distance, duration, max speed, and start/end times in Australia/Melbourne.
+
 ## Ingest service (Vultr VPS)
 
 ### Run locally

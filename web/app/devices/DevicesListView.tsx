@@ -2,10 +2,13 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { Car, Battery, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Shield, ShieldOff, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle } from 'lucide-react';
+import { Car, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle } from 'lucide-react';
+import { FaShieldDog } from 'react-icons/fa6';
 import DashboardMap from '@/components/DashboardMap';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import TrackerIconPreview from '@/components/TrackerIconPreview';
+import BatteryLevelIcon from '@/components/BatteryLevelIcon';
+import { getBatteryStatus } from '@/lib/battery';
 import { TRACKER_NAME_MAX, validateTrackerName } from '@/lib/device-constants';
 
 const TRACKER_ICONS = [
@@ -296,6 +299,10 @@ export default function DevicesListView(props: Props) {
                 <div className="trackers-grid">
                   {devices.map((d) => {
                     const online = isOnline(d.last_seen_at);
+                    const batteryStatus = getBatteryStatus({
+                      voltage_v: d.latest_battery_voltage_v ?? null,
+                      percent: d.latest_battery_percent ?? null,
+                    });
                     return (
                     <article
                       key={d.id}
@@ -321,23 +328,11 @@ export default function DevicesListView(props: Props) {
                           </span>
                           <span
                             className="tracker-card-chip tracker-card-battery"
-                            title={
-                              d.latest_battery_percent != null
-                                ? (d.latest_battery_voltage_v != null ? `${d.latest_battery_voltage_v} V · ` : '') + `${d.latest_battery_percent}%`
-                                : 'Battery: no data in latest update'
-                            }
-                            style={{
-                              color: d.latest_battery_percent != null
-                                ? d.latest_battery_percent <= 20
-                                  ? 'var(--error)'
-                                  : d.latest_battery_percent <= 50
-                                    ? 'var(--muted)'
-                                    : 'var(--text)'
-                                : 'var(--muted)',
-                            }}
+                            title={`Battery: ${batteryStatus.label} — ${batteryStatus.microcopy}`}
+                            style={{ color: batteryStatus.color.text }}
                           >
-                            <Battery size={12} strokeWidth={2} aria-hidden />
-                            <span>{d.latest_battery_percent != null ? `${d.latest_battery_percent}%` : '—'}</span>
+                            <BatteryLevelIcon tier={batteryStatus.tier} size={12} color={batteryStatus.color.text} aria-hidden />
+                            <span>{batteryStatus.label}</span>
                           </span>
                           <span className="tracker-card-chip" title={d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : undefined}>
                             <Clock size={12} strokeWidth={2} aria-hidden />
@@ -403,10 +398,10 @@ export default function DevicesListView(props: Props) {
                           )}
                           <span
                             className={`tracker-card-chip tracker-card-watchdog-icon${d.watchdog_armed ? ' tracker-card-watchdog-icon--armed' : ''}`}
-                            title={d.watchdog_armed ? 'Watch Dog armed – open settings to disarm' : 'Watch Dog off – open settings to arm'}
-                            aria-label={d.watchdog_armed ? 'Watch Dog armed' : 'Watch Dog off'}
+                            title={d.watchdog_armed ? 'WatchDog armed – open settings to disarm' : 'WatchDog off – open settings to arm'}
+                            aria-label={d.watchdog_armed ? 'WatchDog armed' : 'WatchDog off'}
                           >
-                            <Shield size={12} strokeWidth={2} />
+                            <FaShieldDog size={12} aria-hidden />
                             <span>{d.watchdog_armed ? 'Armed' : 'Off'}</span>
                           </span>
                         </div>
@@ -539,8 +534,8 @@ export default function DevicesListView(props: Props) {
                   className={`tracker-settings-modal-tab${settingsTab === 'watchdog' ? ' tracker-settings-modal-tab--active' : ''}`}
                   onClick={() => setSettingsTab('watchdog')}
                 >
-                  <Shield size={16} strokeWidth={2} />
-                  <span>Watch Dog</span>
+                  <FaShieldDog size={16} aria-hidden />
+                  <span>WatchDog</span>
                 </button>
                 <button
                   type="button"
@@ -635,12 +630,12 @@ export default function DevicesListView(props: Props) {
                 {settingsTab === 'watchdog' && (
                   <div id="tracker-settings-panel-watchdog" role="tabpanel" aria-labelledby="tracker-settings-tab-watchdog" className="tracker-settings-modal-panel">
                     <div className="tracker-settings-modal-section">
-                      <h3 className="tracker-settings-modal-section-title">Watch Dog</h3>
+                      <h3 className="tracker-settings-modal-section-title">WatchDog</h3>
                       <p className="tracker-settings-modal-description">
-                        When Watch Dog is on, you&apos;ll get an alert if this tracker moves—either it goes faster than 5 km/h or travels more than 50 m from where you turned it on.
+                        When WatchDog is on, you&apos;ll get an alert if this tracker moves—either it goes faster than 5 km/h or travels more than 50 m from where you turned it on.
                       </p>
                       <div className="tracker-settings-modal-watchdog-wrap">
-                      <div className="tracker-settings-modal-watchdog-toggle" role="group" aria-label="Watch Dog arm state">
+                      <div className="tracker-settings-modal-watchdog-toggle" role="group" aria-label="WatchDog arm state">
                         <button
                           type="button"
                           onClick={() => onWatchdogToggle(device.id, true)}
@@ -648,7 +643,7 @@ export default function DevicesListView(props: Props) {
                           className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--arm${device.watchdog_armed ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
                           title="Arm: alert if tracker moves"
                         >
-                          {colorSaveStatus?.deviceId === device.id && !device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} strokeWidth={2} />}
+                          {colorSaveStatus?.deviceId === device.id && !device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <FaShieldDog size={18} aria-hidden />}
                           <span>Arm</span>
                         </button>
                         <button
@@ -658,7 +653,7 @@ export default function DevicesListView(props: Props) {
                           className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--disarm${!device.watchdog_armed ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
                           title="Disarm"
                         >
-                          {colorSaveStatus?.deviceId === device.id && device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <ShieldOff size={18} strokeWidth={2} />}
+                          {colorSaveStatus?.deviceId === device.id && device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <FaShieldDog size={18} style={{ opacity: 0.6 }} aria-hidden />}
                           <span>Disarm</span>
                         </button>
                       </div>

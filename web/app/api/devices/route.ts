@@ -98,7 +98,7 @@ export async function GET(request: Request) {
   for (const t of tokens ?? []) {
     if (t.sim_iccid) iccidByDevice[t.device_id] = t.sim_iccid;
   }
-  const uniqueIccids = [...new Set(Object.values(iccidByDevice))];
+  const uniqueIccids = Array.from(new Set(Object.values(iccidByDevice)));
   const carrierByIccid: Record<string, string | null> = {};
   await Promise.all(
     uniqueIccids.map(async (iccid) => {

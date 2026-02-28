@@ -397,6 +397,98 @@ body {
   font-size: 14px;
 }
 
+.dashboard-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 400px;
+}
+
+.dashboard-settings-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.dashboard-settings-input {
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.dashboard-settings-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.dashboard-settings-sms-usage {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.dashboard-settings-usage-label {
+  color: var(--muted);
+}
+
+.dashboard-settings-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-settings-toggle-label {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.dashboard-settings-toggle {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.dashboard-settings-error {
+  font-size: 13px;
+  color: var(--error);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dashboard-settings-success {
+  font-size: 13px;
+  color: var(--success);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dashboard-settings-submit {
+  padding: 10px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.dashboard-settings-submit:hover:not(:disabled) {
+  opacity: 0.95;
+}
+
+.dashboard-settings-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .dashboard-alerts-form {
   display: flex;
   flex-direction: column;
@@ -1727,7 +1819,7 @@ body {
   line-height: 1.4;
 }
 
-/* Consumer-friendly signal tab */
+/* Signal tab: restrained, professional styling */
 .tracker-settings-signal-updated {
   margin: 0 0 16px 0;
   font-size: 11px;
@@ -1739,20 +1831,20 @@ body {
 .tracker-settings-signal-simple {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 
 .tracker-settings-signal-row {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .tracker-settings-signal-location-warning {
   margin: 4px 0 0 0;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--warn);
+  color: var(--muted);
 }
 
 .tracker-settings-signal-row-head {
@@ -1764,50 +1856,67 @@ body {
   color: var(--muted);
 }
 
-/* Unified signal block: same card style for all three rows */
+/* Signal block: neutral border, status only in icon or bar fill */
 .tracker-settings-signal-block {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  font-size: 14px;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
   font-weight: 500;
-  min-height: 48px;
+  min-height: 40px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
 }
 
 .tracker-settings-signal-block--good {
-  background: rgba(34, 197, 94, 0.12);
+  color: var(--text);
+}
+
+.tracker-settings-signal-block--good svg {
   color: var(--success);
 }
 
 .tracker-settings-signal-block--weak {
-  background: rgba(234, 179, 8, 0.12);
+  color: var(--text);
+}
+
+.tracker-settings-signal-block--weak svg {
   color: var(--warn);
 }
 
 .tracker-settings-signal-block--fair {
-  background: rgba(249, 115, 22, 0.12);
-  color: #f97316;
+  color: var(--text);
+}
+
+.tracker-settings-signal-block--fair svg {
+  color: #b45309;
 }
 
 .tracker-settings-signal-block--poor {
-  background: rgba(239, 68, 68, 0.12);
+  color: var(--text);
+}
+
+.tracker-settings-signal-block--poor svg {
   color: var(--error);
 }
 
 .tracker-settings-signal-block--none {
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.tracker-settings-signal-block--none svg {
   color: var(--muted);
 }
 
 .tracker-settings-signal-block-label {
   color: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
 }
 
-/* Satellites: dots inside block, filled dots use block colour */
+/* Satellites: dots inside block */
 .tracker-settings-signal-sats-dots {
   display: flex;
   gap: 5px;
@@ -1825,11 +1934,12 @@ body {
   background: currentColor;
 }
 
-/* Cellular: block contains only the bar, centered like other rows */
+/* Cellular / Satellite: bar only, thin and muted */
 .tracker-settings-signal-block--cellular {
   flex-direction: row;
   justify-content: center;
   align-items: center;
+  padding: 8px 12px;
 }
 
 .tracker-settings-signal-block--cellular .tracker-settings-signal-bar {
@@ -1838,17 +1948,36 @@ body {
 }
 
 .tracker-settings-signal-bar {
-  height: 8px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.15);
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
 
 .tracker-settings-signal-bar-fill {
   height: 100%;
-  border-radius: 4px;
+  border-radius: 2px;
   transition: width 0.3s ease;
-  background: currentColor;
+}
+
+.tracker-settings-signal-block--cellular.tracker-settings-signal-block--good .tracker-settings-signal-bar-fill {
+  background: var(--success);
+}
+
+.tracker-settings-signal-block--cellular.tracker-settings-signal-block--weak .tracker-settings-signal-bar-fill {
+  background: var(--warn);
+}
+
+.tracker-settings-signal-block--cellular.tracker-settings-signal-block--fair .tracker-settings-signal-bar-fill {
+  background: #b45309;
+}
+
+.tracker-settings-signal-block--cellular.tracker-settings-signal-block--poor .tracker-settings-signal-bar-fill {
+  background: var(--error);
+}
+
+.tracker-settings-signal-block--cellular.tracker-settings-signal-block--none .tracker-settings-signal-bar-fill {
+  background: var(--muted);
 }
 
 .tracker-settings-signal-empty {
@@ -2038,6 +2167,245 @@ body {
 
 .tracker-settings-modal-body .tracker-card-settings-row:last-child {
   margin-bottom: 0;
+}
+
+/* Trips tab */
+.trips-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.trips-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.trips-filter-btn:hover {
+  color: var(--text);
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.trips-filter-btn--active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.trips-custom-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.trips-custom-dates label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trips-custom-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.trips-custom-input {
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.trips-error {
+  color: var(--error);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.trips-loading,
+.trips-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 16px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.trips-empty-hint {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.trips-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.trips-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 14px 16px;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.trips-card:hover {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.trips-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.trips-card-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.trips-card-date {
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.trips-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+}
+
+.trips-detail-modal {
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.trips-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.trips-detail-header h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.trips-detail-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.trips-detail-close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.trips-detail-map-wrap {
+  height: 220px;
+  width: 100%;
+  background: var(--surface-elevated);
+}
+
+.trips-detail-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.trips-detail-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 20px;
+  padding: 16px;
+}
+
+.trips-detail-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.trips-detail-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.trips-detail-stat-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.trips-detail-error {
+  padding: 16px;
+  color: var(--error);
+  font-size: 14px;
 }
 
 .tracker-card-action {
@@ -2808,6 +3176,452 @@ body {
   .device-detail-stats {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
+}
+
+/* Device view page (tracker view: Live + Trips tabs) */
+.device-view,
+.device-view--loading {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--page-pad);
+}
+
+.device-view--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.device-view-header {
+  margin-bottom: 24px;
+}
+
+.device-view-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 12px;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.device-view-back:hover {
+  color: var(--text);
+}
+
+.device-view-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.device-view-title {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.device-view-status {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.device-view-status--online {
+  color: var(--success);
+}
+
+.device-view-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  width: fit-content;
+}
+
+.device-view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.device-view-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.device-view-tab--active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.device-view-panel {
+  animation: device-view-fade 0.2s ease;
+}
+
+@keyframes device-view-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.device-view-panel--trips {
+  padding-top: 0;
+}
+
+.device-view-panel--trips .trips-list {
+  max-height: 520px;
+}
+
+.device-view-grid {
+  display: grid;
+  gap: 20px;
+  margin-bottom: 24px;
+  align-items: start;
+}
+
+@media (min-width: 720px) {
+  .device-view-grid {
+    grid-template-columns: 1fr 320px;
+  }
+}
+
+.device-view-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.device-view-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.device-view-card--map .device-view-card-title,
+.device-view-card--stats .device-view-card-title {
+  padding-bottom: 12px;
+}
+
+.device-view-map-wrap {
+  height: 280px;
+  background: var(--surface-elevated);
+}
+
+@media (min-width: 600px) {
+  .device-view-map-wrap {
+    height: 340px;
+  }
+}
+
+.device-view-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.device-view-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  padding: 16px 20px;
+}
+
+.device-view-stat {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.device-view-stat:nth-child(odd) {
+  padding-right: 16px;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.device-view-stat:nth-child(-n+2) {
+  border-top: none;
+}
+
+.device-view-stat:nth-child(3),
+.device-view-stat:nth-child(4) {
+  border-bottom: none;
+}
+
+.device-view-stat-icon {
+  flex-shrink: 0;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.device-view-stat-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.device-view-stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.device-view-stat-value--low {
+  color: var(--error);
+}
+
+/* Battery status card (consumer tiered UI) */
+.battery-status-card {
+  border: 1px solid;
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.battery-status-card__inner {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.battery-status-card__ring-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.battery-status-card__ring-svg {
+  display: block;
+  overflow: visible;
+}
+
+.battery-status-card__ring-bg {
+  stroke: rgba(255, 255, 255, 0.08);
+}
+
+.battery-status-card__ring-fill {
+  transition: stroke-dashoffset 0.4s ease;
+}
+
+.battery-status-card__icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.battery-status-card__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.battery-status-card__label {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+  letter-spacing: -0.02em;
+}
+
+.battery-status-card__microcopy {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0 0 8px 0;
+}
+
+.battery-status-card__approx {
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.9;
+  margin: 0;
+}
+
+.battery-status-card__advanced {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  margin: 4px 0 0 0;
+}
+
+.battery-status-card__toggle {
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-top: 8px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.battery-status-card__toggle:hover {
+  color: var(--accent);
+}
+
+.device-view-stat-microcopy {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.device-view-muted {
+  padding: 16px 20px;
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.device-view-card--history .device-view-card-title {
+  margin: 0;
+}
+
+.device-view-history-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.device-view-history-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.device-view-history-label span {
+  min-width: 36px;
+}
+
+.device-view-input {
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.device-view-btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.device-view-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.device-view-btn--primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.device-view-btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.device-view-btn--secondary {
+  background: var(--surface-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.device-view-btn--secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.device-view-table-wrap {
+  overflow-x: auto;
+}
+
+.device-view-table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.device-view-table th {
+  text-align: left;
+  padding: 10px 20px;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.device-view-table td {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.device-view-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.device-view-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.device-view-pagination-info {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.device-view-pagination-btns {
+  display: flex;
+  gap: 8px;
 }
 
 a {

@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireRole, createServiceRoleClient } from '@/lib/admin-auth';
-
-const SIMBASE_API_BASE = process.env.SIMBASE_API_URL ?? 'https://api.simbase.com/v2';
-const SIMBASE_SIMS_PATH = process.env.SIMBASE_SIMS_PATH ?? '/simcards';
-const SIMBASE_API_KEY = process.env.SIMBASE_API_KEY ?? '';
+import { listSimbaseSimcards } from '@/lib/simbase';
 
 export type StockSummary = {
   usable: { trackers: number; simcards: number | null };
@@ -38,52 +35,16 @@ export async function GET(request: Request) {
 
   let simcardsUsable: number | null = null;
   let simcardsUsed: number | null = null;
-
-  if (SIMBASE_API_KEY) {
-    try {
-      const base = SIMBASE_API_BASE.replace(/\/$/, '');
-      const path = SIMBASE_SIMS_PATH.startsWith('/') ? SIMBASE_SIMS_PATH : `/${SIMBASE_SIMS_PATH}`;
-      const headers: HeadersInit = {
-        Authorization: `Bearer ${SIMBASE_API_KEY}`,
-        'Content-Type': 'application/json',
-      };
-      let enabled = 0;
-      let disabled = 0;
-      let cursor: string | null = null;
-      const maxPages = 100;
-      let page = 0;
-      do {
-        const url = new URL(base + path);
-        if (cursor) url.searchParams.set('cursor', cursor);
-        const res = await fetch(url.toString(), {
-          method: 'GET',
-          headers,
-          signal: AbortSignal.timeout(15000),
-        });
-        const text = await res.text();
-        if (!res.ok) break;
-        let data: unknown;
-        try {
-          data = text ? JSON.parse(text) : {};
-        } catch {
-          break;
-        }
-        const obj = data as { simcards?: { state?: string }[]; cursor?: string | null };
-        const pageList = Array.isArray(data) ? data : (obj.simcards ?? []);
-        for (const sim of pageList) {
-          const s = sim as { state?: string };
-          const state = (s.state ?? '').toString().toLowerCase();
-          if (state === 'enabled') enabled++;
-          else if (state === 'disabled') disabled++;
-        }
-        cursor = obj.cursor ?? null;
-        page++;
-      } while (cursor && page < maxPages);
+  try {
+    const allSims = await listSimbaseSimcards();
+    if (allSims.length >= 0) {
+      const enabled = allSims.filter((s) => s.state === 'enabled').length;
+      const disabled = allSims.filter((s) => s.state === 'disabled').length;
       simcardsUsable = disabled;
       simcardsUsed = enabled;
-    } catch {
-      // leave null on Simbase error
     }
+  } catch {
+    // leave null on Simbase error
   }
 
   const body: StockSummary = {

@@ -34,7 +34,7 @@ type SimTrackerLink = {
   device_id: string;
   device_name: string | null;
   sim_linked: boolean;
-  sim_status: 'enabled' | 'disabled' | null;
+  sim_status: 'enabled' | 'disabled' | 'unknown' | null;
 };
 
 type SubscriptionData = {
@@ -98,7 +98,7 @@ export default function SubscriptionPage() {
   const simPagination = usePagination(data.simTrackerLinks, simPage);
 
   function simStatusForOrder(orderId: string): { label: string; variant: 'enabled' | 'disabled' | 'mixed' } {
-    const links = data.simTrackerLinks.filter((l) => l.order_id === orderId);
+    const links = (data?.simTrackerLinks ?? []).filter((l) => l.order_id === orderId);
     if (links.length === 0) return { label: '—', variant: 'mixed' };
     const enabled = links.filter((l) => l.sim_status === 'enabled').length;
     const disabled = links.filter((l) => l.sim_status === 'disabled').length;
@@ -416,8 +416,11 @@ export default function SubscriptionPage() {
                           {link.sim_status === 'disabled' && (
                             <span className="subscription-badge subscription-badge--disabled">Disabled</span>
                           )}
-                          {link.sim_status !== 'enabled' && link.sim_status !== 'disabled' && (
-                            <span className="subscription-badge subscription-badge--unknown">—</span>
+                          {link.sim_status === 'unknown' && (
+                            <span className="subscription-badge subscription-badge--unknown">Unknown</span>
+                          )}
+                          {(link.sim_status === null || link.sim_status === undefined) && (
+                            <span className="subscription-badge subscription-badge--unknown" title="Simbase status not available">—</span>
                           )}
                         </td>
                       </tr>

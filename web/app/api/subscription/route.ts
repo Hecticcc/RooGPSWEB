@@ -4,56 +4,27 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 const SIM_SKUS = ['sim_monthly', 'sim_yearly'];
 const ACTIVE_STATUSES = ['paid', 'fulfilled', 'processing', 'shipped', 'activated'];
 
-const SIMBASE_API_BASE = process.env.SIMBASE_API_URL ?? 'https://api.simbase.com/v2';
-const SIMBASE_SIMS_PATH = process.env.SIMBASE_SIMS_PATH ?? '/simcards';
-const SIMBASE_API_KEY = process.env.SIMBASE_API_KEY ?? '';
+import { listSimbaseSimcards } from '@/lib/simbase';
 
-/** Fetch Simbase SIM states for given ICCIDs. Returns map iccid -> 'enabled' | 'disabled' (or unknown if not found). */
+function normalizeIccid(iccid: string): string {
+  return String(iccid ?? '').trim();
+}
+
+/** Build map: token ICCID -> 'enabled' | 'disabled' | 'unknown' from Simbase list (GET /simcards). */
 async function fetchSimbaseStatesForIccids(iccids: string[]): Promise<Map<string, string>> {
-  const set = new Set(iccids);
   const result = new Map<string, string>();
-  if (!SIMBASE_API_KEY || set.size === 0) return result;
+  const unique = [...new Set(iccids.map(normalizeIccid).filter(Boolean))];
+  if (unique.length === 0) return result;
 
-  try {
-    const base = SIMBASE_API_BASE.replace(/\/$/, '');
-    const path = SIMBASE_SIMS_PATH.startsWith('/') ? SIMBASE_SIMS_PATH : `/${SIMBASE_SIMS_PATH}`;
-    const headers: HeadersInit = {
-      Authorization: `Bearer ${SIMBASE_API_KEY}`,
-      'Content-Type': 'application/json',
-    };
-    let cursor: string | null = null;
-    let page = 0;
-    const maxPages = 100;
-    do {
-      const url = new URL(base + path);
-      if (cursor) url.searchParams.set('cursor', cursor);
-      const res = await fetch(url.toString(), {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(15000),
-      });
-      const text = await res.text();
-      if (!res.ok) break;
-      let data: unknown;
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        break;
-      }
-      const obj = data as { simcards?: { iccid?: string; id?: string; state?: string }[]; cursor?: string | null };
-      const pageList = Array.isArray(data) ? data : (obj.simcards ?? []);
-      for (const sim of pageList) {
-        const iccid = String(sim.iccid ?? sim.id ?? '');
-        if (set.has(iccid)) {
-          const state = (sim.state ?? '').toString().toLowerCase();
-          result.set(iccid, state === 'enabled' || state === 'disabled' ? state : 'unknown');
-        }
-      }
-      cursor = obj.cursor ?? null;
-      page++;
-    } while (cursor && page < maxPages);
-  } catch {
-    // leave result empty on error
+  const allSims = await listSimbaseSimcards();
+  const byIccid = new Map<string, string>();
+  for (const sim of allSims) {
+    byIccid.set(sim.iccid, sim.state);
+    byIccid.set(sim.iccid.replace(/^0+/, ''), sim.state);
+  }
+  for (const id of unique) {
+    const state = byIccid.get(id) ?? byIccid.get(id.replace(/^0+/, ''));
+    if (state) result.set(id, state);
   }
   return result;
 }
@@ -145,7 +116,12 @@ export async function GET(request: Request) {
 
   const tokenList = tokens ?? [];
   const userIccids = [...new Set(tokenList.map((t) => t.sim_iccid).filter(Boolean))] as string[];
-  const simStateByIccid = await fetchSimbaseStatesForIccids(userIccids);
+  let simStateByIccid: Map<string, string>;
+  try {
+    simStateByIccid = await fetchSimbaseStatesForIccids(userIccids);
+  } catch {
+    simStateByIccid = new Map();
+  }
   const hasAnyEnabledSim = tokenList.some((t) => simStateByIccid.get(t.sim_iccid) === 'enabled');
 
   const deviceIds = [...new Set(tokenList.map((t) => t.device_id).filter(Boolean))] as string[];
@@ -167,14 +143,15 @@ export async function GET(request: Request) {
   }
 
   const simTrackerLinks = tokenList.map((t) => {
-    const state = simStateByIccid.get(t.sim_iccid);
+    const raw = t.sim_iccid ? simStateByIccid.get(normalizeIccid(t.sim_iccid)) ?? simStateByIccid.get(t.sim_iccid) : undefined;
+    const sim_status = raw === 'enabled' || raw === 'disabled' ? raw : raw === 'unknown' ? 'unknown' : null;
     return {
       order_id: t.order_id,
       order_number: orderById[t.order_id]?.order_number ?? null,
       device_id: t.device_id,
       device_name: t.device_id ? (deviceNames[t.device_id] ?? t.device_id) : null,
       sim_linked: true,
-      sim_status: state === 'enabled' || state === 'disabled' ? state : null as string | null,
+      sim_status: sim_status as 'enabled' | 'disabled' | 'unknown' | null,
     };
   });
 

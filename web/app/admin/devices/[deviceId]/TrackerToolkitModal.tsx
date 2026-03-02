@@ -100,7 +100,19 @@ export default function TrackerToolkitModal({
     apnPw: '',
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [recentCommandsPage, setRecentCommandsPage] = useState(1);
+  const [logPage, setLogPage] = useState(1);
   const canSend = hasSim(deviceSimPhone, deviceSimIccid);
+
+  const RECENT_COMMANDS_PAGE_SIZE = 4;
+  const recentTotalPages = Math.max(1, Math.ceil(jobs.length / RECENT_COMMANDS_PAGE_SIZE));
+  const recentPage = Math.min(recentCommandsPage, recentTotalPages);
+  const recentPageJobs = jobs.slice((recentPage - 1) * RECENT_COMMANDS_PAGE_SIZE, recentPage * RECENT_COMMANDS_PAGE_SIZE);
+
+  const LOG_PAGE_SIZE = 4;
+  const logTotalPages = Math.max(1, Math.ceil(jobs.length / LOG_PAGE_SIZE));
+  const logPageNum = Math.min(logPage, logTotalPages);
+  const logPageJobs = jobs.slice((logPageNum - 1) * LOG_PAGE_SIZE, logPageNum * LOG_PAGE_SIZE);
 
   function lastJobForCommand(commandKey: string): CommandJob | undefined {
     const label = DIAGNOSTIC_LABELS[commandKey as (typeof DIAGNOSTIC_KEYS)[number]]?.label;
@@ -384,7 +396,7 @@ export default function TrackerToolkitModal({
                 <h4 className="toolkit-section-title">Recent commands</h4>
                 <div className="toolkit-recent-list">
                   {jobs.length === 0 && <p className="toolkit-recent-empty">No commands sent yet.</p>}
-                  {jobs.slice(0, 8).map((j) => (
+                  {recentPageJobs.map((j) => (
                     <div key={j.id} className="toolkit-recent-item">
                       <div className="toolkit-recent-item-main">
                         <span className="toolkit-recent-cmd">{j.command_name}</span>
@@ -402,6 +414,31 @@ export default function TrackerToolkitModal({
                     </div>
                   ))}
                 </div>
+                {jobs.length > RECENT_COMMANDS_PAGE_SIZE && (
+                  <div className="toolkit-recent-pagination">
+                    <button
+                      type="button"
+                      className="admin-btn admin-btn--small"
+                      disabled={recentPage <= 1}
+                      onClick={() => setRecentCommandsPage((p) => Math.max(1, p - 1))}
+                      aria-label="Previous page"
+                    >
+                      Previous
+                    </button>
+                    <span className="toolkit-recent-pagination-info">
+                      Page {recentPage} of {recentTotalPages}
+                    </span>
+                    <button
+                      type="button"
+                      className="admin-btn admin-btn--small"
+                      disabled={recentPage >= recentTotalPages}
+                      onClick={() => setRecentCommandsPage((p) => Math.min(recentTotalPages, p + 1))}
+                      aria-label="Next page"
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
                 {latestReply?.reply_parsed ? (
                   <div className="toolkit-parsed-summary">
                     <strong>Latest reply:</strong>{' '}
@@ -430,7 +467,7 @@ export default function TrackerToolkitModal({
                     </tr>
                   </thead>
                   <tbody>
-                    {jobs.map((j) => (
+                    {logPageJobs.map((j) => (
                       <tr key={j.id} onClick={() => setSelectedJobId(j.id)} style={{ cursor: 'pointer' }}>
                         <td className="admin-time">{formatDate(j.created_at)}</td>
                         <td>{j.command_name}</td>
@@ -441,6 +478,31 @@ export default function TrackerToolkitModal({
                   </tbody>
                 </table>
               </div>
+              {jobs.length > LOG_PAGE_SIZE && (
+                <div className="toolkit-recent-pagination toolkit-log-pagination">
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn--small"
+                    disabled={logPageNum <= 1}
+                    onClick={() => setLogPage((p) => Math.max(1, p - 1))}
+                    aria-label="Previous page"
+                  >
+                    Previous
+                  </button>
+                  <span className="toolkit-recent-pagination-info">
+                    Page {logPageNum} of {logTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn--small"
+                    disabled={logPageNum >= logTotalPages}
+                    onClick={() => setLogPage((p) => Math.min(logTotalPages, p + 1))}
+                    aria-label="Next page"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
               {selectedJob && (
                 <div className="toolkit-detail">
                   <h4>Job: {selectedJob.command_name}</h4>

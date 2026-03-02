@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { Car, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin } from 'lucide-react';
+import { Car, Clock, Plus, ChevronRight, ChevronDown, Settings, Check, Loader2, AlertCircle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin } from 'lucide-react';
 import { FaShieldDog } from 'react-icons/fa6';
 import DashboardMap from '@/components/DashboardMap';
 
@@ -152,12 +152,14 @@ export default function DevicesListView(props: Props) {
   const [nightGuardRuleLoading, setNightGuardRuleLoading] = useState(false);
   const [nightGuardAddressInput, setNightGuardAddressInput] = useState('');
   const [nightGuardHomeLoading, setNightGuardHomeLoading] = useState(false);
+  const [nightGuardSetupExpanded, setNightGuardSetupExpanded] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!settingsOpenId || settingsTab !== 'alerts') {
       setNightGuardRule(null);
+      setNightGuardSetupExpanded(false);
       return;
     }
     setNightGuardRuleLoading(true);
@@ -853,105 +855,122 @@ export default function DevicesListView(props: Props) {
                                 </div>
                               </div>
                             </div>
-                            <div className="tracker-settings-nightguard-card">
-                              <span className="tracker-settings-nightguard-card-label">Schedule</span>
-                              <div className="tracker-settings-nightguard-schedule">
-                                <label className="tracker-settings-nightguard-time-label">
-                                  <span>From</span>
-                                  <input
-                                    type="time"
-                                    value={start}
-                                    onChange={(e) => saveRule({ start_time_local: e.target.value })}
-                                    aria-label="Start time"
-                                  />
-                                </label>
-                                <span className="tracker-settings-nightguard-time-sep">to</span>
-                                <label className="tracker-settings-nightguard-time-label">
-                                  <span>To</span>
-                                  <input
-                                    type="time"
-                                    value={end}
-                                    onChange={(e) => saveRule({ end_time_local: e.target.value })}
-                                    aria-label="End time"
-                                  />
-                                </label>
-                                <label className="tracker-settings-nightguard-timezone-label">
-                                  <span>Timezone</span>
-                                  <select
-                                    value={tz}
-                                    onChange={(e) => saveRule({ timezone: e.target.value })}
-                                    aria-label="Timezone"
-                                  >
-                                    {timezoneOptions.map((z) => (
-                                      <option key={z} value={z}>{z}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                              </div>
-                            </div>
-                            <div className="tracker-settings-nightguard-card">
-                              <span className="tracker-settings-nightguard-card-label">Alert radius</span>
-                              <div className="tracker-settings-nightguard-radius-bar-wrap">
-                                <input
-                                  type="range"
-                                  min={RADIUS_MIN}
-                                  max={RADIUS_MAX}
-                                  step={1}
-                                  value={radiusClamped}
-                                  onChange={(e) => saveRule({ radius_m: parseInt(e.target.value, 10) })}
-                                  className="tracker-settings-nightguard-radius-bar"
-                                  style={{ ['--radius-percent' as string]: `${((radiusClamped - RADIUS_MIN) / (RADIUS_MAX - RADIUS_MIN)) * 100}%` }}
-                                  aria-label="Alert radius in metres"
-                                />
-                                <span className="tracker-settings-nightguard-radius-value" aria-hidden>{radiusClamped} m</span>
-                              </div>
-                            </div>
-                            <div className="tracker-settings-nightguard-card tracker-settings-nightguard-home-card">
-                              <span className="tracker-settings-nightguard-card-label">Home location</span>
-                              <div className="tracker-settings-nightguard-home-tools">
-                                <button
-                                  type="button"
-                                  onClick={handleUseMyLocation}
-                                  disabled={nightGuardHomeLoading}
-                                  className="tracker-settings-nightguard-home-btn"
-                                  title="Use your current location"
-                                >
-                                  {nightGuardHomeLoading ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
-                                  <span>Use my location</span>
-                                </button>
-                                <div className="tracker-settings-nightguard-address-row">
-                                  <input
-                                    type="text"
-                                    value={nightGuardAddressInput}
-                                    onChange={(e) => setNightGuardAddressInput(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleSetFromAddress()}
-                                    placeholder="Search address…"
-                                    className="tracker-settings-nightguard-address-input"
-                                    aria-label="Address search"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={handleSetFromAddress}
-                                    disabled={nightGuardHomeLoading || !nightGuardAddressInput.trim()}
-                                    className="tracker-settings-nightguard-home-btn tracker-settings-nightguard-set-btn"
-                                  >
-                                    Set location
-                                  </button>
+                            <button
+                              type="button"
+                              className="tracker-settings-nightguard-setup-toggle"
+                              onClick={() => setNightGuardSetupExpanded((e) => !e)}
+                              aria-expanded={nightGuardSetupExpanded}
+                              aria-controls="tracker-settings-nightguard-setup-content"
+                              id="tracker-settings-nightguard-setup-toggle"
+                            >
+                              <span className="tracker-settings-nightguard-setup-cta">
+                                {nightGuardSetupExpanded ? 'Hide schedule and location' : 'Click here to set up schedule and home location'}
+                              </span>
+                              <ChevronDown size={18} className={`tracker-settings-nightguard-setup-chevron${nightGuardSetupExpanded ? ' tracker-settings-nightguard-setup-chevron--open' : ''}`} aria-hidden />
+                            </button>
+                            {nightGuardSetupExpanded && (
+                              <div id="tracker-settings-nightguard-setup-content" className="tracker-settings-nightguard-setup-content" role="region" aria-labelledby="tracker-settings-nightguard-setup-toggle">
+                                <div className="tracker-settings-nightguard-card">
+                                  <span className="tracker-settings-nightguard-card-label">Schedule</span>
+                                  <div className="tracker-settings-nightguard-schedule">
+                                    <label className="tracker-settings-nightguard-time-label">
+                                      <span>From</span>
+                                      <input
+                                        type="time"
+                                        value={start}
+                                        onChange={(e) => saveRule({ start_time_local: e.target.value })}
+                                        aria-label="Start time"
+                                      />
+                                    </label>
+                                    <span className="tracker-settings-nightguard-time-sep">to</span>
+                                    <label className="tracker-settings-nightguard-time-label">
+                                      <span>To</span>
+                                      <input
+                                        type="time"
+                                        value={end}
+                                        onChange={(e) => saveRule({ end_time_local: e.target.value })}
+                                        aria-label="End time"
+                                      />
+                                    </label>
+                                    <label className="tracker-settings-nightguard-timezone-label">
+                                      <span>Timezone</span>
+                                      <select
+                                        value={tz}
+                                        onChange={(e) => saveRule({ timezone: e.target.value })}
+                                        aria-label="Timezone"
+                                      >
+                                        {timezoneOptions.map((z) => (
+                                          <option key={z} value={z}>{z}</option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                  </div>
+                                </div>
+                                <div className="tracker-settings-nightguard-card">
+                                  <span className="tracker-settings-nightguard-card-label">Alert radius</span>
+                                  <div className="tracker-settings-nightguard-radius-bar-wrap">
+                                    <input
+                                      type="range"
+                                      min={RADIUS_MIN}
+                                      max={RADIUS_MAX}
+                                      step={1}
+                                      value={radiusClamped}
+                                      onChange={(e) => saveRule({ radius_m: parseInt(e.target.value, 10) })}
+                                      className="tracker-settings-nightguard-radius-bar"
+                                      style={{ ['--radius-percent' as string]: `${((radiusClamped - RADIUS_MIN) / (RADIUS_MAX - RADIUS_MIN)) * 100}%` }}
+                                      aria-label="Alert radius in metres"
+                                    />
+                                    <span className="tracker-settings-nightguard-radius-value" aria-hidden>{radiusClamped} m</span>
+                                  </div>
+                                </div>
+                                <div className="tracker-settings-nightguard-card tracker-settings-nightguard-home-card">
+                                  <span className="tracker-settings-nightguard-card-label">Home location</span>
+                                  <div className="tracker-settings-nightguard-home-tools">
+                                    <button
+                                      type="button"
+                                      onClick={handleUseMyLocation}
+                                      disabled={nightGuardHomeLoading}
+                                      className="tracker-settings-nightguard-home-btn"
+                                      title="Use your current location"
+                                    >
+                                      {nightGuardHomeLoading ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
+                                      <span>Use my location</span>
+                                    </button>
+                                    <div className="tracker-settings-nightguard-address-row">
+                                      <input
+                                        type="text"
+                                        value={nightGuardAddressInput}
+                                        onChange={(e) => setNightGuardAddressInput(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleSetFromAddress()}
+                                        placeholder="Search address…"
+                                        className="tracker-settings-nightguard-address-input"
+                                        aria-label="Address search"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={handleSetFromAddress}
+                                        disabled={nightGuardHomeLoading || !nightGuardAddressInput.trim()}
+                                        className="tracker-settings-nightguard-home-btn tracker-settings-nightguard-set-btn"
+                                      >
+                                        Set location
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <p className="tracker-settings-nightguard-map-hint">Or click the map to set Home. The circle shows the alert radius.</p>
+                                  <div className="tracker-settings-nightguard-map-wrap">
+                                    <GeofencePickerMap
+                                      centerLat={homeLat}
+                                      centerLng={homeLng}
+                                      radiusMeters={radius}
+                                      alertType="keep_in"
+                                      onCenterChange={(lat, lng) => saveRule({ home_lat: lat, home_lon: lng })}
+                                      showRadiusSlider={false}
+                                      compact
+                                    />
+                                  </div>
                                 </div>
                               </div>
-                              <p className="tracker-settings-nightguard-map-hint">Or click the map to set Home. The circle shows the alert radius.</p>
-                              <div className="tracker-settings-nightguard-map-wrap">
-                                <GeofencePickerMap
-                                  centerLat={homeLat}
-                                  centerLng={homeLng}
-                                  radiusMeters={radius}
-                                  alertType="keep_in"
-                                  onCenterChange={(lat, lng) => saveRule({ home_lat: lat, home_lon: lng })}
-                                  showRadiusSlider={false}
-                                  compact
-                                />
-                              </div>
-                            </div>
+                            )}
                           </div>
                         );
                       })()}
@@ -973,7 +992,7 @@ export default function DevicesListView(props: Props) {
                             <div className="tracker-settings-signal-row">
                               <div className="tracker-settings-signal-row-head">
                                 <span>Location Signal</span>
-                                <span className="tracker-settings-signal-help" title="Indicates the quality and reliability of the current GPS position fix."><HelpCircle size={12} aria-hidden /></span>
+                                <span className="tracker-settings-signal-help" data-tooltip="Indicates the quality and reliability of the current GPS position fix." aria-label="Help: Indicates the quality and reliability of the current GPS position fix."><HelpCircle size={16} aria-hidden /></span>
                               </div>
                               <div
                                 className={`tracker-settings-signal-block tracker-settings-signal-block--${device.latest_signal.gps.has_signal ? 'good' : device.latest_signal.gps.valid ? 'weak' : 'none'}`}
@@ -1003,7 +1022,7 @@ export default function DevicesListView(props: Props) {
                             <div className="tracker-settings-signal-row">
                               <div className="tracker-settings-signal-row-head">
                                 <span>Satellite Connectivity</span>
-                                <span className="tracker-settings-signal-help" title="GPS accuracy based on satellites and signal quality."><HelpCircle size={12} aria-hidden /></span>
+                                <span className="tracker-settings-signal-help" data-tooltip="GPS accuracy based on satellites and signal quality." aria-label="Help: GPS accuracy based on satellites and signal quality."><HelpCircle size={16} aria-hidden /></span>
                               </div>
                               <div
                                 className={`tracker-settings-signal-block tracker-settings-signal-block--cellular tracker-settings-signal-block--${tier}`}
@@ -1023,7 +1042,7 @@ export default function DevicesListView(props: Props) {
                             <div className="tracker-settings-signal-row">
                               <div className="tracker-settings-signal-row-head">
                                 <span>Cellular Network Strength</span>
-                                <span className="tracker-settings-signal-help" title="Reflects the strength of the mobile data connection used to transmit real-time tracking information."><HelpCircle size={12} aria-hidden /></span>
+                                <span className="tracker-settings-signal-help" data-tooltip="Reflects the strength of the mobile data connection used to transmit real-time tracking information." aria-label="Help: Reflects the strength of the mobile data connection used to transmit real-time tracking information."><HelpCircle size={16} aria-hidden /></span>
                               </div>
                               <div
                                 className={`tracker-settings-signal-block tracker-settings-signal-block--cellular tracker-settings-signal-block--${device.latest_signal.gsm.quality === 'great' || device.latest_signal.gsm.quality === 'good' ? 'good' : device.latest_signal.gsm.quality === 'ok' ? 'weak' : 'none'}`}

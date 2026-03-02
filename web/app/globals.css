@@ -2137,6 +2137,18 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.toolkit-recent-pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-subtle);
+}
+.toolkit-recent-pagination-info {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
 .toolkit-parsed-summary {
   margin-top: 0.75rem;
   padding: 0.5rem 0.75rem;
@@ -2289,6 +2301,50 @@ body {
 }
 
 .tracker-settings-nightguard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tracker-settings-nightguard-setup-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.tracker-settings-nightguard-setup-toggle:hover {
+  background: var(--surface-hover, color-mix(in srgb, var(--surface) 95%, var(--fg)));
+  border-color: var(--border-strong, var(--border));
+}
+.tracker-settings-nightguard-setup-summary {
+  font-size: 14px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+}
+.tracker-settings-nightguard-setup-cta {
+  font-size: 13px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.tracker-settings-nightguard-setup-chevron {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  color: var(--muted);
+}
+.tracker-settings-nightguard-setup-chevron--open {
+  transform: rotate(-180deg);
+}
+.tracker-settings-nightguard-setup-content {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -2817,6 +2873,7 @@ body {
 }
 
 .tracker-settings-signal-help {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2825,10 +2882,40 @@ body {
   cursor: help;
   opacity: 0.85;
 }
-
 .tracker-settings-signal-help:hover {
   color: var(--text);
   opacity: 1;
+}
+.tracker-settings-signal-help::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  min-width: 200px;
+  max-width: 320px;
+  width: max-content;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  white-space: normal;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.08s ease, visibility 0.08s ease;
+  z-index: 10;
+}
+.tracker-settings-signal-help:hover::after {
+  opacity: 1;
+  visibility: visible;
 }
 
 .tracker-settings-signal-value {

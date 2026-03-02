@@ -6,6 +6,21 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import Logo from '@/components/Logo';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
+import {
+  LayoutDashboard,
+  MapPin,
+  Route,
+  CircleDot,
+  Shield,
+  Moon,
+  Bell,
+  Server,
+  Wifi,
+  Radio,
+  Battery,
+  Droplets,
+  Package,
+} from 'lucide-react';
 
 type PricingMap = Record<string, { label: string; price_cents: number; sale_price_cents: number | null; period: string }>;
 type SimPlan = 'monthly' | 'yearly';
@@ -53,9 +68,10 @@ export default function OrderPage() {
   const simMonthly = pricing?.sim_monthly;
   const simYearly = pricing?.sim_yearly;
   const gpsCents = gps ? effectiveCents(gps) : 4900;
-  const simCents = simPlan === 'monthly'
-    ? (simMonthly ? effectiveCents(simMonthly) : 2999)
-    : (simYearly ? effectiveCents(simYearly) : 24900);
+  const monthlyCents = simMonthly ? effectiveCents(simMonthly) : 2999;
+  const yearlyCents = simYearly ? effectiveCents(simYearly) : 24900;
+  const simCents = simPlan === 'monthly' ? monthlyCents : yearlyCents;
+  const saveVsMonthlyCents = Math.max(0, monthlyCents * 12 - yearlyCents);
   const gpsLabel = gps?.label ?? 'GPS Tracker';
   const simLabel = simPlan === 'monthly' ? (simMonthly?.label ?? 'SIM plan (monthly)') : (simYearly?.label ?? 'SIM plan (yearly)');
   const gpsPeriod = (gps?.period ?? 'one-time') as 'one-time' | 'month' | 'year';
@@ -168,7 +184,7 @@ export default function OrderPage() {
           <h1 className="checkout-title">Checkout</h1>
           <Link href="/track" className="checkout-back-link">← Back to dashboard</Link>
         </div>
-        <p className="checkout-subtitle">Choose your hardware and SIM plan. Payment integration coming soon.</p>
+        <p className="checkout-subtitle">Choose your hardware and SIM plan. Pay securely with Stripe; one upfront payment, then SIM renews monthly or yearly.</p>
       </header>
 
       <div className="checkout-grid">
@@ -243,6 +259,38 @@ export default function OrderPage() {
               </p>
             )}
           </div>
+
+          <div className="checkout-card checkout-card--features">
+            <h2 className="checkout-card-heading checkout-features-title">What you get</h2>
+            <div className="checkout-features-block">
+              <h3 className="checkout-features-sub">
+                <span className="checkout-features-sub-icon"><LayoutDashboard size={18} strokeWidth={2} aria-hidden /></span>
+                Dashboard
+              </h3>
+              <ul className="checkout-features-list">
+                <li><span className="checkout-features-icon"><MapPin size={18} strokeWidth={2} aria-hidden /></span>Real-time map & live location</li>
+                <li><span className="checkout-features-icon"><Route size={18} strokeWidth={2} aria-hidden /></span>Trip history with route replay, distance & duration</li>
+                <li><span className="checkout-features-icon"><CircleDot size={18} strokeWidth={2} aria-hidden /></span>Geofences (keep in / keep out)</li>
+                <li><span className="checkout-features-icon"><Shield size={18} strokeWidth={2} aria-hidden /></span>WatchDog mode – alert if tracker moves (speed or distance)</li>
+                <li><span className="checkout-features-icon"><Moon size={18} strokeWidth={2} aria-hidden /></span>Night Guard – alert if tracker moves outside zone at night</li>
+                <li><span className="checkout-features-icon"><Bell size={18} strokeWidth={2} aria-hidden /></span>Battery & SMS notifications</li>
+                <li><span className="checkout-features-icon"><Server size={18} strokeWidth={2} aria-hidden /></span>Australian servers & local support</li>
+                <li><span className="checkout-features-icon"><Wifi size={18} strokeWidth={2} aria-hidden /></span>Unlimited data, multi-carrier SIM</li>
+              </ul>
+            </div>
+            <div className="checkout-features-block">
+              <h3 className="checkout-features-sub">
+                <span className="checkout-features-sub-icon"><Radio size={18} strokeWidth={2} aria-hidden /></span>
+                GPS tracker
+              </h3>
+              <ul className="checkout-features-list">
+                <li><span className="checkout-features-icon"><Radio size={18} strokeWidth={2} aria-hidden /></span>Real-time tracking</li>
+                <li><span className="checkout-features-icon"><Battery size={18} strokeWidth={2} aria-hidden /></span>6+ months battery life</li>
+                <li><span className="checkout-features-icon"><Droplets size={18} strokeWidth={2} aria-hidden /></span>IP65 waterproof · wireless & magnet mount</li>
+                <li><span className="checkout-features-icon"><Package size={18} strokeWidth={2} aria-hidden /></span>Pre-configured, ready to use</li>
+              </ul>
+            </div>
+          </div>
         </section>
 
         <aside className="checkout-sidebar">
@@ -270,7 +318,12 @@ export default function OrderPage() {
                 : formatPrice(simCents, 'year')}
             </p>
             {simPlan === 'yearly' && (
-              <p className="checkout-sim-note">Billed once per year. Save vs monthly.</p>
+              <p className="checkout-sim-note">
+                Billed once per year.
+                {saveVsMonthlyCents > 0 && (
+                  <> Save {formatPrice(saveVsMonthlyCents)} vs monthly.</>
+                )}
+              </p>
             )}
           </div>
           <div className="checkout-summary-card">
@@ -296,7 +349,7 @@ export default function OrderPage() {
               <span>Total</span>
               <span>{formatPrice(totalCents)}</span>
             </div>
-            <p className="checkout-summary-secure">Payment integration coming soon. Your order will be created when you proceed.</p>
+            <p className="checkout-summary-secure">Pay with Stripe at the next step. Your card is charged once for the full amount; SIM renews at the monthly or yearly rate.</p>
           </div>
         </aside>
       </div>

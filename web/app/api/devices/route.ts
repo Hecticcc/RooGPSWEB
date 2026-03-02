@@ -105,10 +105,35 @@ export async function GET(request: Request) {
       carrierByIccid[iccid] = await fetchSimbaseCarrier(iccid);
     })
   );
+  const { data: nightGuardRules } = await supabase
+    .from('night_guard_rules')
+    .select('device_id, enabled, start_time_local, end_time_local, timezone, radius_m, home_lat, home_lon')
+    .in('device_id', deviceIds);
+  const nightGuardByDevice: Record<string, { enabled: boolean; start_time_local: string; end_time_local: string; timezone: string; radius_m: number; home_lat: number | null; home_lon: number | null }> = {};
+  for (const r of nightGuardRules ?? []) {
+    nightGuardByDevice[r.device_id] = {
+      enabled: r.enabled === true,
+      start_time_local: r.start_time_local ?? '21:00',
+      end_time_local: r.end_time_local ?? '06:00',
+      timezone: r.timezone ?? 'Australia/Melbourne',
+      radius_m: r.radius_m ?? 50,
+      home_lat: r.home_lat != null ? Number(r.home_lat) : null,
+      home_lon: r.home_lon != null ? Number(r.home_lon) : null,
+    };
+  }
+
   const withCarrier = withLocation.map((d) => {
     const iccid = iccidByDevice[d.id];
     const sim_carrier = iccid ? carrierByIccid[iccid] ?? null : null;
-    return { ...d, sim_carrier };
+    const ng = nightGuardByDevice[d.id];
+    const night_guard_enabled = ng?.enabled === true;
+    const night_guard_start_time_local = ng?.start_time_local ?? null;
+    const night_guard_end_time_local = ng?.end_time_local ?? null;
+    const night_guard_timezone = ng?.timezone ?? null;
+    const night_guard_radius_m = ng?.radius_m ?? null;
+    const night_guard_home_lat = ng?.home_lat ?? null;
+    const night_guard_home_lon = ng?.home_lon ?? null;
+    return { ...d, sim_carrier, night_guard_enabled, night_guard_start_time_local, night_guard_end_time_local, night_guard_timezone, night_guard_radius_m, night_guard_home_lat, night_guard_home_lon };
   });
 
   return NextResponse.json(withCarrier);

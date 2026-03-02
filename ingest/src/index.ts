@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { parseIStartekLine, parsePT60Line } from './parser';
+import { initNightGuard, runNightGuard, shutdownNightGuard } from './night-guard';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -257,6 +258,7 @@ function handleLine(line: string, socket?: net.Socket) {
         if (shuttingDown) return;
         if (existsAfterRetry) {
           deviceCache.set(parsed.device_id, { allowed: true, at: Date.now() });
+          runNightGuard(supabase, parsed);
           insertLocation(parsed).then((inserted) => {
             logParsedMessage(isStartek, inserted, inserted ? null : 'insert_failed');
           });
@@ -271,6 +273,7 @@ function handleLine(line: string, socket?: net.Socket) {
       return;
     }
     if (!exists) return;
+    runNightGuard(supabase, parsed);
     insertLocation(parsed).then((inserted) => {
       logParsedMessage(isStartek, inserted, inserted ? null : 'insert_failed');
     });
@@ -342,6 +345,7 @@ function closeAllSockets() {
 
 server.listen(INGEST_PORT, INGEST_HOST, () => {
   log('info', `TCP ingest listening on ${INGEST_HOST}:${INGEST_PORT}`);
+  initNightGuard(supabase);
 });
 
 const DEADLETTER_MAX_LINES = parseInt(process.env.DEADLETTER_MAX_LINES ?? '200', 10) || 200;
@@ -419,6 +423,7 @@ function gracefulShutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   log('info', `received ${signal}, shutting down`);
+  shutdownNightGuard();
   closeAllSockets();
   server.close(() => {
     healthServer.close(() => {

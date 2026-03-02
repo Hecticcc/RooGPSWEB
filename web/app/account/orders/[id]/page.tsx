@@ -30,6 +30,8 @@ type OrderDetail = {
     discount_cents?: number | null;
     currency: string;
     tracking_number: string | null;
+    sim_plan?: string | null;
+    subscription_next_billing_date?: string | null;
     created_at: string;
     updated_at: string;
     items?: {
@@ -174,6 +176,18 @@ export default function AccountOrderDetailPage() {
           <h2 className="my-orders-detail-section-title">Order progress</h2>
           <OrderProgressTimeline status={o.status} />
         </section>
+
+        {o.subscription_next_billing_date && (
+          <section className="my-orders-detail-section">
+            <h2 className="my-orders-detail-section-title">SIM subscription</h2>
+            <div className="my-orders-detail-section-body">
+              <p className="my-orders-detail-muted">
+                Next billing: {new Date(o.subscription_next_billing_date).toLocaleDateString(undefined, { dateStyle: 'long' })}
+                {o.sim_plan && ` (${o.sim_plan === 'yearly' ? 'yearly' : 'monthly'} plan)`}
+              </p>
+            </div>
+          </section>
+        )}
 
         <section className="my-orders-detail-section">
           <h2 className="my-orders-detail-section-title">Delivery details</h2>

@@ -18,6 +18,7 @@ export async function PATCH(
     name?: string;
     radius_meters?: number;
     alert_email?: boolean;
+    alert_sms?: boolean;
     alert_type?: 'keep_in' | 'keep_out';
   };
   try {
@@ -37,13 +38,14 @@ export async function PATCH(
     update.radius_meters = body.radius_meters;
   }
   if (typeof body.alert_email === 'boolean') update.alert_email = body.alert_email;
+  if (typeof body.alert_sms === 'boolean') update.alert_sms = body.alert_sms;
   if (body.alert_type === 'keep_out' || body.alert_type === 'keep_in') update.alert_type = body.alert_type;
   const { data, error } = await supabase
     .from('geofences')
     .update(update)
     .eq('id', id)
     .eq('user_id', user.id)
-    .select('id, device_id, name, center_lat, center_lng, radius_meters, alert_email, alert_type, created_at')
+    .select('id, device_id, name, center_lat, center_lng, radius_meters, alert_email, alert_sms, alert_type, created_at')
     .single();
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   }
   const { data, error } = await supabase
     .from('battery_alerts')
-    .select('id, device_id, threshold_percent, notify_email, enabled, created_at')
+    .select('id, device_id, threshold_percent, notify_email, notify_sms, enabled, created_at')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   if (error) {
@@ -34,6 +34,7 @@ export async function POST(request: Request) {
     device_id: string;
     threshold_percent?: number;
     notify_email?: boolean;
+    notify_sms?: boolean;
     enabled?: boolean;
   };
   try {
@@ -54,10 +55,11 @@ export async function POST(request: Request) {
       device_id: body.device_id,
       threshold_percent: threshold,
       notify_email: body.notify_email !== false,
+      notify_sms: body.notify_sms === true,
       enabled: body.enabled !== false,
       updated_at: new Date().toISOString(),
     })
-    .select('id, device_id, threshold_percent, notify_email, enabled, created_at')
+    .select('id, device_id, threshold_percent, notify_email, notify_sms, enabled, created_at')
     .single();
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

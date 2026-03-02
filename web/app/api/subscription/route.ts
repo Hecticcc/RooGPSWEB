@@ -13,7 +13,7 @@ function normalizeIccid(iccid: string): string {
 /** Build map: token ICCID -> 'enabled' | 'disabled' | 'unknown' from Simbase list (GET /simcards). */
 async function fetchSimbaseStatesForIccids(iccids: string[]): Promise<Map<string, string>> {
   const result = new Map<string, string>();
-  const unique = [...new Set(iccids.map(normalizeIccid).filter(Boolean))];
+  const unique = Array.from(new Set(iccids.map(normalizeIccid).filter(Boolean)));
   if (unique.length === 0) return result;
 
   const allSims = await listSimbaseSimcards();
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
 
   const { data: orders, error: ordersErr } = await supabase
     .from('orders')
-    .select('id, order_number, status, total_cents, currency, created_at')
+    .select('id, order_number, status, total_cents, currency, created_at, subscription_next_billing_date, stripe_subscription_id')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   if (ordersErr) return NextResponse.json({ error: ordersErr.message }, { status: 500 });
@@ -93,9 +93,15 @@ export async function GET(request: Request) {
       const sku = orderSimSkus[o.id];
       const period = sku ? (periodBySku[sku] ?? 'month') : 'month';
       const created = new Date(o.created_at);
-      const nextDue = new Date(created);
-      if (period === 'year') nextDue.setFullYear(nextDue.getFullYear() + 1);
-      else nextDue.setMonth(nextDue.getMonth() + 1);
+      let nextDue: string;
+      if (o.subscription_next_billing_date) {
+        nextDue = new Date(o.subscription_next_billing_date).toISOString();
+      } else {
+        const est = new Date(created);
+        if (period === 'year') est.setFullYear(est.getFullYear() + 1);
+        else est.setMonth(est.getMonth() + 1);
+        nextDue = est.toISOString();
+      }
       return {
         order_id: o.id,
         order_number: o.order_number ?? null,
@@ -104,7 +110,8 @@ export async function GET(request: Request) {
         total_cents: o.total_cents,
         currency: o.currency,
         period,
-        next_due_estimate: nextDue.toISOString(),
+        next_due_estimate: nextDue,
+        stripe_subscription_id: (o as { stripe_subscription_id?: string | null }).stripe_subscription_id ?? null,
       };
     });
 
@@ -115,7 +122,7 @@ export async function GET(request: Request) {
     .not('device_id', 'is', null);
 
   const tokenList = tokens ?? [];
-  const userIccids = [...new Set(tokenList.map((t) => t.sim_iccid).filter(Boolean))] as string[];
+  const userIccids = Array.from(new Set(tokenList.map((t) => t.sim_iccid).filter(Boolean))) as string[];
   let simStateByIccid: Map<string, string>;
   try {
     simStateByIccid = await fetchSimbaseStatesForIccids(userIccids);
@@ -124,7 +131,7 @@ export async function GET(request: Request) {
   }
   const hasAnyEnabledSim = tokenList.some((t) => simStateByIccid.get(t.sim_iccid) === 'enabled');
 
-  const deviceIds = [...new Set(tokenList.map((t) => t.device_id).filter(Boolean))] as string[];
+  const deviceIds = Array.from(new Set(tokenList.map((t) => t.device_id).filter(Boolean))) as string[];
   let deviceNames: Record<string, string> = {};
   if (deviceIds.length > 0) {
     const { data: devs } = await supabase

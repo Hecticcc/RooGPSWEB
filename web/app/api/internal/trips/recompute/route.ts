@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/admin-auth';
-import { segmentTrips, type LocationPoint } from '@/lib/trip-detection';
+import { segmentTrips, isUsablePoint, type LocationPoint } from '@/lib/trip-detection';
 
 const CRON_SECRET = process.env.CRON_SECRET ?? process.env.INTERNAL_TRIPS_SECRET ?? '';
 
@@ -9,6 +9,78 @@ function authInternal(request: Request): boolean {
   if (auth?.startsWith('Bearer ') && auth.slice(7) === CRON_SECRET) return true;
   if (request.headers.get('x-internal-secret') === CRON_SECRET) return true;
   return false;
+}
+
+/** GET ?deviceId=... – Diagnostics only (no inserts). Use same auth as POST. */
+export async function GET(request: Request) {
+  if (!CRON_SECRET || !authInternal(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const supabase = createServiceRoleClient();
+  if (!supabase) {
+    return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+  }
+  const deviceId = new URL(request.url).searchParams.get('deviceId');
+  if (!deviceId) {
+    return NextResponse.json({ error: 'deviceId required for diagnostics' }, { status: 400 });
+  }
+  const { data: device } = await supabase.from('devices').select('id, user_id').eq('id', deviceId).single();
+  if (!device) {
+    return NextResponse.json({ error: 'Device not found' }, { status: 404 });
+  }
+  const { data: state } = await supabase.from('trip_state').select('last_processed_at').eq('device_id', deviceId).maybeSingle();
+  let originalLastProcessed = state?.last_processed_at ?? null;
+  const nowIso = new Date().toISOString();
+  if (originalLastProcessed && originalLastProcessed > nowIso) originalLastProcessed = null;
+  const lookbackDays = 90;
+  let since = originalLastProcessed ?? new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
+  if (originalLastProcessed) {
+    since = new Date(new Date(since).getTime() - 25 * 60 * 1000).toISOString();
+  }
+  const { count: locationsCount } = await supabase
+    .from('locations')
+    .select('id', { count: 'exact', head: true })
+    .eq('device_id', deviceId)
+    .gt('received_at', since);
+  const { data: rows } = await supabase
+    .from('locations')
+    .select('id, gps_time, received_at, gps_valid, latitude, longitude, speed_kph, extra')
+    .eq('device_id', deviceId)
+    .gt('received_at', since)
+    .order('received_at', { ascending: true })
+    .limit(10000);
+  const points: LocationPoint[] = (rows ?? []).map((r) => ({
+    id: r.id,
+    gps_time: r.gps_time,
+    received_at: r.received_at,
+    gps_valid: r.gps_valid,
+    latitude: r.latitude,
+    longitude: r.longitude,
+    speed_kph: r.speed_kph,
+    extra: (r.extra as Record<string, unknown>) ?? {},
+  }));
+  const pointsUsable = points.filter((p) => isUsablePoint(p)).length;
+  const segments = segmentTrips(points);
+  const { count: tripsCount } = await supabase
+    .from('trips')
+    .select('id', { count: 'exact', head: true })
+    .eq('device_id', deviceId);
+  return NextResponse.json({
+    device_id: deviceId,
+    since,
+    trip_state_last_processed_at: originalLastProcessed ?? null,
+    locations_in_range: locationsCount ?? 0,
+    points_fetched: points.length,
+    points_usable: pointsUsable,
+    segments_found: segments.length,
+    existing_trips_count: tripsCount ?? 0,
+    hint:
+      points.length === 0
+        ? `No locations in last ${lookbackDays} days (or since last_processed_at). Add location data or reset trip_state.`
+        : segments.length === 0
+          ? `Locations exist but no trips detected. Usable points: ${pointsUsable}/${points.length}. Min trip: 2 min, 400 m, 5 km/h avg.`
+          : 'Segments found; run POST recompute to insert trips.',
+  });
 }
 
 export async function POST(request: Request) {
@@ -45,7 +117,15 @@ export async function POST(request: Request) {
     deviceIds.push(...(devs ?? []).map((d) => d.id));
   }
 
-  const results: { device_id: string; trips_created: number; error?: string }[] = [];
+  const results: {
+    device_id: string;
+    trips_created: number;
+    error?: string;
+    points_fetched?: number;
+    segments_found?: number;
+    segments_new?: number;
+    errors?: string[];
+  }[] = [];
 
   for (const did of deviceIds) {
     try {
@@ -56,8 +136,13 @@ export async function POST(request: Request) {
       }
 
       const { data: state } = await supabase.from('trip_state').select('last_processed_at').eq('device_id', did).maybeSingle();
-      const originalLastProcessed = state?.last_processed_at ?? null;
-      let since = originalLastProcessed ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      let originalLastProcessed = state?.last_processed_at ?? null;
+      const nowIso = new Date().toISOString();
+      if (originalLastProcessed && originalLastProcessed > nowIso) {
+        originalLastProcessed = null;
+      }
+      const lookbackDays = 90;
+      let since = originalLastProcessed ?? new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
       if (originalLastProcessed) {
         since = new Date(new Date(since).getTime() - 25 * 60 * 1000).toISOString();
       }
@@ -66,8 +151,8 @@ export async function POST(request: Request) {
         .from('locations')
         .select('id, gps_time, received_at, gps_valid, latitude, longitude, speed_kph, extra')
         .eq('device_id', did)
-        .gt('gps_time', since)
-        .order('gps_time', { ascending: true })
+        .gt('received_at', since)
+        .order('received_at', { ascending: true })
         .limit(10000);
 
       const points: LocationPoint[] = (rows ?? []).map((r) => ({
@@ -84,6 +169,7 @@ export async function POST(request: Request) {
       const segments = segmentTrips(points);
       let lastProcessedAt = originalLastProcessed ?? since;
       let tripsCreated = 0;
+      const segmentErrors: string[] = [];
 
       for (const seg of segments) {
         if (originalLastProcessed && seg.endedAt <= originalLastProcessed) continue;
@@ -110,8 +196,11 @@ export async function POST(request: Request) {
           .single();
 
         if (tripErr || !trip) {
-          results.push({ device_id: did, trips_created, error: tripErr?.message ?? 'trip insert failed' });
-          break;
+          segmentErrors.push(tripErr?.message ?? 'trip insert failed');
+          const segEnd = seg.points[seg.points.length - 1];
+          const endTs = segEnd.received_at ?? segEnd.gps_time;
+          if (endTs > lastProcessedAt) lastProcessedAt = endTs;
+          continue;
         }
         tripsCreated++;
 
@@ -119,34 +208,48 @@ export async function POST(request: Request) {
           trip_id: trip.id,
           device_id: did,
           point_id: p.id,
-          occurred_at: p.gps_time ?? p.received_at,
+          occurred_at: p.received_at ?? p.gps_time,
           lat: p.latitude!,
           lon: p.longitude!,
         }));
         const chunk = 200;
         for (let i = 0; i < tripPoints.length; i += chunk) {
-          await supabase.from('trip_points').insert(tripPoints.slice(i, i + chunk));
+          const { error: ptsErr } = await supabase.from('trip_points').insert(tripPoints.slice(i, i + chunk));
+          if (ptsErr) segmentErrors.push(`trip_points: ${ptsErr.message}`);
         }
 
         const segEnd = seg.points[seg.points.length - 1];
-        const endTs = segEnd.gps_time ?? segEnd.received_at;
+        const endTs = segEnd.received_at ?? segEnd.gps_time;
         if (endTs > lastProcessedAt) lastProcessedAt = endTs;
       }
 
       if (points.length > 0) {
         const lastPoint = points[points.length - 1];
-        const ts = lastPoint.gps_time ?? lastPoint.received_at;
+        const ts = lastPoint.received_at ?? lastPoint.gps_time;
         if (ts > lastProcessedAt) lastProcessedAt = ts;
       }
+
+      const nowIsoForState = new Date().toISOString();
+      if (lastProcessedAt > nowIsoForState) lastProcessedAt = nowIsoForState;
 
       await supabase
         .from('trip_state')
         .upsert(
-          { device_id: did, last_processed_at: lastProcessedAt, open_trip_id: null, updated_at: new Date().toISOString() },
+          { device_id: did, last_processed_at: lastProcessedAt, open_trip_id: null, updated_at: nowIsoForState },
           { onConflict: 'device_id' }
         );
 
-      results.push({ device_id: did, trips_created });
+      const segmentsAfterFilter = originalLastProcessed
+        ? segments.filter((s) => s.endedAt > originalLastProcessed)
+        : segments;
+      results.push({
+        device_id: did,
+        points_fetched: points.length,
+        segments_found: segments.length,
+        segments_new: segmentsAfterFilter.length,
+        trips_created: tripsCreated,
+        ...(segmentErrors.length > 0 && { errors: segmentErrors }),
+      });
     } catch (e) {
       results.push({ device_id: did, trips_created: 0, error: String(e) });
     }

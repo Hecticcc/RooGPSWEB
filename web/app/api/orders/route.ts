@@ -61,12 +61,15 @@ export async function POST(request: Request) {
 
   const discountCents = Math.max(0, Math.floor(Number(body.discount_cents) ?? 0));
   const voucherId = typeof body.voucher_id === 'string' && body.voucher_id.trim() ? body.voucher_id.trim() : null;
+  const hasYearlySim = items.some((i) => (i.product_sku ?? '').toLowerCase().includes('sim_yearly'));
+  const simPlan = hasYearlySim ? 'yearly' : 'monthly';
 
   const { data: order, error: orderErr } = await admin
     .from('orders')
     .insert({
       user_id: user.id,
       status: 'pending',
+      sim_plan: simPlan,
       shipping_name: body.shipping_name ?? null,
       shipping_mobile: body.shipping_mobile ?? null,
       shipping_address_line1: body.shipping_address_line1 ?? null,

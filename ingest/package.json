@@ -6,7 +6,8 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "npx ts-node src/parser.test.ts"
+    "test": "npx ts-node src/parser.test.ts",
+    "test:night-guard": "npx ts-node src/night-guard/night-guard.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",

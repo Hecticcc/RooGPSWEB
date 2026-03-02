@@ -104,7 +104,15 @@ export async function PATCH(
   const { id: orderId } = await params;
   if (!orderId) return NextResponse.json({ error: 'Order ID required' }, { status: 400 });
 
-  let body: { action: string; tracking_number?: string; order_item_id?: string; tracker_stock_id?: string; sim_iccid?: string };
+  let body: {
+    action: string;
+    tracking_number?: string;
+    order_item_id?: string;
+    tracker_stock_id?: string;
+    sim_iccid?: string;
+    total_cents?: number;
+    subscription_next_billing_date?: string | null;
+  };
   try {
     body = await request.json();
   } catch {
@@ -378,6 +386,29 @@ export async function PATCH(
     }
 
     return NextResponse.json({ ok: true, message: 'Tracker reassigned' });
+  }
+
+  if (body.action === 'update_subscription') {
+    const totalCents = typeof body.total_cents === 'number' && body.total_cents >= 0 ? body.total_cents : undefined;
+    const nextBilling =
+      body.subscription_next_billing_date === null || body.subscription_next_billing_date === ''
+        ? null
+        : typeof body.subscription_next_billing_date === 'string' && body.subscription_next_billing_date.trim()
+          ? body.subscription_next_billing_date.trim()
+          : undefined;
+    if (totalCents === undefined && nextBilling === undefined) {
+      return NextResponse.json({ error: 'Provide total_cents and/or subscription_next_billing_date' }, { status: 400 });
+    }
+    const { data: orderRow } = await admin.from('orders').select('id').eq('id', orderId).single();
+    if (!orderRow) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    const updates: { total_cents?: number; subscription_next_billing_date?: string | null; updated_at: string } = {
+      updated_at: new Date().toISOString(),
+    };
+    if (totalCents !== undefined) updates.total_cents = totalCents;
+    if (nextBilling !== undefined) updates.subscription_next_billing_date = nextBilling;
+    const { error: updateErr } = await admin.from('orders').update(updates).eq('id', orderId);
+    if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+    return NextResponse.json({ ok: true, message: 'Subscription updated' });
   }
 
   if (body.action === 'reassign_sim') {

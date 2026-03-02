@@ -172,13 +172,14 @@ export default function AdminPricingPage() {
           {rows.map((r) => (
             <div key={r.sku} className="admin-pricing-card admin-pricing-card--row">
               <div className="admin-pricing-card__cell admin-pricing-card__cell--sku">
-                <code className="admin-pricing-card__sku">{r.sku}</code>
+                <span className="admin-pricing-card__sku-label">SKU</span>
+                <span className="admin-pricing-card__sku">{r.sku}</span>
               </div>
               <div className="admin-pricing-card__cell admin-pricing-card__cell--label">
                 <label className="admin-pricing-card__label-label">Label</label>
                 <input
                   type="text"
-                  className="admin-pricing-card__input admin-pricing-card__input--text"
+                  className="admin-pricing-card__input admin-pricing-card__input--text admin-pricing-card__input--label"
                   value={r.label}
                   onChange={(e) => updateRow(r.sku, 'label', e.target.value)}
                   placeholder="Product label"

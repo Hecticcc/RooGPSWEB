@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAdminAuth } from '../AdminAuthContext';
-import { Trash2 } from 'lucide-react';
+import { Power, PowerOff } from 'lucide-react';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 
 const AU_TZ = 'Australia/Sydney';
@@ -27,24 +27,27 @@ type DeviceRow = {
   battery_percent: number | null;
   last_seen_at: string | null;
   created_at: string;
-  ingest_disabled: boolean;
+  sim_iccid: string | null;
+  sim_status: 'enabled' | 'disabled' | 'unknown' | null;
 };
 
 export default function AdminDevicesPage() {
   const { getAuthHeaders } = useAdminAuth();
   const [devices, setDevices] = useState<DeviceRow[]>([]);
   const [filter, setFilter] = useState('');
+  const [searchDeviceId, setSearchDeviceId] = useState('');
+  const [searchUser, setSearchUser] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [confirmDeleteDeviceId, setConfirmDeleteDeviceId] = useState<string | null>(null);
-
-  const isAdministrator = userRole === 'administrator';
-  const deviceToConfirm = confirmDeleteDeviceId ? devices.find((d) => d.id === confirmDeleteDeviceId) : null;
+  const [simTogglingIccid, setSimTogglingIccid] = useState<string | null>(null);
 
   function loadDevices() {
-    const q = filter ? `?filter=${encodeURIComponent(filter)}` : '';
+    const params = new URLSearchParams();
+    if (filter) params.set('filter', filter);
+    if (searchDeviceId.trim()) params.set('searchDeviceId', searchDeviceId.trim());
+    if (searchUser.trim()) params.set('searchUser', searchUser.trim());
+    const q = params.toString() ? `?${params.toString()}` : '';
     return fetch(`/api/admin/devices${q}`, { credentials: 'include', cache: 'no-store', headers: getAuthHeaders() })
       .then(async (r) => {
         if (!r.ok) {
@@ -69,35 +72,31 @@ export default function AdminDevicesPage() {
         setUserRole(meData?.role ?? null);
       })
       .finally(() => setLoading(false));
-  }, [filter, getAuthHeaders]);
+  }, [filter, searchDeviceId, searchUser, getAuthHeaders]);
 
-  useEffect(() => {
-    if (!confirmDeleteDeviceId) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setConfirmDeleteDeviceId(null);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [confirmDeleteDeviceId]);
-
-  async function handleDelete(deviceId: string) {
-    if (!isAdministrator) return;
-    setConfirmDeleteDeviceId(null);
-    setDeletingId(deviceId);
+  async function handleSimToggle(d: DeviceRow) {
+    if (!d.sim_iccid || simTogglingIccid === d.sim_iccid) return;
+    const nextState = d.sim_status === 'enabled' ? 'disabled' : 'enabled';
+    setSimTogglingIccid(d.sim_iccid);
     try {
-      const res = await fetch(`/api/admin/devices/${encodeURIComponent(deviceId)}/delete`, {
-        method: 'DELETE',
+      const res = await fetch(`/api/admin/stock/simcards/${encodeURIComponent(d.sim_iccid)}`, {
+        method: 'PATCH',
         credentials: 'include',
-        headers: getAuthHeaders(),
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: nextState }),
       });
       if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        setError((d as { error?: string })?.error ?? 'Delete failed');
+        const data = await res.json().catch(() => ({}));
+        setError((data as { error?: string })?.error ?? 'Failed to update SIM state');
         return;
       }
-      setDevices((prev) => prev.filter((d) => d.id !== deviceId));
+      setDevices((prev) =>
+        prev.map((row) =>
+          row.id === d.id ? { ...row, sim_status: nextState } : row
+        )
+      );
     } finally {
-      setDeletingId(null);
+      setSimTogglingIccid(null);
     }
   }
 
@@ -107,20 +106,47 @@ export default function AdminDevicesPage() {
   return (
     <>
       <h1 className="admin-page-title">Devices</h1>
-      <div className="admin-card" style={{ marginBottom: '1rem' }}>
-        <label style={{ marginRight: '0.5rem' }}>Filter:</label>
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="admin-form-row"
-          style={{ display: 'inline-block', margin: 0, minWidth: '140px' }}
-        >
-          <option value="">All</option>
-          <option value="online">Online</option>
-          <option value="offline">Offline</option>
-          <option value="unassigned">Unassigned</option>
-          <option value="low_battery">Low battery (&lt;20%)</option>
-        </select>
+      <div className="admin-card" style={{ marginBottom: '1rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+        <div className="admin-form-row" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <label htmlFor="admin-devices-filter" style={{ margin: 0 }}>Filter:</label>
+          <select
+            id="admin-devices-filter"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="admin-select"
+            style={{ minWidth: '140px' }}
+          >
+            <option value="">All</option>
+            <option value="online">Online</option>
+            <option value="offline">Offline</option>
+            <option value="unassigned">Unassigned</option>
+            <option value="low_battery">Low battery (&lt;20%)</option>
+          </select>
+        </div>
+        <div className="admin-form-row" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <label htmlFor="admin-devices-search-id" style={{ margin: 0 }}>Device ID:</label>
+          <input
+            id="admin-devices-search-id"
+            type="search"
+            placeholder="Search by Device ID"
+            value={searchDeviceId}
+            onChange={(e) => setSearchDeviceId(e.target.value)}
+            className="admin-input"
+            style={{ minWidth: '180px' }}
+          />
+        </div>
+        <div className="admin-form-row" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <label htmlFor="admin-devices-search-user" style={{ margin: 0 }}>Assigned user:</label>
+          <input
+            id="admin-devices-search-user"
+            type="search"
+            placeholder="Search by email"
+            value={searchUser}
+            onChange={(e) => setSearchUser(e.target.value)}
+            className="admin-input"
+            style={{ minWidth: '180px' }}
+          />
+        </div>
       </div>
       <div className="admin-card admin-table-wrap">
         <table className="admin-table">
@@ -132,8 +158,8 @@ export default function AdminDevicesPage() {
               <th>Battery</th>
               <th>Last seen (AU)</th>
               <th>Created</th>
-              <th>Ingest</th>
-              <th></th>
+              <th>Sim status</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -149,72 +175,46 @@ export default function AdminDevicesPage() {
                 <td>{d.battery_percent != null ? `${d.battery_percent}%` : '—'}</td>
                 <td className="admin-time">{formatDate(d.last_seen_at)}</td>
                 <td className="admin-time">{formatDate(d.created_at)}</td>
-                <td>{d.ingest_disabled ? <span className="admin-badge admin-badge--error">Disabled</span> : '—'}</td>
+                <td>
+                  {d.sim_iccid ? (
+                    <>
+                      <span className={`admin-badge admin-badge--${d.sim_status === 'enabled' ? 'success' : d.sim_status === 'disabled' ? 'warn' : 'muted'}`}>
+                        {d.sim_status === 'enabled' ? 'Enabled' : d.sim_status === 'disabled' ? 'Disabled' : 'Unknown'}
+                      </span>
+                      {(d.sim_status === 'enabled' || d.sim_status === 'disabled') && (
+                        <button
+                          type="button"
+                          className="admin-btn"
+                          style={{ marginLeft: '0.5rem', padding: '0.35rem', minWidth: '28px', minHeight: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                          onClick={() => handleSimToggle(d)}
+                          disabled={simTogglingIccid === d.sim_iccid}
+                          title={d.sim_status === 'enabled' ? 'Disable SIM' : 'Enable SIM'}
+                          aria-label={d.sim_status === 'enabled' ? 'Disable SIM' : 'Enable SIM'}
+                        >
+                          {simTogglingIccid === d.sim_iccid ? (
+                            <span style={{ fontSize: '0.75rem' }}>…</span>
+                          ) : d.sim_status === 'enabled' ? (
+                            <PowerOff size={14} aria-hidden />
+                          ) : (
+                            <Power size={14} aria-hidden />
+                          )}
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </td>
                 <td>
                   <Link href={`/admin/devices/${encodeURIComponent(d.id)}`} className="admin-btn">
                     View
                   </Link>
-                  {isAdministrator && (
-                    <>
-                      {' '}
-                      <button
-                        type="button"
-                        className="admin-btn admin-btn--danger"
-                        onClick={() => setConfirmDeleteDeviceId(d.id)}
-                        disabled={deletingId === d.id}
-                        title="Delete device and all location history"
-                      >
-                        <Trash2 size={14} aria-hidden />
-                      </button>
-                    </>
-                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-
-      {confirmDeleteDeviceId && deviceToConfirm && (
-        <div
-          className="admin-confirm-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="admin-confirm-title"
-          onClick={() => setConfirmDeleteDeviceId(null)}
-        >
-          <div className="admin-confirm-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="admin-confirm-icon-wrap">
-              <Trash2 size={40} strokeWidth={1.5} aria-hidden />
-            </div>
-            <h2 id="admin-confirm-title" className="admin-confirm-title">
-              Delete device?
-            </h2>
-            <p className="admin-confirm-message">
-              This will permanently delete the device and all its location history. This cannot be undone.
-            </p>
-            <p className="admin-confirm-device-id admin-mono">{deviceToConfirm.id}</p>
-            <div className="admin-confirm-actions">
-              <button
-                type="button"
-                className="admin-btn"
-                onClick={() => setConfirmDeleteDeviceId(null)}
-                disabled={deletingId === confirmDeleteDeviceId}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="admin-btn admin-btn--danger"
-                onClick={() => handleDelete(confirmDeleteDeviceId)}
-                disabled={deletingId === confirmDeleteDeviceId}
-              >
-                {deletingId === confirmDeleteDeviceId ? 'Deleting…' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

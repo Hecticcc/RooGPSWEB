@@ -263,7 +263,7 @@ export default function SubscriptionPage() {
                 onNext={() => setPlanPage((p) => p + 1)}
               />
               <p className="subscription-plan-note" style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: 'var(--muted)' }}>
-                Based on your order date. Renewal billing may vary when payment integration is active.
+                Next billing date is updated when Stripe processes your renewal.
               </p>
             </>
           )}

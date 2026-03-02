@@ -50,20 +50,29 @@ export default function MapboxMap({ lat, lng, history }: Props) {
       type: 'LineString',
       coordinates: history.map((p) => [p.longitude, p.latitude]),
     };
-    if (map.getSource('history')) {
-      (map.getSource('history') as mapboxgl.GeoJSONSource).setData(geojson);
-    } else {
-      map.on('load', () => {
-        map.addSource('history', { type: 'geojson', data: geojson });
-        map.addLayer({
-          id: 'history-line',
-          type: 'line',
-          source: 'history',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': '#f97316', 'line-width': 2 },
-        });
+
+    function addOrUpdateHistory() {
+      const m = mapRef.current;
+      if (!m) return;
+      const existing = m.getSource('history');
+      if (existing) {
+        (existing as mapboxgl.GeoJSONSource).setData(geojson);
+        return;
+      }
+      m.addSource('history', { type: 'geojson', data: geojson });
+      m.addLayer({
+        id: 'history-line',
+        type: 'line',
+        source: 'history',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#f97316', 'line-width': 2 },
       });
-      if (map.isStyleLoaded()) map.fire('load');
+    }
+
+    if (map.isStyleLoaded()) {
+      addOrUpdateHistory();
+    } else {
+      map.once('load', addOrUpdateHistory);
     }
   }, [history]);
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { useAdminAuth } from '../AdminAuthContext';
+import { MessageSquare } from 'lucide-react';
 
 type SystemData = {
   supabase_connected: boolean;
@@ -23,6 +24,10 @@ export default function AdminSystemPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
+  const [smsTestTo, setSmsTestTo] = useState('');
+  const [smsTestMessage, setSmsTestMessage] = useState('');
+  const [smsTestStatus, setSmsTestStatus] = useState<'idle' | 'sending' | 'ok' | 'err'>('idle');
+  const [smsTestError, setSmsTestError] = useState<string | null>(null);
 
   useEffect(() => {
     const headers = getAuthHeaders();
@@ -86,6 +91,37 @@ export default function AdminSystemPage() {
     }
   }
 
+  async function sendTestSms() {
+    const to = smsTestTo.trim();
+    const message = smsTestMessage.trim();
+    if (!to || !message) {
+      setSmsTestStatus('err');
+      setSmsTestError('Enter a phone number and message.');
+      return;
+    }
+    setSmsTestStatus('sending');
+    setSmsTestError(null);
+    try {
+      const res = await fetch('/api/admin/sms/test', {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ to, message }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSmsTestStatus('err');
+        setSmsTestError((data as { error?: string }).error ?? 'Failed to send');
+        return;
+      }
+      setSmsTestStatus('ok');
+      setSmsTestError(null);
+    } catch (e) {
+      setSmsTestStatus('err');
+      setSmsTestError(e instanceof Error ? e.message : 'Request failed');
+    }
+  }
+
   if (loading) return <div className="app-loading"><AppLoadingIcon /></div>;
   if (error) return <p className="admin-time" style={{ color: 'var(--error)' }}>{error}</p>;
   if (!data) return null;
@@ -143,6 +179,57 @@ export default function AdminSystemPage() {
               Trigger retention cleanup
             </button>
             <p className="admin-system-retention-hint">Deletes locations older than ADMIN_RETENTION_DAYS (default 90).</p>
+          </div>
+
+          <div className="admin-system-sms-test" style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+            <h4 style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <MessageSquare size={18} aria-hidden /> SMS testing
+            </h4>
+            <p className="admin-system-retention-hint" style={{ marginBottom: '0.75rem' }}>
+              Send a test SMS via SMSPortal. Does not count against user usage.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: '24rem' }}>
+              <label>
+                <span style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem' }}>Phone number</span>
+                <input
+                  type="text"
+                  value={smsTestTo}
+                  onChange={(e) => setSmsTestTo(e.target.value)}
+                  placeholder="04xxxxxxxx or +61..."
+                  className="admin-input"
+                  style={{ width: '100%' }}
+                  disabled={smsTestStatus === 'sending'}
+                />
+              </label>
+              <label>
+                <span style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem' }}>Message</span>
+                <textarea
+                  value={smsTestMessage}
+                  onChange={(e) => setSmsTestMessage(e.target.value)}
+                  placeholder="Test message..."
+                  className="admin-input"
+                  rows={3}
+                  style={{ width: '100%', resize: 'vertical' }}
+                  disabled={smsTestStatus === 'sending'}
+                />
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn--primary"
+                  onClick={sendTestSms}
+                  disabled={smsTestStatus === 'sending'}
+                >
+                  {smsTestStatus === 'sending' ? 'Sending…' : 'Send test SMS'}
+                </button>
+                {smsTestStatus === 'ok' && (
+                  <span style={{ color: 'var(--success)', fontSize: '0.875rem' }}>Sent successfully.</span>
+                )}
+                {smsTestStatus === 'err' && smsTestError && (
+                  <span style={{ color: 'var(--error)', fontSize: '0.875rem' }}>{smsTestError}</span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

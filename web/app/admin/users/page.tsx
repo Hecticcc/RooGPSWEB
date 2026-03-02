@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useAdminAuth } from '../AdminAuthContext';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { roleLabel } from '@/lib/roles';
@@ -166,8 +167,15 @@ export default function AdminUsersPage() {
                 <td>{u.device_count}</td>
                 <td className="admin-time">{formatDate(u.last_sign_in_at)}</td>
                 <td>
+                  <Link
+                    href={`/admin/users/${encodeURIComponent(u.id)}`}
+                    className="admin-btn"
+                  >
+                    View
+                  </Link>
                   {isAdmin && (
                     <>
+                      {' '}
                       <button
                         type="button"
                         className="admin-btn"

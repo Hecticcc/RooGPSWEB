@@ -43,6 +43,9 @@ type DeviceDetail = {
     owner_role: string | null;
   };
   last_payloads: PayloadRow[];
+  total_payloads: number;
+  payload_page: number;
+  payload_limit: number;
 };
 
 export default function AdminDeviceDetailPage() {
@@ -55,13 +58,20 @@ export default function AdminDeviceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
+  const [payloadPage, setPayloadPage] = useState(1);
+  const PAYLOAD_PAGE_SIZE = 20;
+
+  useEffect(() => {
+    if (!deviceId) return;
+    setPayloadPage(1);
+  }, [deviceId]);
 
   useEffect(() => {
     if (!deviceId) return;
     const headers = getAuthHeaders();
     Promise.all([
       fetch('/api/me', { credentials: 'include', cache: 'no-store', headers }).then((r) => r.ok ? r.json() : null),
-      fetch(`/api/admin/devices/${encodeURIComponent(deviceId)}`, { credentials: 'include', cache: 'no-store', headers }).then((r) => {
+      fetch(`/api/admin/devices/${encodeURIComponent(deviceId)}?page=${payloadPage}&limit=${PAYLOAD_PAGE_SIZE}`, { credentials: 'include', cache: 'no-store', headers }).then((r) => {
         if (!r.ok) throw new Error(r.status === 404 ? 'Device not found' : 'Failed to load');
         return r.json();
       }),
@@ -72,7 +82,7 @@ export default function AdminDeviceDetailPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [deviceId, getAuthHeaders]);
+  }, [deviceId, payloadPage, getAuthHeaders]);
 
   const [users, setUsers] = useState<{ id: string; email: string | null }[]>([]);
   const [reassignUserId, setReassignUserId] = useState('');
@@ -275,9 +285,36 @@ export default function AdminDeviceDetailPage() {
       </div>
 
       <div className="admin-card">
-        <h3>Last 20 raw payloads</h3>
-        <p className="admin-time">Parsed fields: lat, lon, speed, battery % and voltage (iStartek v2.2 ext-V|bat-V), gps_valid</p>
-        <div className="admin-table-wrap" style={{ maxHeight: '400px', overflow: 'auto' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.5rem' }}>
+          <h3 style={{ margin: 0 }}>Raw payloads</h3>
+          {data.total_payloads > 0 && (
+            <div className="admin-pagination" role="navigation" aria-label="Payloads pagination">
+              <span className="admin-pagination-info">
+                Page {data.payload_page} of {Math.max(1, Math.ceil(data.total_payloads / data.payload_limit))} ({data.total_payloads} total)
+              </span>
+              <button
+                type="button"
+                className="admin-btn admin-btn--small"
+                onClick={() => setPayloadPage((p) => Math.max(1, p - 1))}
+                disabled={data.payload_page <= 1}
+                aria-label="Previous page"
+              >
+                ← Prev
+              </button>
+              <button
+                type="button"
+                className="admin-btn admin-btn--small"
+                onClick={() => setPayloadPage((p) => p + 1)}
+                disabled={data.payload_page >= Math.ceil(data.total_payloads / data.payload_limit)}
+                aria-label="Next page"
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </div>
+        <p className="admin-time">Parsed fields: lat, lon, speed, battery % and voltage (iStartek v2.2 ext-V|bat-V), gps_valid. 20 per page.</p>
+        <div className="admin-table-wrap admin-table-wrap--scroll">
           <table className="admin-table">
             <thead>
               <tr>

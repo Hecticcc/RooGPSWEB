@@ -33,7 +33,7 @@ export default function BatteryLevelIcon({
   'aria-label': ariaLabel,
 }: Props) {
   const bars = TIER_BARS[tier];
-  const strokeStyle = { fill: 'none', stroke: color, strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  const strokeStyle = { fill: 'none', stroke: color, strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   // Body: x=2 y=6 w=18 h=12 rx=2; cap at right; 4 bar slots from x 5,9,13,17 width 3 height 8 y=8
   const barWidth = 3;
   const barHeight = 8;

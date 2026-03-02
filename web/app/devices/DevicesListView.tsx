@@ -1,10 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { Car, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle } from 'lucide-react';
+import { Car, Clock, Plus, ChevronRight, Settings, Check, Loader2, AlertCircle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin } from 'lucide-react';
 import { FaShieldDog } from 'react-icons/fa6';
 import DashboardMap from '@/components/DashboardMap';
+
+const GeofencePickerMap = dynamic(() => import('@/components/GeofencePickerMap'), { ssr: false });
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import TrackerIconPreview from '@/components/TrackerIconPreview';
 import BatteryLevelIcon from '@/components/BatteryLevelIcon';
@@ -23,6 +26,25 @@ const TRACKER_ICONS = [
 const COLOUR_PRESETS = [
   '#f97316', '#ef4444', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#eab308',
 ] as const;
+
+const NIGHT_GUARD_TIMEZONES = [
+  'Australia/Melbourne',
+  'Australia/Sydney',
+  'Australia/Brisbane',
+  'Australia/Perth',
+  'Australia/Adelaide',
+  'Australia/Darwin',
+  'Pacific/Auckland',
+  'Pacific/Fiji',
+  'UTC',
+];
+
+function getBrowserTimezone(): string {
+  if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  }
+  return 'Australia/Melbourne';
+}
 
 type DeviceSignal = {
   gps?: {
@@ -52,6 +74,13 @@ type Device = {
   marker_icon?: string | null;
   watchdog_armed?: boolean;
   watchdog_armed_at?: string | null;
+  night_guard_enabled?: boolean;
+  night_guard_start_time_local?: string | null;
+  night_guard_end_time_local?: string | null;
+  night_guard_timezone?: string | null;
+  night_guard_radius_m?: number | null;
+  night_guard_home_lat?: number | null;
+  night_guard_home_lon?: number | null;
   connection_error?: { error_message: string; created_at: string } | null;
   sim_carrier?: string | null;
 };
@@ -74,6 +103,9 @@ type Props = {
   onColorChange: (deviceId: string, hex: string) => void;
   onSettingsChange: (deviceId: string, updates: { marker_color?: string; marker_icon?: string; watchdog_armed?: boolean; name?: string | null }) => void;
   onWatchdogToggle: (deviceId: string, armed: boolean) => void;
+  onNightGuardToggle: (deviceId: string, enabled: boolean) => void;
+  onFetchNightGuardRule: (deviceId: string) => Promise<{ start_time_local: string; end_time_local: string; timezone: string } | null>;
+  onSaveNightGuardRule: (deviceId: string, payload: { start_time_local: string; end_time_local: string; timezone: string; radius_m?: number; home_lat?: number | null; home_lon?: number | null }) => void | Promise<void>;
   colorSaveStatus: { deviceId: string; status: 'saving' | 'saved' | 'error' } | null;
   highlightedTrackerId: string | null;
   onMarkerClick: (markerId: string) => void;
@@ -101,6 +133,9 @@ export default function DevicesListView(props: Props) {
     onColorChange,
     onSettingsChange,
     onWatchdogToggle,
+    onNightGuardToggle,
+    onFetchNightGuardRule,
+    onSaveNightGuardRule,
     colorSaveStatus,
     highlightedTrackerId,
     onMarkerClick,
@@ -110,11 +145,41 @@ export default function DevicesListView(props: Props) {
   } = props;
 
   const [settingsOpenId, setSettingsOpenId] = useState<string | null>(null);
-  const [settingsTab, setSettingsTab] = useState<'appearance' | 'watchdog' | 'signal'>('appearance');
+  const [settingsTab, setSettingsTab] = useState<'appearance' | 'alerts' | 'signal'>('appearance');
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState('');
+  const [nightGuardRule, setNightGuardRule] = useState<{ start_time_local: string; end_time_local: string; timezone: string; radius_m: number; home_lat: number | null; home_lon: number | null } | null>(null);
+  const [nightGuardRuleLoading, setNightGuardRuleLoading] = useState(false);
+  const [nightGuardAddressInput, setNightGuardAddressInput] = useState('');
+  const [nightGuardHomeLoading, setNightGuardHomeLoading] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!settingsOpenId || settingsTab !== 'alerts') {
+      setNightGuardRule(null);
+      return;
+    }
+    setNightGuardRuleLoading(true);
+    onFetchNightGuardRule(settingsOpenId).then((rule) => {
+      if (!rule) {
+        setNightGuardRule(null);
+        setNightGuardRuleLoading(false);
+        return;
+      }
+      const device = devices.find((d) => d.id === settingsOpenId);
+      setNightGuardRule({
+        start_time_local: rule.start_time_local,
+        end_time_local: rule.end_time_local,
+        timezone: rule.timezone,
+        radius_m: device?.night_guard_radius_m ?? 50,
+        home_lat: device?.night_guard_home_lat ?? null,
+        home_lon: device?.night_guard_home_lon ?? null,
+      });
+      setNightGuardRuleLoading(false);
+    }).catch(() => setNightGuardRuleLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only refetch when device or tab changes
+  }, [settingsOpenId, settingsTab]);
 
   useEffect(() => {
     if (!settingsOpenId) setEditingNameId(null);
@@ -404,11 +469,27 @@ export default function DevicesListView(props: Props) {
                             <FaShieldDog size={12} aria-hidden />
                             <span>{d.watchdog_armed ? 'Armed' : 'Off'}</span>
                           </span>
+                          <span
+                            className={`tracker-card-chip tracker-card-nightguard-icon${d.night_guard_enabled ? ' tracker-card-nightguard-icon--on' : ''}`}
+                            title={d.night_guard_enabled
+                              ? (d.night_guard_start_time_local && d.night_guard_end_time_local
+                                ? `Night Guard on ${d.night_guard_start_time_local}–${d.night_guard_end_time_local} (${d.night_guard_timezone ?? 'local'}) – open settings to change`
+                                : 'Night Guard on – open settings to change')
+                              : 'Night Guard off – open settings to enable'}
+                            aria-label={d.night_guard_enabled ? 'Night Guard on' : 'Night Guard off'}
+                          >
+                            <Moon size={12} aria-hidden />
+                            <span>
+                              {d.night_guard_enabled && d.night_guard_start_time_local && d.night_guard_end_time_local
+                                ? `${d.night_guard_start_time_local}–${d.night_guard_end_time_local}`
+                                : d.night_guard_enabled ? 'On' : 'Off'}
+                            </span>
+                          </span>
                         </div>
                       </div>
                       <button
                         type="button"
-                        onClick={() => { setSettingsOpenId(d.id); setSettingsTab('appearance'); }}
+                        onClick={() => { setSettingsOpenId(d.id); setSettingsTab('appearance' as const); }}
                         title="Tracker settings"
                         className="tracker-card-settings-btn tracker-card-settings-btn--top-right"
                         aria-haspopup="dialog"
@@ -528,14 +609,14 @@ export default function DevicesListView(props: Props) {
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={settingsTab === 'watchdog'}
-                  aria-controls="tracker-settings-panel-watchdog"
-                  id="tracker-settings-tab-watchdog"
-                  className={`tracker-settings-modal-tab${settingsTab === 'watchdog' ? ' tracker-settings-modal-tab--active' : ''}`}
-                  onClick={() => setSettingsTab('watchdog')}
+                  aria-selected={settingsTab === 'alerts'}
+                  aria-controls="tracker-settings-panel-alerts"
+                  id="tracker-settings-tab-alerts"
+                  className={`tracker-settings-modal-tab${settingsTab === 'alerts' ? ' tracker-settings-modal-tab--active' : ''}`}
+                  onClick={() => setSettingsTab('alerts')}
                 >
-                  <FaShieldDog size={16} aria-hidden />
-                  <span>WatchDog</span>
+                  <AlertCircle size={16} strokeWidth={2} />
+                  <span>Movement alerts</span>
                 </button>
                 <button
                   type="button"
@@ -627,37 +708,253 @@ export default function DevicesListView(props: Props) {
                     </div>
                   </div>
                 )}
-                {settingsTab === 'watchdog' && (
-                  <div id="tracker-settings-panel-watchdog" role="tabpanel" aria-labelledby="tracker-settings-tab-watchdog" className="tracker-settings-modal-panel">
-                    <div className="tracker-settings-modal-section">
-                      <h3 className="tracker-settings-modal-section-title">WatchDog</h3>
+                {settingsTab === 'alerts' && (
+                  <div id="tracker-settings-panel-alerts" role="tabpanel" aria-labelledby="tracker-settings-tab-alerts" className="tracker-settings-modal-panel">
+                    <div className="tracker-settings-modal-section tracker-settings-modal-guard-section">
+                      <h3 className="tracker-settings-modal-section-title tracker-settings-modal-section-title--with-icon">
+                            <FaShieldDog size={18} aria-hidden />
+                            <span>WatchDog</span>
+                          </h3>
                       <p className="tracker-settings-modal-description">
                         When WatchDog is on, you&apos;ll get an alert if this tracker moves—either it goes faster than 5 km/h or travels more than 50 m from where you turned it on.
                       </p>
                       <div className="tracker-settings-modal-watchdog-wrap">
-                      <div className="tracker-settings-modal-watchdog-toggle" role="group" aria-label="WatchDog arm state">
-                        <button
-                          type="button"
-                          onClick={() => onWatchdogToggle(device.id, true)}
-                          disabled={colorSaveStatus?.deviceId === device.id && colorSaveStatus?.status === 'saving'}
-                          className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--arm${device.watchdog_armed ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
-                          title="Arm: alert if tracker moves"
-                        >
-                          {colorSaveStatus?.deviceId === device.id && !device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <FaShieldDog size={18} aria-hidden />}
-                          <span>Arm</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onWatchdogToggle(device.id, false)}
-                          disabled={colorSaveStatus?.deviceId === device.id && colorSaveStatus?.status === 'saving'}
-                          className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--disarm${!device.watchdog_armed ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
-                          title="Disarm"
-                        >
-                          {colorSaveStatus?.deviceId === device.id && device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <FaShieldDog size={18} style={{ opacity: 0.6 }} aria-hidden />}
-                          <span>Disarm</span>
-                        </button>
+                        <div className="tracker-settings-modal-watchdog-toggle" role="group" aria-label="WatchDog arm state">
+                          <button
+                            type="button"
+                            onClick={() => onWatchdogToggle(device.id, true)}
+                            disabled={colorSaveStatus?.deviceId === device.id && colorSaveStatus?.status === 'saving'}
+                            className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--arm${device.watchdog_armed ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
+                            title="Arm: alert if tracker moves"
+                          >
+                            {colorSaveStatus?.deviceId === device.id && !device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <FaShieldDog size={18} aria-hidden />}
+                            <span>Arm</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onWatchdogToggle(device.id, false)}
+                            disabled={colorSaveStatus?.deviceId === device.id && colorSaveStatus?.status === 'saving'}
+                            className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--disarm${!device.watchdog_armed ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
+                            title="Disarm"
+                          >
+                            {colorSaveStatus?.deviceId === device.id && device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <FaShieldDog size={18} style={{ opacity: 0.6 }} aria-hidden />}
+                            <span>Disarm</span>
+                          </button>
+                        </div>
                       </div>
+                    </div>
+                    <div className="tracker-settings-modal-section tracker-settings-modal-guard-section tracker-settings-nightguard-panel">
+                      <div className="tracker-settings-nightguard-header">
+                        <h3 className="tracker-settings-modal-section-title tracker-settings-modal-section-title--with-icon">
+                        <Moon size={18} aria-hidden />
+                        <span>Night Guard</span>
+                      </h3>
+                        <p className="tracker-settings-nightguard-desc">Alerts if the tracker leaves the Home radius during the active window.</p>
                       </div>
+                      {nightGuardRuleLoading ? (
+                        <p className="tracker-settings-modal-description"><Loader2 size={16} className="animate-spin" /> Loading…</p>
+                      ) : (() => {
+                        const deviceId = device.id;
+                        const start = nightGuardRule?.start_time_local ?? device.night_guard_start_time_local ?? '21:00';
+                        const end = nightGuardRule?.end_time_local ?? device.night_guard_end_time_local ?? '06:00';
+                        const tz = nightGuardRule?.timezone ?? device.night_guard_timezone ?? getBrowserTimezone();
+                        const radius = nightGuardRule?.radius_m ?? device.night_guard_radius_m ?? 50;
+                        const radiusClamped = Math.min(100, Math.max(25, radius));
+                        const homeLat = nightGuardRule?.home_lat ?? device.night_guard_home_lat ?? null;
+                        const homeLng = nightGuardRule?.home_lon ?? device.night_guard_home_lon ?? null;
+                        const timezoneOptions = NIGHT_GUARD_TIMEZONES.includes(getBrowserTimezone())
+                          ? NIGHT_GUARD_TIMEZONES
+                          : [getBrowserTimezone(), ...NIGHT_GUARD_TIMEZONES];
+                        const RADIUS_MIN = 25;
+                        const RADIUS_MAX = 100;
+                        const mapboxToken = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_MAPBOX_TOKEN : undefined;
+                        function saveRule(updates: { start_time_local?: string; end_time_local?: string; timezone?: string; radius_m?: number; home_lat?: number | null; home_lon?: number | null }) {
+                          const newStart = updates.start_time_local ?? start;
+                          const newEnd = updates.end_time_local ?? end;
+                          const newTz = updates.timezone ?? tz;
+                          const newRadius = updates.radius_m ?? radius;
+                          const newHomeLat = updates.home_lat !== undefined ? updates.home_lat : homeLat;
+                          const newHomeLng = updates.home_lon !== undefined ? updates.home_lon : homeLng;
+                          if (updates.start_time_local !== undefined || updates.end_time_local !== undefined) {
+                            if (!/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(newStart) || !/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(newEnd)) return;
+                          }
+                          setNightGuardRule({ start_time_local: newStart, end_time_local: newEnd, timezone: newTz, radius_m: newRadius, home_lat: newHomeLat, home_lon: newHomeLng });
+                          onSaveNightGuardRule(deviceId, { start_time_local: newStart, end_time_local: newEnd, timezone: newTz, radius_m: newRadius, home_lat: newHomeLat, home_lon: newHomeLng });
+                        }
+                        async function handleUseMyLocation() {
+                          if (!navigator.geolocation) {
+                            alert('Location is not supported by your browser.');
+                            return;
+                          }
+                          setNightGuardHomeLoading(true);
+                          navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                              saveRule({ home_lat: pos.coords.latitude, home_lon: pos.coords.longitude });
+                              setNightGuardHomeLoading(false);
+                            },
+                            () => {
+                              alert('Could not get your location. Check permissions or try setting Home on the map.');
+                              setNightGuardHomeLoading(false);
+                            },
+                            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+                          );
+                        }
+                        async function handleSetFromAddress() {
+                          const query = nightGuardAddressInput.trim();
+                          if (!query) return;
+                          if (!mapboxToken) {
+                            alert('Map search is not configured.');
+                            return;
+                          }
+                          setNightGuardHomeLoading(true);
+                          try {
+                            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${encodeURIComponent(mapboxToken)}&limit=1`;
+                            const res = await fetch(url);
+                            if (!res.ok) throw new Error('Geocoding failed');
+                            const data = (await res.json()) as { features?: Array<{ center?: [number, number] }> };
+                            const center = data.features?.[0]?.center;
+                            if (!center || center.length < 2) {
+                              alert('No location found for that address.');
+                              setNightGuardHomeLoading(false);
+                              return;
+                            }
+                            const [lng, lat] = center;
+                            saveRule({ home_lat: lat, home_lon: lng });
+                            setNightGuardAddressInput('');
+                          } catch {
+                            alert('Could not find that address. Try a different search.');
+                          }
+                          setNightGuardHomeLoading(false);
+                        }
+                        return (
+                          <div className="tracker-settings-nightguard-body">
+                            <div className="tracker-settings-nightguard-card">
+                              <div className="tracker-settings-nightguard-card-row">
+                                <span className="tracker-settings-nightguard-card-label">Status</span>
+                                <div className="tracker-settings-modal-watchdog-toggle" role="group" aria-label="Night Guard on/off">
+                                  <button
+                                    type="button"
+                                    onClick={() => onNightGuardToggle(device.id, true)}
+                                    className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--arm${device.night_guard_enabled ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
+                                    title="Turn Night Guard on"
+                                  >
+                                    <Moon size={18} aria-hidden />
+                                    <span>On</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => onNightGuardToggle(device.id, false)}
+                                    className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--disarm${!device.night_guard_enabled ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
+                                    title="Turn Night Guard off"
+                                  >
+                                    <Moon size={18} style={{ opacity: 0.6 }} aria-hidden />
+                                    <span>Off</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="tracker-settings-nightguard-card">
+                              <span className="tracker-settings-nightguard-card-label">Schedule</span>
+                              <div className="tracker-settings-nightguard-schedule">
+                                <label className="tracker-settings-nightguard-time-label">
+                                  <span>From</span>
+                                  <input
+                                    type="time"
+                                    value={start}
+                                    onChange={(e) => saveRule({ start_time_local: e.target.value })}
+                                    aria-label="Start time"
+                                  />
+                                </label>
+                                <span className="tracker-settings-nightguard-time-sep">to</span>
+                                <label className="tracker-settings-nightguard-time-label">
+                                  <span>To</span>
+                                  <input
+                                    type="time"
+                                    value={end}
+                                    onChange={(e) => saveRule({ end_time_local: e.target.value })}
+                                    aria-label="End time"
+                                  />
+                                </label>
+                                <label className="tracker-settings-nightguard-timezone-label">
+                                  <span>Timezone</span>
+                                  <select
+                                    value={tz}
+                                    onChange={(e) => saveRule({ timezone: e.target.value })}
+                                    aria-label="Timezone"
+                                  >
+                                    {timezoneOptions.map((z) => (
+                                      <option key={z} value={z}>{z}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                              </div>
+                            </div>
+                            <div className="tracker-settings-nightguard-card">
+                              <span className="tracker-settings-nightguard-card-label">Alert radius</span>
+                              <div className="tracker-settings-nightguard-radius-bar-wrap">
+                                <input
+                                  type="range"
+                                  min={RADIUS_MIN}
+                                  max={RADIUS_MAX}
+                                  step={1}
+                                  value={radiusClamped}
+                                  onChange={(e) => saveRule({ radius_m: parseInt(e.target.value, 10) })}
+                                  className="tracker-settings-nightguard-radius-bar"
+                                  style={{ ['--radius-percent' as string]: `${((radiusClamped - RADIUS_MIN) / (RADIUS_MAX - RADIUS_MIN)) * 100}%` }}
+                                  aria-label="Alert radius in metres"
+                                />
+                                <span className="tracker-settings-nightguard-radius-value" aria-hidden>{radiusClamped} m</span>
+                              </div>
+                            </div>
+                            <div className="tracker-settings-nightguard-card tracker-settings-nightguard-home-card">
+                              <span className="tracker-settings-nightguard-card-label">Home location</span>
+                              <div className="tracker-settings-nightguard-home-tools">
+                                <button
+                                  type="button"
+                                  onClick={handleUseMyLocation}
+                                  disabled={nightGuardHomeLoading}
+                                  className="tracker-settings-nightguard-home-btn"
+                                  title="Use your current location"
+                                >
+                                  {nightGuardHomeLoading ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
+                                  <span>Use my location</span>
+                                </button>
+                                <div className="tracker-settings-nightguard-address-row">
+                                  <input
+                                    type="text"
+                                    value={nightGuardAddressInput}
+                                    onChange={(e) => setNightGuardAddressInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleSetFromAddress()}
+                                    placeholder="Search address…"
+                                    className="tracker-settings-nightguard-address-input"
+                                    aria-label="Address search"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={handleSetFromAddress}
+                                    disabled={nightGuardHomeLoading || !nightGuardAddressInput.trim()}
+                                    className="tracker-settings-nightguard-home-btn tracker-settings-nightguard-set-btn"
+                                  >
+                                    Set location
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="tracker-settings-nightguard-map-hint">Or click the map to set Home. The circle shows the alert radius.</p>
+                              <div className="tracker-settings-nightguard-map-wrap">
+                                <GeofencePickerMap
+                                  centerLat={homeLat}
+                                  centerLng={homeLng}
+                                  radiusMeters={radius}
+                                  alertType="keep_in"
+                                  onCenterChange={(lat, lng) => saveRule({ home_lat: lat, home_lon: lng })}
+                                  showRadiusSlider={false}
+                                  compact
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}

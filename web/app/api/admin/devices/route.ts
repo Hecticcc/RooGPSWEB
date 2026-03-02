@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import { requireRole, createServiceRoleClient } from '@/lib/admin-auth';
+import { listSimbaseSimcards } from '@/lib/simbase';
 
-const ONLINE_THRESHOLD_MS = 10 * 60 * 1000;
+/** Consider device online if last_seen within this window. Must be > GPS ping interval (e.g. 10 min) so we don't mark offline between pings. */
+const ONLINE_THRESHOLD_MS = 20 * 60 * 1000; // 20 min
+
+function normalizeIccid(iccid: string): string {
+  return String(iccid ?? '').trim();
+}
 
 export async function GET(request: Request) {
   const guard = await requireRole(request, 'staff');
@@ -15,10 +21,12 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const filter = searchParams.get('filter') ?? ''; // online | offline | unassigned | low_battery
+  const searchDeviceId = (searchParams.get('searchDeviceId') ?? '').trim().toLowerCase();
+  const searchUser = (searchParams.get('searchUser') ?? '').trim().toLowerCase();
 
   const { data: devices, error: devErr } = await admin
     .from('devices')
-    .select('id, user_id, name, created_at, last_seen_at, ingest_disabled')
+    .select('id, user_id, name, created_at, last_seen_at')
     .order('created_at', { ascending: false });
   if (devErr) {
     return NextResponse.json({ error: devErr.message }, { status: 500 });
@@ -55,9 +63,33 @@ export async function GET(request: Request) {
     });
   }
 
+  const { data: tokens } = await admin
+    .from('activation_tokens')
+    .select('device_id, sim_iccid')
+    .in('device_id', deviceIds)
+    .not('device_id', 'is', null);
+  const simIccidByDevice: Record<string, string> = {};
+  for (const t of tokens ?? []) {
+    if (t.sim_iccid) simIccidByDevice[t.device_id] = t.sim_iccid;
+  }
+  const allIccids = Array.from(new Set(Object.values(simIccidByDevice)));
+  let simStateByIccid = new Map<string, string>();
+  try {
+    const sims = await listSimbaseSimcards();
+    for (const s of sims) {
+      simStateByIccid.set(s.iccid, s.state);
+      simStateByIccid.set(s.iccid.replace(/^0+/, ''), s.state);
+    }
+  } catch {
+    // Simbase not configured or error
+  }
+
   let list = deviceList.map((d) => {
     const isOnline = d.last_seen_at && d.last_seen_at >= onlineCutoff;
     const battery = latestLocations[d.id]?.battery_percent;
+    const sim_iccid = simIccidByDevice[d.id] ?? null;
+    const rawSimState = sim_iccid ? simStateByIccid.get(normalizeIccid(sim_iccid)) ?? simStateByIccid.get(sim_iccid.replace(/^0+/, '')) : undefined;
+    const sim_status = rawSimState === 'enabled' || rawSimState === 'disabled' ? rawSimState : (sim_iccid ? 'unknown' : null);
     return {
       id: d.id,
       user_id: d.user_id,
@@ -68,7 +100,8 @@ export async function GET(request: Request) {
       battery_percent: battery ?? null,
       last_seen_at: d.last_seen_at,
       created_at: d.created_at,
-      ingest_disabled: d.ingest_disabled ?? false,
+      sim_iccid,
+      sim_status: sim_status as 'enabled' | 'disabled' | 'unknown' | null,
     };
   });
 
@@ -76,6 +109,17 @@ export async function GET(request: Request) {
   else if (filter === 'offline') list = list.filter((d) => d.status === 'offline');
   else if (filter === 'unassigned') list = list.filter((d) => !d.user_id);
   else if (filter === 'low_battery') list = list.filter((d) => d.battery_percent != null && d.battery_percent < 20);
+
+  if (searchDeviceId) {
+    list = list.filter((d) => d.id.toLowerCase().includes(searchDeviceId));
+  }
+  if (searchUser) {
+    list = list.filter((d) => {
+      const email = (d.user_email ?? '').toLowerCase();
+      const uid = (d.user_id ?? '').toLowerCase();
+      return email.includes(searchUser) || uid.includes(searchUser);
+    });
+  }
 
   return NextResponse.json(list);
 }

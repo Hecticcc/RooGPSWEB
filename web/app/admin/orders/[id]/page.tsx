@@ -145,6 +145,10 @@ type Order = {
   total_cents: number | null;
   currency: string;
   tracking_number: string | null;
+  stripe_payment_id: string | null;
+  stripe_subscription_id: string | null;
+  sim_plan: string | null;
+  subscription_next_billing_date: string | null;
   created_at: string;
   updated_at: string;
   items?: OrderItem[];
@@ -194,6 +198,8 @@ export default function AdminOrderDetailPage() {
   const [canEditAssignments, setCanEditAssignments] = useState(false);
   const [reassigning, setReassigning] = useState<'tracker' | 'sim' | null>(null);
   const [reassignItemId, setReassignItemId] = useState<string | null>(null);
+  const [paymentLog, setPaymentLog] = useState<{ id: string; event_type: string; stripe_event_id: string | null; stripe_object_id: string | null; payload: unknown; created_at: string }[]>([]);
+  const [paymentLogLoading, setPaymentLogLoading] = useState(false);
 
   function refetchOrder() {
     if (!id) return Promise.resolve();
@@ -232,6 +238,16 @@ export default function AdminOrderDetailPage() {
       .catch(() => setSimcardsAvailable([]))
       .finally(() => setSimcardsLoading(false));
   }, [id, loading, getAuthHeaders]);
+
+  useEffect(() => {
+    if (!id || !order) return;
+    setPaymentLogLoading(true);
+    fetch(`/api/admin/orders/${id}/payment-log`, { credentials: 'include', cache: 'no-store', headers: getAuthHeaders() })
+      .then((r) => (r.ok ? r.json() : { log: [] }))
+      .then((data) => setPaymentLog(data.log ?? []))
+      .catch(() => setPaymentLog([]))
+      .finally(() => setPaymentLogLoading(false));
+  }, [id, order?.id, getAuthHeaders]);
 
   function handleFulfil(e: React.FormEvent, itemId: string, simOnly: boolean) {
     e.preventDefault();
@@ -403,6 +419,51 @@ export default function AdminOrderDetailPage() {
             <tr><td>Total</td><td>{order.total_cents != null ? `$${(order.total_cents / 100).toFixed(2)}` : '—'}</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <div className="admin-card">
+        <h3>Payment & subscription (Stripe)</h3>
+        <table className="admin-table">
+          <tbody>
+            <tr><td>Stripe Payment ID</td><td className="admin-mono">{order.stripe_payment_id ?? '—'}</td></tr>
+            <tr><td>Stripe Subscription ID</td><td className="admin-mono">{order.stripe_subscription_id ?? '—'}</td></tr>
+            <tr><td>SIM plan</td><td>{order.sim_plan ?? '—'}</td></tr>
+            <tr><td>Next billing date</td><td>{order.subscription_next_billing_date ? new Date(order.subscription_next_billing_date).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div className="admin-card">
+        <h3>Payment log</h3>
+        <p className="admin-time" style={{ marginBottom: '0.5rem' }}>Stripe webhook events for this order (audit trail).</p>
+        {paymentLogLoading ? (
+          <p className="admin-time">Loading…</p>
+        ) : paymentLog.length === 0 ? (
+          <p className="admin-time">No log entries.</p>
+        ) : (
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Event</th>
+                  <th>Stripe event ID</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentLog.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="admin-mono" style={{ fontSize: '0.85rem' }}>{new Date(entry.created_at).toLocaleString()}</td>
+                    <td>{entry.event_type}</td>
+                    <td className="admin-mono" style={{ fontSize: '0.8rem' }}>{entry.stripe_event_id ?? '—'}</td>
+                    <td style={{ fontSize: '0.8rem', maxWidth: 280 }}>{typeof entry.payload === 'object' && entry.payload !== null ? JSON.stringify(entry.payload) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="admin-card">

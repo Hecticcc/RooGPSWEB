@@ -3,10 +3,72 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase';
 import { getAuthHeaders } from '@/lib/api-auth';
-import { Route, Loader2, X, Calendar } from 'lucide-react';
+import { Route, Loader2, X, Calendar, RefreshCw } from 'lucide-react';
 import TripRouteMap from '@/components/TripRouteMap';
 
 const TIMEZONE = 'Australia/Melbourne';
+
+/** Melbourne offset in hours (10 = AEST, 11 = AEDT) for a given local date. */
+function getMelbourneOffsetHours(year: number, month: number, day: number): number {
+  if (month < 4 || month > 10) return 11;
+  if (month > 4 && month < 10) return 10;
+  const firstSunday = (y: number, m: number) => {
+    const first = new Date(Date.UTC(y, m - 1, 1));
+    const dow = first.getUTCDay();
+    return 1 + (dow === 0 ? 0 : 7 - dow);
+  };
+  if (month === 4) return day < firstSunday(year, 4) ? 11 : 10;
+  return day < firstSunday(year, 10) ? 10 : 11;
+}
+
+/** Start/end of a calendar day in Australia/Melbourne as ISO strings (UTC). */
+function getDayBoundsInTimezone(day: 'today' | 'yesterday'): { from: string; to: string } {
+  const now = new Date();
+  const melbourneDateStr = now.toLocaleDateString('en-CA', { timeZone: TIMEZONE });
+  const [yStr, mStr, dStr] = melbourneDateStr.split('-').map(Number);
+  let y = yStr!;
+  let m = mStr!;
+  let d = dStr!;
+  if (day === 'yesterday') {
+    d -= 1;
+    if (d < 1) {
+      m -= 1;
+      if (m < 1) {
+        m = 12;
+        y -= 1;
+      }
+      d += new Date(Date.UTC(y, m, 0)).getUTCDate();
+    }
+  }
+  const offset = getMelbourneOffsetHours(y, m, d);
+  const offsetMs = offset * 60 * 60 * 1000;
+  const from = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0) - offsetMs);
+  const to = new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999) - offsetMs);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
+function getLast7DaysBoundsInTimezone(): { from: string; to: string } {
+  const now = new Date();
+  const melbourneDateStr = now.toLocaleDateString('en-CA', { timeZone: TIMEZONE });
+  const [yStr, mStr, dStr] = melbourneDateStr.split('-').map(Number);
+  let y = yStr!;
+  let m = mStr!;
+  let d = dStr!;
+  d -= 6;
+  while (d < 1) {
+    m -= 1;
+    if (m < 1) {
+      m = 12;
+      y -= 1;
+    }
+    d += new Date(Date.UTC(y, m, 0)).getUTCDate();
+  }
+  const offsetTo = getMelbourneOffsetHours(yStr!, mStr!, dStr!);
+  const offsetFrom = getMelbourneOffsetHours(y, m, d);
+  const to = new Date(Date.UTC(yStr!, mStr! - 1, dStr!, 23, 59, 59, 999) - offsetTo * 60 * 60 * 1000);
+  const from = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0) - offsetFrom * 60 * 60 * 1000);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
 
 type Trip = {
   id: string;
@@ -50,41 +112,12 @@ function formatDuration(sec: number): string {
   return `${m} min ${s} sec`;
 }
 
-function getDayBounds(day: 'today' | 'yesterday'): { from: string; to: string } {
-  const now = new Date();
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const d = now.getUTCDate();
-  if (day === 'yesterday') {
-    const prev = new Date(Date.UTC(y, m, d - 1));
-    const y2 = prev.getUTCFullYear();
-    const m2 = prev.getUTCMonth();
-    const d2 = prev.getUTCDate();
-    return {
-      from: new Date(Date.UTC(y2, m2, d2, 0, 0, 0, 0)).toISOString(),
-      to: new Date(Date.UTC(y2, m2, d2, 23, 59, 59, 999)).toISOString(),
-    };
-  }
-  return {
-    from: new Date(Date.UTC(y, m, d, 0, 0, 0, 0)).toISOString(),
-    to: new Date(Date.UTC(y, m, d, 23, 59, 59, 999)).toISOString(),
-  };
+function isFutureYear(iso: string): boolean {
+  const y = new Date(iso).getUTCFullYear();
+  return y > new Date().getUTCFullYear();
 }
 
-function getLast7DaysBounds(): { from: string; to: string } {
-  const now = new Date();
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const d = now.getUTCDate();
-  const to = new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
-  const fromDate = new Date(Date.UTC(y, m, d - 6, 0, 0, 0, 0));
-  return {
-    from: fromDate.toISOString(),
-    to: to.toISOString(),
-  };
-}
-
-type FilterKind = 'today' | 'yesterday' | 'last7' | 'custom';
+type FilterKind = 'today' | 'yesterday' | 'last7' | 'all' | 'custom';
 
 type Props = {
   deviceId: string;
@@ -92,7 +125,7 @@ type Props = {
 };
 
 export default function TripsTab({ deviceId, onClose }: Props) {
-  const [filter, setFilter] = useState<FilterKind>('today');
+  const [filter, setFilter] = useState<FilterKind>('last7');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [trips, setTrips] = useState<Trip[]>([]);
@@ -110,21 +143,43 @@ export default function TripsTab({ deviceId, onClose }: Props) {
     let from = '';
     let to = '';
     if (filter === 'today' || filter === 'yesterday') {
-      const b = getDayBounds(filter);
+      const b = getDayBoundsInTimezone(filter);
       from = b.from;
       to = b.to;
     } else if (filter === 'last7') {
-      const b = getLast7DaysBounds();
+      const b = getLast7DaysBoundsInTimezone();
       from = b.from;
       to = b.to;
+    } else if (filter === 'all') {
+      // No date filter - fetch all trips for device
     } else {
       from = customFrom ? new Date(customFrom).toISOString() : '';
       to = customTo ? new Date(customTo + 'T23:59:59.999').toISOString() : '';
+    }
+    if (from && to && new Date(from) >= new Date(to)) {
+      const fromDate = new Date(from);
+      fromDate.setUTCHours(0, 0, 0, 0);
+      const toDate = new Date(fromDate);
+      toDate.setUTCDate(toDate.getUTCDate() + 1);
+      toDate.setUTCMilliseconds(-1);
+      from = fromDate.toISOString();
+      to = toDate.toISOString();
+      if (typeof window !== 'undefined') {
+        console.warn('[RooGPS Trips] Date range was invalid (from >= to); expanded to full day.');
+      }
     }
     const headers = await getAuthHeaders(supabase);
     const params = new URLSearchParams({ deviceId });
     if (from) params.set('from', from);
     if (to) params.set('to', to);
+
+    if (typeof window !== 'undefined') {
+      console.group('[RooGPS Trips] Fetch');
+      console.log('Filter:', filter, '| deviceId:', deviceId);
+      console.log('Date range:', from || '(none)', '→', to || '(none)');
+      console.log('URL:', `/api/trips?${params.toString()}`);
+    }
+
     try {
       const res = await fetch(`/api/trips?${params.toString()}`, {
         credentials: 'include',
@@ -137,13 +192,53 @@ export default function TripsTab({ deviceId, onClose }: Props) {
         const message = typeof data?.error === 'string' ? data.error : res.status === 401 ? 'Please sign in again' : 'Failed to load trips';
         setError(message);
         setLoading(false);
+        if (typeof window !== 'undefined') {
+          console.warn('[RooGPS Trips] Error:', res.status, message);
+          console.groupEnd();
+        }
         return;
       }
-      setTrips(Array.isArray(data) ? data : []);
+      const rawList = Array.isArray(data) ? data : [];
+      const seenIds = new Set<string>();
+      const tripList = rawList.filter((t: Trip) => {
+        if (!t?.id || seenIds.has(t.id)) return false;
+        seenIds.add(t.id);
+        return true;
+      });
+      if (tripList.length !== rawList.length && typeof window !== 'undefined') {
+        console.warn('[RooGPS Trips] Dropped', rawList.length - tripList.length, 'duplicate trip(s) by id');
+      }
+      setTrips(tripList);
       setError(null);
+
+      if (typeof window !== 'undefined') {
+        console.log('Trips returned:', tripList.length, rawList.length !== tripList.length ? `(from ${rawList.length} raw)` : '');
+        tripList.forEach((t: Trip, i: number) => {
+          const start = t.started_at ? new Date(t.started_at).toISOString() : '—';
+          const end = t.ended_at ? new Date(t.ended_at).toISOString() : '—';
+          console.log(
+            `  #${i + 1} id=${t.id ?? '—'} | ${start} → ${end} | ${t.duration_seconds}s | ${t.distance_meters}m | max ${t.max_speed_kmh ?? '—'} km/h`
+          );
+        });
+        console.table(
+          tripList.map((t: Trip) => ({
+            id: t.id ?? '—',
+            started_at: t.started_at ?? '—',
+            ended_at: t.ended_at ?? '—',
+            duration_sec: t.duration_seconds,
+            distance_m: t.distance_meters,
+            max_kmh: t.max_speed_kmh ?? '—',
+          }))
+        );
+        console.groupEnd();
+      }
     } catch (e) {
       setTrips([]);
       setError('Failed to load trips');
+      if (typeof window !== 'undefined') {
+        console.warn('[RooGPS Trips] Fetch failed:', e);
+        console.groupEnd();
+      }
     }
     setLoading(false);
   }, [deviceId, filter, customFrom, customTo, supabase]);
@@ -174,8 +269,20 @@ export default function TripsTab({ deviceId, onClose }: Props) {
         }
         const tripData = await tr.json();
         const pointsData = await pt.json();
+        const pointsList = Array.isArray(pointsData) ? pointsData : [];
         setDetailTrip(tripData);
-        setDetailPoints(Array.isArray(pointsData) ? pointsData : []);
+        setDetailPoints(pointsList);
+
+        if (typeof window !== 'undefined') {
+          console.group('[RooGPS Trips] Trip detail');
+          console.log('Trip id:', selectedTripId);
+          console.log('Trip:', { started_at: tripData?.started_at, ended_at: tripData?.ended_at, duration_seconds: tripData?.duration_seconds, distance_meters: tripData?.distance_meters, max_speed_kmh: tripData?.max_speed_kmh });
+          console.log('Points for this trip:', pointsList.length);
+          pointsList.forEach((p: TripPoint, i: number) => {
+            console.log(`  point ${i + 1}: lat=${p.lat}, lon=${p.lon}${p.occurred_at ? ` at ${p.occurred_at}` : ''}`);
+          });
+          console.groupEnd();
+        }
       }).finally(() => {
         if (!cancelled) setDetailLoading(false);
       });
@@ -190,16 +297,27 @@ export default function TripsTab({ deviceId, onClose }: Props) {
         <p className="tracker-settings-modal-hint">
           Trips are created when your vehicle moves. Choose a period to view.
         </p>
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+          <button
+            type="button"
+            className="trips-filter-btn"
+            onClick={() => { setError(null); fetchTrips(); }}
+            disabled={loading}
+            aria-label="Refresh trips"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} aria-hidden />
+            Refresh
+          </button>
+        </div>
         <div className="trips-filters" role="group" aria-label="Date range">
-          {(['today', 'yesterday', 'last7'] as const).map((f) => (
+          {(['today', 'yesterday', 'last7', 'all'] as const).map((f) => (
             <button
               key={f}
               type="button"
               className={`trips-filter-btn${filter === f ? ' trips-filter-btn--active' : ''}`}
               onClick={() => setFilter(f)}
             >
-              {f === 'today' ? 'Today' : f === 'yesterday' ? 'Yesterday' : 'Last 7 days'}
+              {f === 'today' ? 'Today' : f === 'yesterday' ? 'Yesterday' : f === 'last7' ? 'Last 7 days' : 'All'}
             </button>
           ))}
           <button
@@ -249,8 +367,10 @@ export default function TripsTab({ deviceId, onClose }: Props) {
         ) : trips.length === 0 ? (
           <div className="trips-empty">
             <Route size={32} strokeWidth={1.5} aria-hidden />
-            <p>No trips yet.</p>
-            <p className="trips-empty-hint">Trips appear when your vehicle moves.</p>
+            <p>No trips in this range.</p>
+            <p className="trips-empty-hint">
+              Try <button type="button" className="trips-empty-link" onClick={() => setFilter('last7')}>Last 7 days</button> or <button type="button" className="trips-empty-link" onClick={() => setFilter('all')}>All</button>. Trips are created when your vehicle moves (at least ~2 min or 300 m) and can take a few minutes to appear after a drive.
+            </p>
           </div>
         ) : (
           <ul className="trips-list" aria-label="Trip list">
@@ -268,7 +388,14 @@ export default function TripsTab({ deviceId, onClose }: Props) {
                     {(t.distance_meters / 1000).toFixed(1)} km • {formatDuration(t.duration_seconds)}
                     {t.max_speed_kmh != null ? ` • Max ${Math.round(t.max_speed_kmh)} km/h` : ''}
                   </span>
-                  <span className="trips-card-date">{formatDate(t.started_at)}</span>
+                  <span className="trips-card-date">
+                    {formatDate(t.started_at)}
+                    {isFutureYear(t.started_at) && (
+                      <span className="trips-card-date-warn" title="Trip date is in the future; check tracker clock (e.g. timezone or year).">
+                        {' '}(check device clock)
+                      </span>
+                    )}
+                  </span>
                 </button>
               </li>
             ))}

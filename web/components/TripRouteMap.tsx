@@ -53,6 +53,15 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
         ? [[startLon, startLat] as [number, number], [endLon, endLat] as [number, number]]
         : [];
 
+    // Use first/last point from route data for markers when available, so end marker shows
+    // actual last recorded position (e.g. where you parked) not trip detection's "last moving" point
+    const first = points.length > 0 ? points[0] : null;
+    const last = points.length > 0 ? points[points.length - 1] : null;
+    const markerStartLat = first ? first.lat : startLat;
+    const markerStartLon = first ? first.lon : startLon;
+    const markerEndLat = last ? last.lat : endLat;
+    const markerEndLon = last ? last.lon : endLon;
+
     const fitBounds = () => {
       if (coords.length < 2) return;
       const lngs = coords.map((c) => c[0]);
@@ -82,7 +91,7 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
           paint: { 'line-color': '#3b82f6', 'line-width': 3 },
         });
       }
-      if (startLat != null && startLon != null) {
+      if (markerStartLat != null && markerStartLon != null) {
         const el = document.createElement('div');
         el.className = 'trip-map-marker trip-map-marker--start';
         el.style.width = '16px';
@@ -91,10 +100,10 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
         el.style.backgroundColor = '#22c55e';
         el.style.border = '2px solid #fff';
         el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.4)';
-        const m = new mapboxgl.Marker({ element: el }).setLngLat([startLon, startLat]).addTo(map);
+        const m = new mapboxgl.Marker({ element: el }).setLngLat([markerStartLon, markerStartLat]).addTo(map);
         markersRef.current.push(m);
       }
-      if (endLat != null && endLon != null) {
+      if (markerEndLat != null && markerEndLon != null) {
         const el = document.createElement('div');
         el.className = 'trip-map-marker trip-map-marker--end';
         el.style.width = '16px';
@@ -103,7 +112,7 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
         el.style.backgroundColor = '#ef4444';
         el.style.border = '2px solid #fff';
         el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.4)';
-        const m = new mapboxgl.Marker({ element: el }).setLngLat([endLon, endLat]).addTo(map);
+        const m = new mapboxgl.Marker({ element: el }).setLngLat([markerEndLon, markerEndLat]).addTo(map);
         markersRef.current.push(m);
       }
       fitBounds();

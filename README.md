@@ -110,7 +110,35 @@ Trips are derived from location points (GPRS history) and shown in the **Trips**
 
 - **Schema:** `trips` (summary per trip), `trip_points` (ordered points for the route), `trip_state` (per-device “last processed” for the recompute job). See `docs/schema-audit-trips.md`.
 - **Detection:** Uses `locations` only (no new point storage). A “usable” point has valid fix (A), sats ≥ 3, HDOP in (0, 6], non-zero lat/lon. Trip **start**: two consecutive usable points within 5 min with speed ≥ 3 km/h (or one point with speed ≥ 8). Trip **end**: no usable moving point for 5 minutes, or speed &lt; 1 km/h for 5 minutes, or a gap &gt; 20 minutes. Distance is Haversine between consecutive usable points (GPS glitch filter: discard segment if jump &gt; 2 km in 30 s). Minimum trip: duration ≥ 2 min or distance ≥ 300 m.
-- **Building trips:** Option A (recommended): server-side recompute. Call `POST /api/internal/trips/recompute` (protected by `CRON_SECRET` or `INTERNAL_TRIPS_SECRET`) from a cron job every 5–10 minutes. Query param `?deviceId=...` for one device or omit for all. The job reads new `locations` since `trip_state.last_processed_at`, runs segmentation, inserts `trips` and `trip_points`, and updates `trip_state`.
+- **Building trips:** Server-side recompute. Call `POST /api/internal/trips/recompute` (protected by `CRON_SECRET` or `INTERNAL_TRIPS_SECRET`) every 5–10 minutes. Query param `?deviceId=...` for one device or omit for all. The job reads new `locations` since `trip_state.last_processed_at`, runs segmentation, inserts `trips` and `trip_points`, and updates `trip_state`.
+- **Supabase cron (production):** Migration `20250306000001_pg_cron_pg_net_trips.sql` enables `pg_cron` and `pg_net`. After deploying, run this **once** in Supabase SQL Editor (replace `YOUR_APP_URL` and `YOUR_CRON_SECRET` with your production web URL and the same secret you set in the app env as `CRON_SECRET` or `INTERNAL_TRIPS_SECRET`):
+
+  ```sql
+  select cron.schedule(
+    'trips-recompute',
+    '*/10 * * * *',
+    $$select net.http_post(
+      url := 'https://YOUR_APP_URL/api/internal/trips/recompute',
+      headers := jsonb_build_object('Authorization', 'Bearer ' || 'YOUR_CRON_SECRET')
+    ) as request_id;$$
+  );
+  ```
+
+  This runs every 10 minutes. To unschedule: `select cron.unschedule('trips-recompute');`
+- **WatchDog / alert SMS:** When WatchDog (or Night Guard, geofence) fires, the DB trigger inserts into `device_alert_events`. To actually send SMS, call `POST /api/internal/alerts/send-pending` (same auth as above) every 1–2 minutes. Example with pg_cron (run once in Supabase SQL Editor after the trips-recompute schedule):
+
+  ```sql
+  select cron.schedule(
+    'alerts-send-pending',
+    '*/2 * * * *',
+    $$select net.http_post(
+      url := 'https://YOUR_APP_URL/api/internal/alerts/send-pending',
+      headers := jsonb_build_object('Authorization', 'Bearer ' || 'YOUR_CRON_SECRET')
+    ) as request_id;$$
+  );
+  ```
+
+  Users must have **Settings → SMS alerts** enabled and a **mobile number** set; monthly limit (30) applies.
 - **APIs (customer):** `GET /api/trips?deviceId=...&from=...&to=...` (list), `GET /api/trips/[tripId]` (summary), `GET /api/trips/[tripId]/points` (polyline). All require auth; user may only access their own devices’ trips.
 - **UI:** Trips tab shows Today / Yesterday / Last 7 days / Custom date. Tapping a trip opens a modal with map (start green, end red, route polyline), distance, duration, max speed, and start/end times in Australia/Melbourne.
 

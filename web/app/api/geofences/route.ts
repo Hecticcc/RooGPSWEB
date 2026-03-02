@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   }
   const { data, error } = await supabase
     .from('geofences')
-    .select('id, device_id, name, center_lat, center_lng, radius_meters, alert_email, alert_type, created_at')
+    .select('id, device_id, name, center_lat, center_lng, radius_meters, alert_email, alert_sms, alert_type, created_at')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   if (error) {
@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     center_lng: number;
     radius_meters: number;
     alert_email?: boolean;
+    alert_sms?: boolean;
     alert_type?: 'keep_in' | 'keep_out';
   };
   try {
@@ -65,9 +66,10 @@ export async function POST(request: Request) {
       center_lng: body.center_lng,
       radius_meters: body.radius_meters,
       alert_email: body.alert_email !== false,
+      alert_sms: body.alert_sms === true,
       alert_type: alertType,
     })
-    .select('id, device_id, name, center_lat, center_lng, radius_meters, alert_email, alert_type, created_at')
+    .select('id, device_id, name, center_lat, center_lng, radius_meters, alert_email, alert_sms, alert_type, created_at')
     .single();
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

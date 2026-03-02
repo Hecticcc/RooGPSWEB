@@ -12,13 +12,11 @@ import {
   LayoutDashboard,
   Users,
   Smartphone,
-  Inbox,
   Server,
   ArrowLeft,
   Package,
   ShoppingCart,
   DollarSign,
-  Ticket,
   Menu,
   X,
 } from 'lucide-react';
@@ -27,11 +25,9 @@ const NAV = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/orders', label: 'Orders', icon: ShoppingCart },
   { href: '/admin/pricing', label: 'Pricing', icon: DollarSign },
-  { href: '/admin/vouchers', label: 'Vouchers', icon: Ticket },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/devices', label: 'Devices', icon: Smartphone },
   { href: '/admin/stock', label: 'Stock', icon: Package },
-  { href: '/admin/ingest', label: 'Ingest', icon: Inbox },
   { href: '/admin/system', label: 'System', icon: Server },
 ];
 

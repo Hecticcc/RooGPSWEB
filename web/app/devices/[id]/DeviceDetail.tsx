@@ -141,7 +141,8 @@ export default function DeviceDetail() {
 
   const hasCoords = latest && latest.latitude != null && latest.longitude != null;
   const lastSeenDate = device.last_seen_at ? new Date(device.last_seen_at) : null;
-  const isRecent = lastSeenDate && (Date.now() - lastSeenDate.getTime() < 5 * 60 * 1000);
+  /** Match dashboard: online if last_seen within 20 min (GPS pings ~every 10 min). */
+  const isRecent = lastSeenDate && (Date.now() - lastSeenDate.getTime() < 20 * 60 * 1000);
 
   return (
     <main className="dashboard-page">

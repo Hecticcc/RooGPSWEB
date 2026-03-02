@@ -3,7 +3,8 @@ import { requireRole, createServiceRoleClient } from '@/lib/admin-auth';
 
 const INGEST_HEALTH_URL = process.env.INGEST_HEALTH_URL ?? '';
 
-const ONLINE_THRESHOLD_MS = 10 * 60 * 1000; // 10 min
+/** Consider device online if last_seen within this window. Must be > GPS ping interval (e.g. 10 min) so we don't mark offline between pings. */
+const ONLINE_THRESHOLD_MS = 20 * 60 * 1000; // 20 min
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 export async function GET(request: Request) {
@@ -22,6 +23,8 @@ export async function GET(request: Request) {
   const now = new Date();
   const since24h = new Date(now.getTime() - ONE_DAY_MS).toISOString();
   const onlineCutoff = new Date(now.getTime() - ONLINE_THRESHOLD_MS).toISOString();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const currentYearPrefix = `${now.getFullYear()}-`;
 
   const [
     usersCountRes,
@@ -32,6 +35,7 @@ export async function GET(request: Request) {
     newOrders24hRes,
     ordersByStatusRes,
     revenueRes,
+    smsUsageRes,
   ] = await Promise.all([
     admin.from('user_roles').select('*', { count: 'exact', head: true }),
     admin.from('devices').select('id, last_seen_at'),
@@ -41,6 +45,7 @@ export async function GET(request: Request) {
     admin.from('orders').select('*', { count: 'exact', head: true }).gte('created_at', since24h),
     admin.from('orders').select('status'),
     admin.from('orders').select('total_cents').in('status', ['paid', 'fulfilled', 'processing', 'shipped', 'activated']),
+    admin.from('sms_usage').select('period, count'),
   ]);
 
   const totalUsers = (usersCountRes as { count?: number })?.count ?? 0;
@@ -81,6 +86,14 @@ export async function GET(request: Request) {
   const revenueCents = (revenueRes.data ?? []) as { total_cents: number | null }[];
   const revenue = revenueCents.reduce((sum, o) => sum + (o.total_cents ?? 0), 0);
 
+  const smsRows = (smsUsageRes.data ?? []) as { period: string; count: number }[];
+  const sms_sent_monthly = smsRows
+    .filter((r) => r.period === currentMonth)
+    .reduce((sum, r) => sum + (r.count ?? 0), 0);
+  const sms_sent_yearly = smsRows
+    .filter((r) => r.period.startsWith(currentYearPrefix))
+    .reduce((sum, r) => sum + (r.count ?? 0), 0);
+
   return NextResponse.json({
     total_users: totalUsers,
     total_devices: totalDevices,
@@ -97,5 +110,7 @@ export async function GET(request: Request) {
     total_orders_incomplete,
     completed_orders,
     revenue_cents: revenue,
+    sms_sent_monthly,
+    sms_sent_yearly,
   });
 }

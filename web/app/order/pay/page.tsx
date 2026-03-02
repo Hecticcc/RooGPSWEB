@@ -21,6 +21,7 @@ function PayPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const orderId = searchParams.get('orderId');
+  const cancelled = searchParams.get('cancelled') === '1';
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,8 +49,7 @@ function PayPageContent() {
     });
   }, [orderId]);
 
-  async function handlePay(e: React.FormEvent) {
-    e.preventDefault();
+  async function handlePayWithStripe() {
     if (!orderId || !order || order.status !== 'pending') return;
     setPayError(null);
     setPaying(true);
@@ -58,15 +58,19 @@ function PayPageContent() {
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
     try {
-      const res = await fetch(`/api/orders/${orderId}`, {
-        method: 'PATCH',
+      const res = await fetch('/api/stripe/checkout-session', {
+        method: 'POST',
         credentials: 'include',
         headers,
-        body: JSON.stringify({ status: 'paid' }),
+        body: JSON.stringify({ order_id: orderId }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? 'Payment failed');
-      router.push('/account/orders');
+      if (!res.ok) throw new Error(data.error ?? 'Could not start payment');
+      if (data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      throw new Error('No checkout URL returned');
     } catch (err) {
       setPayError(err instanceof Error ? err.message : 'Payment failed');
     } finally {
@@ -121,41 +125,29 @@ function PayPageContent() {
             <h1 className="checkout-title">Payment</h1>
             <Link href="/order" className="checkout-back-link">← Back to checkout</Link>
           </div>
-          <p className="checkout-subtitle">Complete your order. (Dummy Stripe – no real charge.)</p>
+          <p className="checkout-subtitle">Complete your order securely with Stripe.</p>
         </header>
+
+        {cancelled && (
+          <p className="checkout-voucher-error" style={{ marginBottom: '1rem' }}>
+            Payment was cancelled. You can try again below.
+          </p>
+        )}
 
         <div className="pay-page-grid">
           <section className="pay-page-main">
             <div className="checkout-card pay-card">
-              <h2 className="checkout-card-heading">Card details</h2>
-              <p className="checkout-card-desc">Stripe integration coming soon. Click Pay to mark this order as paid.</p>
-              <form onSubmit={handlePay} className="pay-form">
-                <div className="pay-field">
-                  <label className="pay-label">Card number</label>
-                  <input
-                    type="text"
-                    className="pay-input"
-                    placeholder="4242 4242 4242 4242"
-                    readOnly
-                    aria-readonly
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="pay-row">
-                  <div className="pay-field">
-                    <label className="pay-label">Expiry</label>
-                    <input type="text" className="pay-input" placeholder="MM / YY" readOnly aria-readonly autoComplete="off" />
-                  </div>
-                  <div className="pay-field">
-                    <label className="pay-label">CVC</label>
-                    <input type="text" className="pay-input" placeholder="123" readOnly aria-readonly autoComplete="off" />
-                  </div>
-                </div>
-                {payError && <p className="checkout-voucher-error">{payError}</p>}
-                <button type="submit" className="admin-btn admin-btn--primary checkout-btn" disabled={paying}>
-                  {paying ? 'Processing…' : `Pay $${total}`}
-                </button>
-              </form>
+              <h2 className="checkout-card-heading">Payment</h2>
+              <p className="checkout-card-desc">You will be redirected to Stripe Checkout to pay securely. Your card is charged once for the full order; SIM renewal is set up separately at the monthly or yearly rate.</p>
+              {payError && <p className="checkout-voucher-error">{payError}</p>}
+              <button
+                type="button"
+                className="admin-btn admin-btn--primary checkout-btn"
+                onClick={handlePayWithStripe}
+                disabled={paying}
+              >
+                {paying ? 'Redirecting…' : `Pay $${total}`}
+              </button>
             </div>
           </section>
 

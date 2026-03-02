@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/admin-auth';
 
+export const dynamic = 'force-dynamic';
+
 /** GET /api/pricing – public; returns current product pricing (sale price when set) */
 export async function GET() {
   const admin = createServiceRoleClient();
@@ -21,5 +23,12 @@ export async function GET() {
       period: row.period,
     };
   }
-  return NextResponse.json({ pricing });
+  return NextResponse.json(
+    { pricing },
+    {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    }
+  );
 }

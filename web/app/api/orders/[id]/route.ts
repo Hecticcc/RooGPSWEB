@@ -28,7 +28,7 @@ export async function GET(
     .eq('order_id', id);
 
   const itemList = items ?? [];
-  const skus = [...new Set(itemList.map((i) => i.product_sku).filter(Boolean))];
+  const skus = Array.from(new Set(itemList.map((i) => i.product_sku).filter(Boolean)));
   let pricing: Record<string, { price_cents: number; sale_price_cents: number | null }> = {};
   if (skus.length > 0) {
     const { data: rows } = await supabase

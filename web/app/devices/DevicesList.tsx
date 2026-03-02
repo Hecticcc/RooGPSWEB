@@ -21,11 +21,19 @@ type Device = {
   marker_icon?: string | null;
   watchdog_armed?: boolean;
   watchdog_armed_at?: string | null;
+  night_guard_enabled?: boolean;
+  night_guard_start_time_local?: string | null;
+  night_guard_end_time_local?: string | null;
+  night_guard_timezone?: string | null;
+  night_guard_radius_m?: number | null;
+  night_guard_home_lat?: number | null;
+  night_guard_home_lon?: number | null;
   connection_error?: { error_message: string; created_at: string } | null;
   sim_carrier?: string | null;
 };
 
-const ONLINE_MS = 5 * 60 * 1000;
+/** Consider device online if last_seen within this window. Must be > GPS ping interval (e.g. 10 min) so we don't flip offline between pings. */
+const ONLINE_MS = 20 * 60 * 1000; // 20 min (allows ~2 missed 10-min pings before offline)
 const POLL_INTERVAL_MS = 30 * 1000; // refresh trackers and map every 30s
 
 function isOnline(lastSeen: string | null): boolean {
@@ -182,6 +190,7 @@ export default function DevicesList() {
       latest_lng: null,
       marker_color: '#f97316',
       watchdog_armed: false,
+      night_guard_enabled: false,
     };
     setDevices((prev) => [newDevice, ...prev]);
     setError(null);
@@ -234,6 +243,64 @@ export default function DevicesList() {
     await handleSettingsChange(deviceId, { watchdog_armed: armed });
   }
 
+  async function handleNightGuardToggle(deviceId: string, enabled: boolean) {
+    const authHeaders = await getAuthHeaders(supabase);
+    const res = await fetch(`/api/devices/${deviceId}/night-guard`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) return;
+    setDevices((prev) =>
+      prev.map((d) => (d.id === deviceId ? { ...d, night_guard_enabled: enabled } : d))
+    );
+  }
+
+  async function fetchNightGuardRule(deviceId: string): Promise<{ start_time_local: string; end_time_local: string; timezone: string; radius_m: number; home_lat: number | null; home_lon: number | null } | null> {
+    const authHeaders = await getAuthHeaders(supabase);
+    const res = await fetch(`/api/devices/${deviceId}/night-guard`, { credentials: 'include', headers: authHeaders });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      start_time_local: data.start_time_local ?? '21:00',
+      end_time_local: data.end_time_local ?? '06:00',
+      timezone: data.timezone ?? 'Australia/Melbourne',
+      radius_m: (() => { const r = Number(data.radius_m); return Number.isInteger(r) && r >= 25 && r <= 100 ? r : 50; })(),
+      home_lat: data.home_lat != null ? Number(data.home_lat) : null,
+      home_lon: data.home_lon != null ? Number(data.home_lon) : null,
+    };
+  }
+
+  async function saveNightGuardRule(
+    deviceId: string,
+    payload: { start_time_local: string; end_time_local: string; timezone: string; radius_m?: number; home_lat?: number | null; home_lon?: number | null }
+  ) {
+    const authHeaders = await getAuthHeaders(supabase);
+    const res = await fetch(`/api/devices/${deviceId}/night-guard`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) return;
+    setDevices((prev) =>
+      prev.map((d) =>
+        d.id === deviceId
+          ? {
+              ...d,
+              night_guard_start_time_local: payload.start_time_local,
+              night_guard_end_time_local: payload.end_time_local,
+              night_guard_timezone: payload.timezone,
+              ...(payload.radius_m !== undefined && { night_guard_radius_m: payload.radius_m }),
+              ...(payload.home_lat !== undefined && { night_guard_home_lat: payload.home_lat }),
+              ...(payload.home_lon !== undefined && { night_guard_home_lon: payload.home_lon }),
+            }
+          : d
+      )
+    );
+  }
+
   function handleColorChange(deviceId: string, hex: string) {
     if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
     setDevices((prev) =>
@@ -271,6 +338,9 @@ export default function DevicesList() {
       onColorChange={handleColorChange}
       onSettingsChange={handleSettingsChange}
       onWatchdogToggle={handleWatchdogToggle}
+      onNightGuardToggle={handleNightGuardToggle}
+      onFetchNightGuardRule={fetchNightGuardRule}
+      onSaveNightGuardRule={saveNightGuardRule}
       colorSaveStatus={colorSaveStatus}
       highlightedTrackerId={highlightedTrackerId}
       onMarkerClick={setHighlightedTrackerId}

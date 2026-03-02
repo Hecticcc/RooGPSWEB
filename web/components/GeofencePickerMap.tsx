@@ -85,6 +85,8 @@ export type GeofencePickerMapProps = {
   onCenterChange: (lat: number, lng: number) => void;
   onRadiusChange?: (meters: number) => void;
   showRadiusSlider?: boolean;
+  /** When true, use smaller min height and optional hint text (e.g. for modals). */
+  compact?: boolean;
   className?: string;
 };
 
@@ -97,6 +99,7 @@ export default function GeofencePickerMap({
   onCenterChange,
   onRadiusChange,
   showRadiusSlider = true,
+  compact = false,
   className = '',
 }: GeofencePickerMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -276,6 +279,7 @@ export default function GeofencePickerMap({
     );
   }
 
+  const mapMinHeight = compact ? 200 : 420;
   return (
     <div className={className} style={{ width: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <div
@@ -283,13 +287,13 @@ export default function GeofencePickerMap({
         style={{
           width: '100%',
           flex: 1,
-          minHeight: 420,
+          minHeight: mapMinHeight,
           borderRadius: 8,
           overflow: 'hidden',
           cursor: 'crosshair',
           border: '1px solid var(--border)',
         }}
-        title="Click to set geofence center and draw the circle"
+        title={compact ? 'Click to set Home position' : 'Click to set geofence center and draw the circle'}
       />
       {showRadiusSlider && onRadiusChange && (
         <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -310,9 +314,11 @@ export default function GeofencePickerMap({
           <span style={{ fontSize: 13, color: 'var(--muted)', minWidth: 52 }}>{radiusMeters} m</span>
         </div>
       )}
-      <p style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)' }}>
-        Click on the map to set the center and draw the circle. Adjust the slider for radius.
-      </p>
+      {!compact && (
+        <p style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)' }}>
+          Click on the map to set the center and draw the circle. Adjust the slider for radius.
+        </p>
+      )}
     </div>
   );
 }

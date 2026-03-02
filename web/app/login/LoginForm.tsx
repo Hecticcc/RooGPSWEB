@@ -8,6 +8,7 @@ import Logo from '@/components/Logo';
 
 const REMEMBER_ME_KEY = 'roogps_remember_me';
 const REMEMBER_ME_COOKIE = 'roogps_remember_me';
+const REMEMBERED_EMAIL_KEY = 'roogps_remembered_email';
 
 function setRememberMeCookie(remember: boolean) {
   if (typeof document === 'undefined') return;
@@ -31,6 +32,25 @@ function setStoredRememberMe(value: boolean) {
   } catch {}
 }
 
+function getRememberedEmail(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function setRememberedEmail(email: string) {
+  try {
+    if (email) {
+      localStorage.setItem(REMEMBERED_EMAIL_KEY, email);
+    } else {
+      localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+    }
+  } catch {}
+}
+
 export default function LoginForm() {
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get('redirect') || '/track';
@@ -47,7 +67,13 @@ export default function LoginForm() {
   }, []);
 
   useEffect(() => {
-    if (mounted) setRememberMe(getStoredRememberMe());
+    if (!mounted) return;
+    const storedRemember = getStoredRememberMe();
+    setRememberMe(storedRemember);
+    if (storedRemember) {
+      const storedEmail = getRememberedEmail();
+      if (storedEmail) setEmail(storedEmail);
+    }
   }, [mounted]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -56,6 +82,8 @@ export default function LoginForm() {
     setLoading(true);
     setStoredRememberMe(rememberMe);
     setRememberMeCookie(rememberMe);
+    if (rememberMe) setRememberedEmail(email);
+    else setRememberedEmail('');
     const { error: err } = await supabase.auth.signInWithPassword({ email, password });
     if (err) {
       setLoading(false);

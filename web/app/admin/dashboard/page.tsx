@@ -15,6 +15,7 @@ import {
   Package,
   CardSim,
   Server,
+  MessageSquare,
 } from 'lucide-react';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { useAdminAuth } from '../AdminAuthContext';
@@ -45,6 +46,8 @@ type Stats = {
   total_orders_incomplete?: number;
   completed_orders?: number;
   revenue_cents?: number;
+  sms_sent_monthly?: number;
+  sms_sent_yearly?: number;
 };
 
 type StockSummary = {
@@ -174,6 +177,18 @@ export default function AdminDashboardPage() {
                 <h3>Location pings (24h)</h3>
                 <p className="admin-metric-value">{stats.locations_last_24h}</p>
                 <p className="admin-metric-desc">from devices</p>
+              </div>
+              <div className="admin-card admin-card--with-icon">
+                <span className="admin-card__icon" aria-hidden><MessageSquare size={20} /></span>
+                <h3>SMS sent (monthly)</h3>
+                <p className="admin-metric-value">{stats.sms_sent_monthly ?? 0}</p>
+                <p className="admin-metric-desc">this month</p>
+              </div>
+              <div className="admin-card admin-card--with-icon">
+                <span className="admin-card__icon" aria-hidden><MessageSquare size={20} /></span>
+                <h3>SMS sent (yearly)</h3>
+                <p className="admin-metric-value">{stats.sms_sent_yearly ?? 0}</p>
+                <p className="admin-metric-desc">this year</p>
               </div>
             </div>
           </section>

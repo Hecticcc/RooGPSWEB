@@ -37,52 +37,64 @@ export default function MarketingPricing() {
   const yearlyPerMonth = Math.round(yearlyCents / 12);
   const saveVsMonthly = monthlyCents * 12 - yearlyCents;
 
+  const hardwareLabel = gps?.label?.trim() || 'Hardware';
+  const monthlyLabel = simMonthly?.label?.trim() || 'Monthly';
+  const yearlyLabel = simYearly?.label?.trim() || 'Yearly';
+
   return (
     <div className="marketing-pricing-tray">
-      <div className="marketing-pricing-grid">
-        <div className="marketing-price-card marketing-price-hardware">
-          <div className="marketing-price-card-label">Hardware</div>
-          <div className="marketing-price-card-amount">
-            {gpsHasSale && (
-              <span className="marketing-price-was">
-                ${(gps!.price_cents / 100).toFixed(0)}
-              </span>
-            )}
-            <span className="marketing-price-currency">$</span>
-            {(gpsCents / 100).toFixed(gpsCents % 100 === 0 ? 0 : 2)}
-          </div>
-          <div className="marketing-price-card-note">one-time</div>
-        </div>
-        <div className="marketing-price-card">
-          <div className="marketing-price-card-label">Monthly</div>
-          <div className="marketing-price-card-amount">
-            {monthlyHasSale && (
-              <span className="marketing-price-was">
-                ${((simMonthly!.price_cents) / 100).toFixed(2)}
-              </span>
-            )}
-            <span className="marketing-price-currency">$</span>
-            {(monthlyCents / 100).toFixed(2)}
-            <span className="marketing-price-period">/month</span>
-          </div>
-        </div>
-        <div className="marketing-price-card marketing-price-card-featured">
-          <div className="marketing-price-badge">Best value</div>
-          <div className="marketing-price-card-label">Yearly</div>
-          <div className="marketing-price-card-amount">
-            {yearlyHasSale && (
-              <span className="marketing-price-was">
-                ${((simYearly!.price_cents) / 12 / 100).toFixed(2)}/mo
-              </span>
-            )}
-            <span className="marketing-price-currency">$</span>
-            {(yearlyPerMonth / 100).toFixed(2)}
-            <span className="marketing-price-period">/month</span>
-          </div>
-          <div className="marketing-price-card-note">${(yearlyCents / 100).toFixed(0)} billed yearly</div>
-          {saveVsMonthly > 0 && (
-            <div className="marketing-price-save">Save ${(saveVsMonthly / 100).toFixed(2)}</div>
+      {/* GPS / hardware – main focus */}
+      <div className="marketing-price-hardware-block">
+        <div className="marketing-price-hardware-label">GPS Tracker</div>
+        <div className="marketing-price-hardware-amount">
+          {gpsHasSale && (
+            <span className="marketing-price-was marketing-price-was--hero">
+              ${(gps!.price_cents / 100).toFixed(0)}
+            </span>
           )}
+          <span className="marketing-price-currency marketing-price-currency--hero">$</span>
+          <span className="marketing-price-hardware-number">
+            {(gpsCents / 100).toFixed(gpsCents % 100 === 0 ? 0 : 2)}
+          </span>
+        </div>
+        <div className="marketing-price-hardware-note">one-time · device included</div>
+      </div>
+
+      {/* SIM plan – required, choose one (more subtle) */}
+      <div className="marketing-price-sim-group">
+        <p className="marketing-price-sim-heading">SIM plan required — choose one</p>
+        <div className="marketing-pricing-grid marketing-pricing-grid--sim">
+          <div className="marketing-price-card marketing-price-card--sim">
+            <div className="marketing-price-card-label">{monthlyLabel}</div>
+            <div className="marketing-price-card-amount marketing-price-card-amount--sim">
+              {monthlyHasSale && (
+                <span className="marketing-price-was">
+                  ${((simMonthly!.price_cents) / 100).toFixed(2)}
+                </span>
+              )}
+              <span className="marketing-price-currency">$</span>
+              {(monthlyCents / 100).toFixed(2)}
+              <span className="marketing-price-period">/month</span>
+            </div>
+          </div>
+          <div className="marketing-price-card marketing-price-card--sim marketing-price-card-featured">
+            <div className="marketing-price-badge">Best value</div>
+            <div className="marketing-price-card-label">{yearlyLabel}</div>
+            <div className="marketing-price-card-amount marketing-price-card-amount--sim">
+              {yearlyHasSale && (
+                <span className="marketing-price-was">
+                  ${((simYearly!.price_cents) / 12 / 100).toFixed(2)}/mo
+                </span>
+              )}
+              <span className="marketing-price-currency">$</span>
+              {(yearlyPerMonth / 100).toFixed(2)}
+              <span className="marketing-price-period">/month</span>
+            </div>
+            <div className="marketing-price-card-note">${(yearlyCents / 100).toFixed(0)} billed yearly</div>
+            {saveVsMonthly > 0 && (
+              <div className="marketing-price-save">Save ${(saveVsMonthly / 100).toFixed(2)}</div>
+            )}
+          </div>
         </div>
       </div>
     </div>

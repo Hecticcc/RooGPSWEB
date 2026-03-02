@@ -301,7 +301,9 @@ const server = net.createServer((socket) => {
   socket.once('close', removeSocket);
   socket.once('error', removeSocket);
   socket.on('data', (chunk) => {
-    buffer += chunk;
+    const chunkStr = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    log('debug', 'socket data', { bytes: Buffer.byteLength(chunkStr, 'utf8'), preview: chunkStr.slice(0, 200).replace(/[\r\n]/g, ' ') });
+    buffer += chunkStr;
     const byteLength = Buffer.byteLength(buffer, 'utf8');
     if (byteLength > bufferByteLimit) {
       errors++;
@@ -312,7 +314,8 @@ const server = net.createServer((socket) => {
       connections--;
       return;
     }
-    const parts = buffer.split('\r\n');
+    // Split on \r\n or \n so we handle both (some devices send \n only)
+    const parts = buffer.split(/\r?\n/);
     buffer = parts.pop() ?? '';
     parts.forEach((p) => {
       if (p.trim()) handleLine(p, socket);

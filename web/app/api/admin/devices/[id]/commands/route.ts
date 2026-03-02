@@ -157,7 +157,7 @@ export async function GET(
     return NextResponse.json({ error: 'Device not found' }, { status: 404 });
   }
 
-  const limit = Math.min(Number(request.nextUrl.searchParams.get('limit')) || 50, 100);
+  const limit = Math.min(Number(new URL(request.url).searchParams.get('limit')) || 50, 100);
   const { data: jobs, error } = await admin
     .from('device_command_jobs')
     .select('id, created_at, status, command_name, command_text, target_phone, target_iccid, provider, user_id, sent_at, replied_at, reply_raw, reply_parsed, error')

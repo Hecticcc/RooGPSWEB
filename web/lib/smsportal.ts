@@ -29,9 +29,12 @@ export function toE164(mobile: string): string | null {
 /**
  * Send one SMS via SMSPortal POST /v3/BulkMessages.
  * Auth: Basic base64(ClientID:APISecret).
- * Returns true if sent, false if config missing or API error.
+ * Returns ok, optional messageId/eventId from response, or error.
  */
-export async function sendSms(destination: string, content: string): Promise<{ ok: boolean; error?: string }> {
+export async function sendSms(
+  destination: string,
+  content: string
+): Promise<{ ok: boolean; error?: string; messageId?: string }> {
   if (!SMSPORTAL_CLIENT_ID || !SMSPORTAL_API_SECRET) {
     return { ok: false, error: 'SMSPortal not configured' };
   }
@@ -58,7 +61,21 @@ export async function sendSms(destination: string, content: string): Promise<{ o
     if (!res.ok) {
       return { ok: false, error: `SMSPortal ${res.status}: ${text.slice(0, 200)}` };
     }
-    return { ok: true };
+    let messageId: string | undefined;
+    try {
+      const data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+      const ev = data.eventId ?? data.eventid;
+      const msgId = data.messageId ?? data.sentId ?? data.SentID;
+      if (typeof ev === 'string') messageId = ev;
+      else if (typeof msgId === 'string') messageId = msgId;
+      else if (data.sendResponse && typeof data.sendResponse === 'object') {
+        const sr = data.sendResponse as Record<string, unknown>;
+        messageId = (sr.eventId ?? sr.messageId) as string | undefined;
+      }
+    } catch {
+      /* ignore parse */
+    }
+    return { ok: true, messageId };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };

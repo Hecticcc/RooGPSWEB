@@ -101,3 +101,121 @@ export async function listSimbaseSimcards(): Promise<SimbaseSim[]> {
   } while (cursor && page < maxPages);
   return all;
 }
+
+// --- Simbase SMS: Send and List (per Simbase API docs) ---
+
+/**
+ * Send SMS to a SIM card (POST /simcards/{iccid}/sms).
+ * Requires scope simcards.sms:send.
+ * Body: { message } (1–180 chars). Returns 202 Accepted on success.
+ */
+export async function sendSimbaseSms(
+  iccid: string,
+  message: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (!SIMBASE_API_KEY) {
+    return { ok: false, error: 'Simbase not configured' };
+  }
+  const trimmed = String(message ?? '').trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: 'Message required' };
+  }
+  if (trimmed.length > 180) {
+    return { ok: false, error: 'Message max 180 characters' };
+  }
+  const base = SIMBASE_API_BASE.replace(/\/$/, '');
+  const path = `/simcards/${encodeURIComponent(iccid)}/sms`;
+  const url = `${base}${path}`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${SIMBASE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message: trimmed }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const text = await res.text();
+    if (res.status === 202) {
+      return { ok: true };
+    }
+    if (res.status === 400) return { ok: false, error: 'Validation error' };
+    if (res.status === 482) return { ok: false, error: 'Insufficient balance' };
+    if (res.status === 484) return { ok: false, error: 'Not found' };
+    return { ok: false, error: `Simbase ${res.status}: ${text.slice(0, 200)}` };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
+export type SimbaseSmsItem = {
+  direction: 'mt' | 'mo';
+  message: string;
+  status: string;
+  timestamp: string;
+};
+
+export type ListSimbaseSmsOptions = {
+  direction?: 'mt' | 'mo';
+  day?: string;
+  limit?: number;
+  cursor?: string | null;
+};
+
+/**
+ * List SMS messages for a SIM card (GET /simcards/{iccid}/sms).
+ * Requires scope simcards.sms:read.
+ * Results ordered by most recent first; paginated via cursor.
+ */
+export async function listSimbaseSms(
+  iccid: string,
+  options: ListSimbaseSmsOptions = {}
+): Promise<{ sms: SimbaseSmsItem[]; cursor: string | null; has_more: boolean; count: number }> {
+  const { direction, day, limit = 100, cursor: cursorIn = null } = options;
+  if (!SIMBASE_API_KEY) {
+    return { sms: [], cursor: null, has_more: false, count: 0 };
+  }
+  const base = SIMBASE_API_BASE.replace(/\/$/, '');
+  const path = `/simcards/${encodeURIComponent(iccid)}/sms`;
+  const url = new URL(`${base}${path}`);
+  if (direction) url.searchParams.set('direction', direction);
+  if (day) url.searchParams.set('day', day);
+  url.searchParams.set('limit', String(Math.min(250, Math.max(1, limit ?? 100))));
+  if (cursorIn) url.searchParams.set('cursor', cursorIn);
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${SIMBASE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      return { sms: [], cursor: null, has_more: false, count: 0 };
+    }
+    let data: Record<string, unknown>;
+    try {
+      data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+    } catch {
+      return { sms: [], cursor: null, has_more: false, count: 0 };
+    }
+    const list = (Array.isArray(data.sms) ? data.sms : Array.isArray(data.sns) ? data.sns : []) as Array<Record<string, unknown>>;
+    const sms: SimbaseSmsItem[] = list.map((item) => ({
+      direction: (String(item.direction ?? 'mt').toLowerCase() === 'mo' ? 'mo' : 'mt') as 'mt' | 'mo',
+      message: String(item.message ?? ''),
+      status: String(item.status ?? ''),
+      timestamp: String(item.timestamp ?? ''),
+    }));
+    const nextCursor = typeof data.cursor === 'string' ? data.cursor : null;
+    const has_more = Boolean(data.has_more);
+    const count = typeof data.count === 'number' ? data.count : sms.length;
+    return { sms, cursor: nextCursor, has_more, count };
+  } catch {
+    return { sms: [], cursor: null, has_more: false, count: 0 };
+  }
+}

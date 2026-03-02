@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { useAdminAuth } from '../../AdminAuthContext';
+import TrackerToolkitModal from './TrackerToolkitModal';
+import { Wrench } from 'lucide-react';
 
 const AU_TZ = 'Australia/Sydney';
 
@@ -41,6 +43,8 @@ type DeviceDetail = {
     ingest_disabled: boolean;
     owner_email: string | null;
     owner_role: string | null;
+    sim_phone?: string | null;
+    sim_iccid?: string | null;
   };
   last_payloads: PayloadRow[];
   total_payloads: number;
@@ -88,6 +92,9 @@ export default function AdminDeviceDetailPage() {
   const [reassignUserId, setReassignUserId] = useState('');
   const isAdmin = me?.role === 'administrator';
   const canWrite = me?.role === 'staff_plus' || isAdmin;
+  const canViewToolkit = me?.role === 'staff' || me?.role === 'staff_plus' || isAdmin;
+  const [toolkitOpen, setToolkitOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!canWrite) return;
@@ -175,9 +182,14 @@ export default function AdminDeviceDetailPage() {
     }
   }
 
-  async function deleteDevice() {
+  function openDeleteConfirm() {
     if (!isAdmin) return;
-    if (!confirm('Delete this device and all its location history? This cannot be undone.')) return;
+    setDeleteConfirmOpen(true);
+  }
+
+  async function confirmDeleteDevice() {
+    if (!isAdmin) return;
+    setDeleteConfirmOpen(false);
     setActing(true);
     try {
       const res = await fetch(`/api/admin/devices/${encodeURIComponent(deviceId)}/delete`, {
@@ -224,70 +236,127 @@ export default function AdminDeviceDetailPage() {
         </table>
       </div>
 
-      {canWrite && users.length > 0 && (
-        <div className="admin-card">
-          <h3>Reassign device</h3>
-          <div className="admin-form-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <select
-              value={reassignUserId}
-              onChange={(e) => setReassignUserId(e.target.value)}
-              style={{ minWidth: '200px' }}
-            >
-              <option value="">Select user</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.email ?? u.id}
-                </option>
-              ))}
-            </select>
-            <button type="button" className="admin-btn admin-btn--primary" onClick={reassign} disabled={acting || !reassignUserId}>
-              Reassign
-            </button>
-          </div>
+      <div className="admin-card admin-device-actions">
+        <h3 className="admin-device-actions__title">Actions</h3>
+        <div className="admin-device-actions__grid">
+          {canViewToolkit && (
+            <div className="admin-device-actions__item">
+              <span className="admin-device-actions__label">Support & diagnostics</span>
+              <button
+                type="button"
+                className="admin-btn admin-btn--primary admin-device-actions__btn admin-device-actions__toolkit-btn"
+                onClick={() => setToolkitOpen(true)}
+              >
+                <Wrench size={16} strokeWidth={2} aria-hidden />
+                <span>Tracker Toolkit</span>
+              </button>
+            </div>
+          )}
+          {canWrite && users.length > 0 && (
+            <div className="admin-device-actions__item admin-device-actions__reassign">
+              <span className="admin-device-actions__label">Reassign device</span>
+              <div className="admin-device-actions__reassign-row">
+                <select
+                  value={reassignUserId}
+                  onChange={(e) => setReassignUserId(e.target.value)}
+                  className="admin-device-actions__select"
+                  aria-label="Select user"
+                >
+                  <option value="">Select user</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.email ?? u.id}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn--primary admin-device-actions__btn"
+                  onClick={reassign}
+                  disabled={acting || !reassignUserId}
+                >
+                  Reassign
+                </button>
+              </div>
+            </div>
+          )}
+          {canWrite && (
+            <>
+              <div className="admin-device-actions__item">
+                <span className="admin-device-actions__label">Status</span>
+                <div className="admin-device-actions__btn-row">
+                  <button
+                    type="button"
+                    className="admin-btn admin-device-actions__btn"
+                    onClick={setOffline}
+                    disabled={acting}
+                  >
+                    Force mark offline
+                  </button>
+                  <button
+                    type="button"
+                    className="admin-btn admin-device-actions__btn"
+                    onClick={() => setIngestDisabled(!d.ingest_disabled)}
+                    disabled={acting}
+                  >
+                    {d.ingest_disabled ? 'Enable ingest' : 'Disable ingest'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+          {isAdmin && (
+            <div className="admin-device-actions__item admin-device-actions__item--danger">
+              <span className="admin-device-actions__label">Danger zone</span>
+              <button
+                type="button"
+                className="admin-device-actions__delete-btn"
+                onClick={openDeleteConfirm}
+                disabled={acting}
+              >
+                Delete device + history
+              </button>
+            </div>
+          )}
         </div>
-      )}
-
-      <div className="admin-card">
-        <h3>Actions</h3>
-        {canWrite && (
-          <p style={{ marginBottom: '0.5rem' }}>
-            <button
-              type="button"
-              className="admin-btn"
-              onClick={setOffline}
-              disabled={acting}
-            >
-              Force mark offline
-            </button>
-            {' '}
-            <button
-              type="button"
-              className="admin-btn"
-              onClick={() => setIngestDisabled(!d.ingest_disabled)}
-              disabled={acting}
-            >
-              {d.ingest_disabled ? 'Enable ingest' : 'Disable ingest'}
-            </button>
-          </p>
-        )}
-        {isAdmin && (
-          <p>
-            <button
-              type="button"
-              className="admin-btn admin-btn--danger"
-              onClick={deleteDevice}
-              disabled={acting}
-            >
-              Delete device + history
-            </button>
-          </p>
-        )}
       </div>
 
       <div className="admin-card">
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.5rem' }}>
+        <div className="admin-payloads-header">
           <h3 style={{ margin: 0 }}>Raw payloads</h3>
-          {data.total_payloads > 0 && (
+          <div className="admin-payloads-header__right">
+            {data.total_payloads > 0 && (
+              <button
+                type="button"
+                className="admin-payloads-export"
+                onClick={() => {
+                  const headers = ['Received (AU)', 'GPS time', 'Lat', 'Lon', 'Speed', 'GPS valid', 'Battery %', 'Battery V', 'bat_hex', 'Raw'];
+                  const rows = data.last_payloads.map((p) => [
+                    formatDate(p.received_at),
+                    formatDate(p.gps_time),
+                    p.lat ?? '',
+                    p.lon ?? '',
+                    p.speed_kph ?? '',
+                    p.gps_valid == null ? '' : p.gps_valid ? 'Y' : 'N',
+                    p.battery_percent ?? '',
+                    p.battery_voltage_v != null ? `${p.battery_voltage_v}` : '',
+                    p.bat_hex ?? '',
+                    p.raw_payload,
+                  ]);
+                  const csv = [headers.join(','), ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\r\n');
+                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `payloads-page-${data.payload_page}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                Export CSV
+              </button>
+            )}
+            {data.total_payloads > 0 && (
             <div className="admin-pagination" role="navigation" aria-label="Payloads pagination">
               <span className="admin-pagination-info">
                 Page {data.payload_page} of {Math.max(1, Math.ceil(data.total_payloads / data.payload_limit))} ({data.total_payloads} total)
@@ -312,6 +381,7 @@ export default function AdminDeviceDetailPage() {
               </button>
             </div>
           )}
+          </div>
         </div>
         <p className="admin-time">Parsed fields: lat, lon, speed, battery % and voltage (iStartek v2.2 ext-V|bat-V), gps_valid. 20 per page.</p>
         <div className="admin-table-wrap admin-table-wrap--scroll">
@@ -351,6 +421,51 @@ export default function AdminDeviceDetailPage() {
           </table>
         </div>
       </div>
+
+      {deleteConfirmOpen && (
+        <div
+          className="admin-delete-confirm-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-delete-confirm-title"
+          onClick={(e) => e.target === e.currentTarget && setDeleteConfirmOpen(false)}
+        >
+          <div className="admin-delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 id="admin-delete-confirm-title" className="admin-delete-confirm-title">Delete device?</h3>
+            <p className="admin-delete-confirm-message">
+              This will permanently delete the device and all its location history. This cannot be undone.
+            </p>
+            <div className="admin-confirm-actions">
+              <button
+                type="button"
+                className="admin-btn"
+                onClick={() => setDeleteConfirmOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="admin-btn admin-btn--danger"
+                onClick={confirmDeleteDevice}
+                disabled={acting}
+              >
+                Delete device
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toolkitOpen && (
+        <TrackerToolkitModal
+          deviceId={deviceId}
+          deviceSimPhone={d.sim_phone ?? null}
+          deviceSimIccid={d.sim_iccid ?? null}
+          canWrite={canWrite}
+          getAuthHeaders={getAuthHeaders}
+          onClose={() => setToolkitOpen(false)}
+        />
+      )}
     </>
   );
 }

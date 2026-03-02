@@ -68,7 +68,7 @@ type TrackerToolkitModalProps = {
   deviceSimPhone: string | null;
   deviceSimIccid: string | null;
   canWrite: boolean;
-  getAuthHeaders: () => Record<string, string>;
+  getAuthHeaders: () => HeadersInit;
   onClose: () => void;
 };
 
@@ -402,17 +402,17 @@ export default function TrackerToolkitModal({
                     </div>
                   ))}
                 </div>
-                {latestReply?.reply_parsed && (
+                {latestReply?.reply_parsed ? (
                   <div className="toolkit-parsed-summary">
                     <strong>Latest reply:</strong>{' '}
-                    {(latestReply.reply_parsed as { type?: string; map?: { url?: string }; gps?: { fix_flag?: string; speed_kmh?: number }; battery?: { percent?: number }; gsm?: { csq?: number }; power?: { battery_v?: number } }).type === '800' && (
+                    {(latestReply.reply_parsed as { type?: string; map?: { url?: string }; gps?: { fix_flag?: string; speed_kmh?: number }; battery?: { percent?: number }; gsm?: { csq?: number }; power?: { battery_v?: number } }).type === '800' ? (
                       <>Map: {(latestReply.reply_parsed as { map?: { url?: string } }).map?.url ? <a href={(latestReply.reply_parsed as { map: { url: string } }).map.url} target="_blank" rel="noreferrer">Link</a> : '—'}, Fix: {(latestReply.reply_parsed as { gps?: { fix_flag?: string } }).gps?.fix_flag ?? '—'}, Speed: {(latestReply.reply_parsed as { gps?: { speed_kmh?: number } }).gps?.speed_kmh ?? '—'}, Battery: {(latestReply.reply_parsed as { battery?: { percent?: number } }).battery?.percent ?? '—'}%</>
-                    )}
-                    {(latestReply.reply_parsed as { type?: string }).type === '802' && (
+                    ) : null}
+                    {(latestReply.reply_parsed as { type?: string }).type === '802' ? (
                       <>CSQ: {(latestReply.reply_parsed as { gsm?: { csq?: number } }).gsm?.csq ?? '—'}, Sats: {(latestReply.reply_parsed as { gps?: { sats?: number } }).gps?.sats ?? '—'}, Battery V: {(latestReply.reply_parsed as { power?: { battery_v?: number } }).power?.battery_v ?? '—'}</>
-                    )}
+                    ) : null}
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           )}
@@ -448,15 +448,15 @@ export default function TrackerToolkitModal({
                   <pre className="toolkit-pre">{selectedJob.command_text}</pre>
                   <p><strong>Reply raw</strong> <button type="button" className="admin-btn admin-btn--small" onClick={() => selectedJob.reply_raw && navigator.clipboard.writeText(selectedJob.reply_raw)}>Copy</button></p>
                   <pre className="toolkit-pre">{selectedJob.reply_raw ?? '—'}</pre>
-                  {selectedJob.reply_parsed && <p><strong>Parsed</strong></p>}
-                  {selectedJob.reply_parsed && <pre className="toolkit-pre">{JSON.stringify(selectedJob.reply_parsed, null, 2)}</pre>}
-                  {canWrite && !['replied', 'manual_reply'].includes(selectedJob.status) && (
+                  {selectedJob.reply_parsed ? <p><strong>Parsed</strong></p> : null}
+                  {selectedJob.reply_parsed ? <pre className="toolkit-pre">{JSON.stringify(selectedJob.reply_parsed, null, 2)}</pre> : null}
+                  {canWrite && !['replied', 'manual_reply'].includes(selectedJob.status) ? (
                     <div className="toolkit-manual-reply">
                       <label>Manual reply (paste tracker SMS)</label>
                       <textarea value={manualReplyText} onChange={(e) => setManualReplyText(e.target.value)} className="toolkit-textarea" rows={3} />
                       <button type="button" className="admin-btn admin-btn--primary" onClick={() => submitManualReply(selectedJob.id)}>Save reply</button>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               )}
             </div>

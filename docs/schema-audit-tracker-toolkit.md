@@ -1,45 +1,56 @@
-# Schema audit: Tracker Toolkit (device commands + SMSPortal)
+# Schema audit: Tracker Toolkit (device commands + SMS)
 
 ## Purpose
 
-Support admin-only "Tracker Toolkit" on the Device View page: send SMS commands to tracker SIM (diagnostics, config), track jobs, parse replies. All SMS via existing **SMSPortal** integration (`web/lib/smsportal.ts` → `sendSms(to, message)`).
+Support admin-only "Tracker Toolkit" on the Device View page: send SMS commands to tracker SIM (diagnostics, config), track jobs, parse replies. SMS is sent via **Simbase** when the device has an ICCID (activation token), or via **SMSPortal** when only `sim_phone` is set.
 
-## Existing schema (relevant)
+## Existing schema (audit)
 
-### devices (20240223000001_devices_and_locations.sql)
+### devices
 
-- `id` text PK, `user_id`, `name`, `created_at`, `last_seen_at`
-- Later migrations added: `marker_icon`, `marker_color`, `watchdog_*`, `ingest_disabled`
-- **No `sim_phone` / `msisdn`** → add `sim_phone text` for tracker SIM (MSISDN) used for command SMS.
+- `id`, `user_id`, `name`, `created_at`, `last_seen_at`, `ingest_disabled`, etc.
+- **`sim_phone`** – added in migration `20250316000001_tracker_toolkit_device_commands.sql`. Tracker SIM phone number (E.164 or national) for SMS commands when not using Simbase ICCID.
 
-### locations
+### device_command_jobs
 
-- `extra` jsonb holds `battery`, `power`, `signal` (gps: sats, hdop; gsm: csq). Used for diagnostics.
+- **Exists** in migration `20250316000001_tracker_toolkit_device_commands.sql`.
+- Columns: `id`, `device_id`, `user_id`, `created_at`, `status`, `command_name`, `command_text`, `target_phone`, `provider`, `provider_message_id`, `sent_at`, `replied_at`, `reply_raw`, `reply_parsed`, `error`.
+- **`target_iccid`** – added in `20250317000001_tracker_toolkit_simbase_sms.sql`. When set, sending uses Simbase API (POST /simcards/{iccid}/sms).
+- Status: `queued`, `sending`, `sent`, `failed`, `timeout`, `replied`, `manual_reply`.
+- Indexes: `(device_id, created_at desc)`, `(status)`.
+- RLS: Staff+ SELECT; StaffPlus/Admin INSERT and UPDATE.
 
-### user_roles (20250224000001_user_roles.sql)
+### user_roles
 
-- `user_role`: customer, staff, staff_plus, administrator
-- RLS: users read own role; only administrator can update roles.
+- Roles: customer, staff, staff_plus, administrator. Staff and above can view Toolkit; StaffPlus/Admin can create jobs and SET commands.
 
-### Other tables
+## SMS integration
 
-- No existing `device_command_*` or `command_jobs` table.
+### Simbase (when device has ICCID)
 
-## New / changed
+- **Send:** `POST /simcards/{iccid}/sms` with body `{ "message": "..." }` (1–180 chars). Scope `simcards.sms:send`. 202 Accepted.
+- **List (receive):** `GET /simcards/{iccid}/sms` with `direction=mt|mo`, `day`, `limit`, `cursor`. Scope `simcards.sms:read`. Used to sync MO replies to pending jobs.
+- Implemented in `web/lib/simbase.ts`: `sendSimbaseSms(iccid, message)`, `listSimbaseSms(iccid, options)`.
 
-### 1. devices.sim_phone
+### SMSPortal (when only sim_phone)
 
-- **Add:** `sim_phone text` (nullable). Tracker SIM phone number (E.164 or national) for sending command SMS.
+- **Send:** Existing `sendSms(destination, content)` in `web/lib/smsportal.ts`. Returns `messageId` when API provides it (e.g. eventId); stored in `provider_message_id`.
+- **Inbound:** No webhook in codebase; use **manual reply** (StaffPlus/Admin pastes reply in job detail → status `manual_reply`, parse into `reply_parsed`).
 
-### 2. device_command_jobs (new)
+## Worker and APIs
 
-- **Create** table with: id, device_id, user_id, created_at, status, command_name, command_text, target_phone, provider, provider_message_id, sent_at, replied_at, reply_raw, reply_parsed, error.
-- **Status:** queued, sending, sent, failed, timeout, replied, manual_reply.
-- **Indexes:** (device_id, created_at desc), (status).
-- **RLS:** Staff and above SELECT; StaffPlus/Admin INSERT and UPDATE.
+- **Worker:** `web/lib/tracker-command-worker.ts` – processes queued jobs: Simbase or SMSPortal send, timeout (120s), sync Simbase MO replies.
+- **Reply parsing:** `web/lib/tracker-command-replies.ts` – 800 (live location), 802 (work status); unit tests in `tracker-command-replies.test.ts`.
+- **APIs:**  
+  - `POST /api/admin/devices/[id]/commands` – create job (StaffPlus/Admin).  
+  - `GET /api/admin/devices/[id]/commands` – list jobs (Staff+).  
+  - `GET /api/admin/commands/[jobId]` – poll job, trigger sync/timeout (Staff+).  
+  - `PATCH /api/admin/commands/[jobId]` – manual reply (StaffPlus/Admin).  
+  - `GET /api/admin/devices/[id]/diagnostics` – last seen, GPS/GSM/battery, suggested fixes.  
+  - `GET /api/admin/devices/[id]/sms` – Simbase SMS list for device SIM (Staff+).
 
-## SMSPortal reuse
+## Summary
 
-- **Send:** Use existing `sendSms(destination, content)` from `@/lib/smsportal`. No new provider.
-- **Message ID:** SMSPortal v3 response may include `sendResponse.eventId`; extend `sendSms` to return it as `messageId` and store in `provider_message_id`.
-- **Inbound:** No existing SMSPortal inbound webhook in codebase; support **manual reply** only (StaffPlus/Admin pastes reply → status `manual_reply`, parse and store `reply_parsed`).
+- **No new migrations required.** `devices.sim_phone` and `device_command_jobs` (including `target_iccid`) already exist.
+- Simbase send/list implemented per API docs; SMSPortal reused for send when no ICCID.
+- Tracker Toolkit modal on Device view: Diagnostics, Commands, Command Log, SMS (Simbase) tabs; role checks and zod validation on server.

@@ -48,7 +48,7 @@ export async function GET(
     });
   }
 
-  const url = request.nextUrl;
+  const url = new URL(request.url);
   const direction = url.searchParams.get('direction') === 'mo' || url.searchParams.get('direction') === 'mt'
     ? url.searchParams.get('direction') as 'mo' | 'mt'
     : undefined;

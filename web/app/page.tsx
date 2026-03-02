@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import Image from 'next/image';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { redirect } from 'next/navigation';
 import Logo from '@/components/Logo';
@@ -110,13 +109,15 @@ export default async function HomePage() {
             </a>
           </div>
           <div className="marketing-hero-visual marketing-animate-in marketing-animate-in--delay">
-            <Image
+            {/* Plain img so the asset is served directly from public; avoids Next/Image optimization issues on deploy */}
+            <img
               src="/hero-kangaroo.png"
-              alt=""
+              alt="RooGPS wireless GPS tracker – compact device for vehicles, bikes and caravans"
               width={560}
               height={620}
               className="marketing-hero-kangaroo"
-              priority
+              loading="eager"
+              decoding="async"
             />
           </div>
         </div>

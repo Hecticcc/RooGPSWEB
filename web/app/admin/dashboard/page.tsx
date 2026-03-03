@@ -120,11 +120,11 @@ export default function AdminDashboardPage() {
         <div className="admin-dashboard-main">
           <section className="admin-dashboard-section">
             <div className="admin-metric-grid" style={{ marginBottom: '1.5rem' }}>
-              <div className="admin-card admin-card--with-icon">
+              <Link href="/admin/orders" className="admin-card admin-card--with-icon admin-card--clickable">
                 <span className="admin-card__icon" aria-hidden><ShoppingCart size={20} /></span>
                 <h3>New Orders (24h)</h3>
                 <p className="admin-metric-value">{stats.new_orders_24h ?? 0}</p>
-              </div>
+              </Link>
               <div className="admin-card admin-card--with-icon">
                 <span className="admin-card__icon" aria-hidden><ClipboardList size={20} /></span>
                 <h3>Total Orders</h3>
@@ -151,16 +151,16 @@ export default function AdminDashboardPage() {
             <h2 className="admin-dashboard-section-title">Overview</h2>
             <p className="admin-dashboard-section-desc">Users, devices and location activity</p>
             <div className="admin-metric-grid" style={{ marginTop: '0.5rem' }}>
-              <div className="admin-card admin-card--with-icon">
+              <Link href="/admin/users" className="admin-card admin-card--with-icon admin-card--clickable">
                 <span className="admin-card__icon" aria-hidden><Users size={20} /></span>
                 <h3>Total users</h3>
                 <p className="admin-metric-value">{stats.total_users}</p>
-              </div>
-              <div className="admin-card admin-card--with-icon">
+              </Link>
+              <Link href="/admin/devices" className="admin-card admin-card--with-icon admin-card--clickable">
                 <span className="admin-card__icon" aria-hidden><Smartphone size={20} /></span>
                 <h3>Total devices</h3>
                 <p className="admin-metric-value">{stats.total_devices}</p>
-              </div>
+              </Link>
               <div className="admin-card admin-card--with-icon">
                 <span className="admin-card__icon admin-card__icon--online" aria-hidden><Wifi size={20} /></span>
                 <h3>Online devices</h3>
@@ -203,12 +203,12 @@ export default function AdminDashboardPage() {
             ) : stockSummary ? (
               <>
                 <div className="admin-metric-grid" style={{ marginTop: '0.5rem' }}>
-                  <div className="admin-card admin-card--stock-usable admin-card--with-icon">
+                  <Link href="/admin/stock" className="admin-card admin-card--stock-usable admin-card--with-icon admin-card--clickable">
                     <span className="admin-card__icon admin-card__icon--success" aria-hidden><Package size={20} /></span>
                     <h3>Usable GPS trackers</h3>
                     <p className="admin-metric-value">{stockSummary.usable.trackers}</p>
                     <p className="admin-metric-desc">In stock, available to assign</p>
-                  </div>
+                  </Link>
                   <div className="admin-card admin-card--stock-usable admin-card--with-icon">
                     <span className="admin-card__icon admin-card__icon--success" aria-hidden><CardSim size={20} /></span>
                     <h3>Usable SIM cards</h3>

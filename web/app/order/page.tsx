@@ -48,6 +48,11 @@ export default function OrderPage() {
   const [voucherApplying, setVoucherApplying] = useState(false);
   const [voucherError, setVoucherError] = useState<string | null>(null);
   const [appliedVoucher, setAppliedVoucher] = useState<{ voucher_id: string; discount_cents: number; message: string } | null>(null);
+  const [usableTrackers, setUsableTrackers] = useState<number | null>(null);
+
+  const LOW_STOCK_THRESHOLD = 3;
+  const stockStatus = usableTrackers === null ? null : usableTrackers === 0 ? 'out' : usableTrackers <= LOW_STOCK_THRESHOLD ? 'low' : 'in';
+  const outOfStock = stockStatus === 'out';
 
   useEffect(() => {
     const supabase = createClient();
@@ -62,6 +67,13 @@ export default function OrderPage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setPricing(data?.pricing ?? null))
       .catch(() => setPricing(null));
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/stock', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setUsableTrackers(typeof data?.usable_trackers === 'number' ? data.usable_trackers : null))
+      .catch(() => setUsableTrackers(null));
   }, []);
 
   const gps = pricing?.gps_tracker;
@@ -196,6 +208,13 @@ export default function OrderPage() {
               <div className="checkout-product-info">
                 <span className="checkout-product-name">{gpsLabel}</span>
                 <span className="checkout-product-detail">Hardware included · Ready to track</span>
+                {stockStatus !== null && (
+                  <span className={`checkout-stock checkout-stock--${stockStatus}`}>
+                    {stockStatus === 'in' && 'In stock'}
+                    {stockStatus === 'low' && `Low stock (${usableTrackers} left)`}
+                    {stockStatus === 'out' && 'Out of stock'}
+                  </span>
+                )}
               </div>
               <span className="checkout-product-price">
                 {gps && gps.sale_price_cents != null && gps.sale_price_cents < gps.price_cents ? (
@@ -249,11 +268,14 @@ export default function OrderPage() {
               type="button"
               className="admin-btn admin-btn--primary checkout-btn"
               onClick={handleProceed}
-              disabled={creating}
+              disabled={creating || outOfStock}
             >
-              {creating ? 'Creating order…' : signedIn ? 'Create order' : 'Sign in to order'}
+              {creating ? 'Creating order…' : outOfStock ? 'Out of stock' : signedIn ? 'Create order' : 'Sign in to order'}
             </button>
-            {!signedIn && (
+            {outOfStock && (
+              <p className="checkout-stock-message">GPS trackers are currently out of stock. Check back later or contact us.</p>
+            )}
+            {!signedIn && !outOfStock && (
               <p className="checkout-signup">
                 New? <Link href="/register?redirect=/order">Sign up</Link> first.
               </p>

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/admin-auth';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { setSimbaseSimState } from '@/lib/simbase';
 
 /** POST /api/activation – consume activation code, link device to user, mark token used */
 export async function POST(request: Request) {
@@ -60,9 +61,16 @@ export async function POST(request: Request) {
     .update({ status: 'activated', updated_at: new Date().toISOString() })
     .eq('id', token.order_id);
 
+  let sim_enabled = false;
+  if (token.sim_iccid && token.sim_iccid.trim()) {
+    const result = await setSimbaseSimState(token.sim_iccid.trim(), 'enabled');
+    sim_enabled = result.ok;
+  }
+
   return NextResponse.json({
     ok: true,
     message: 'Device activated successfully',
     device_id: deviceId,
+    sim_enabled,
   });
 }

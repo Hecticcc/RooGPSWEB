@@ -89,7 +89,7 @@ export async function GET(request: Request) {
     const battery = latestLocations[d.id]?.battery_percent;
     const sim_iccid = simIccidByDevice[d.id] ?? null;
     const rawSimState = sim_iccid ? simStateByIccid.get(normalizeIccid(sim_iccid)) ?? simStateByIccid.get(sim_iccid.replace(/^0+/, '')) : undefined;
-    const sim_status = rawSimState === 'enabled' || rawSimState === 'disabled' ? rawSimState : (sim_iccid ? 'unknown' : null);
+    const sim_status = sim_iccid ? (rawSimState ?? 'unknown') : null;
     return {
       id: d.id,
       user_id: d.user_id,
@@ -101,7 +101,7 @@ export async function GET(request: Request) {
       last_seen_at: d.last_seen_at,
       created_at: d.created_at,
       sim_iccid,
-      sim_status: sim_status as 'enabled' | 'disabled' | 'unknown' | null,
+      sim_status,
     };
   });
 

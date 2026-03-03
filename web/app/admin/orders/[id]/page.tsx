@@ -1,12 +1,85 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useAdminAuth } from '../../AdminAuthContext';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { getStatusBadgeClass, getStatusLabel } from '@/lib/order-status';
+
+const PAYLOAD_LABELS: Record<string, string> = {
+  price_id: 'Price ID',
+  sim_plan: 'SIM plan',
+  unit_amount: 'Unit amount',
+  subscription_id: 'Subscription ID',
+  current_period_end: 'Current period end',
+  amount_total: 'Total amount',
+  amount_paid: 'Amount paid',
+  payment_intent: 'Payment intent',
+  currency: 'Currency',
+  reason: 'Reason',
+  sku: 'SKU',
+};
+
+function formatPayloadValue(key: string, value: unknown, currency = 'AUD'): React.ReactNode {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'number') {
+    if (['unit_amount', 'amount_total', 'amount_paid'].includes(key)) {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value / 100);
+    }
+    return String(value);
+  }
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+    return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function snakeToTitle(s: string): string {
+  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function PaymentLogDetails({ payload }: { payload: unknown }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const obj = typeof payload === 'object' && payload !== null && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
+  if (!obj) return <span className="admin-time">—</span>;
+  const entries = Object.entries(obj).filter(([, v]) => v !== null && v !== undefined && v !== '');
+  const currency = (typeof obj.currency === 'string' ? obj.currency : 'AUD').toUpperCase();
+  return (
+    <div className="payment-log-details-formatted">
+      <dl className="payment-log-details-dl">
+        {entries.map(([key, value]) => (
+          <div key={key} className="payment-log-details-row">
+            <dt>{PAYLOAD_LABELS[key] ?? snakeToTitle(key)}</dt>
+            <dd>
+              {['price_id', 'subscription_id', 'payment_intent'].includes(key) && typeof value === 'string' ? (
+                <code className="payment-log-details-mono">{value}</code>
+              ) : (
+                formatPayloadValue(key, value, currency)
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <button
+        type="button"
+        className="payment-log-details-raw-toggle"
+        onClick={() => setShowRaw((v) => !v)}
+        aria-expanded={showRaw}
+      >
+        {showRaw ? 'Hide raw JSON' : 'Raw JSON'}
+      </button>
+      {showRaw && (
+        <pre className="payment-log-details-json" role="region" aria-label="Event payload (raw)">
+          <code>{JSON.stringify(payload, null, 2)}</code>
+        </pre>
+      )}
+    </div>
+  );
+}
 
 type SearchableSelectOption = { value: string; label: string };
 
@@ -433,16 +506,16 @@ export default function AdminOrderDetailPage() {
         </table>
       </div>
 
-      <div className="admin-card">
+      <div className="admin-card admin-card--payment-log">
         <h3>Payment log</h3>
-        <p className="admin-time" style={{ marginBottom: '0.5rem' }}>Stripe webhook events for this order (audit trail).</p>
+        <p className="admin-time payment-log-subtitle">Stripe webhook events for this order (audit trail).</p>
         {paymentLogLoading ? (
           <p className="admin-time">Loading…</p>
         ) : paymentLog.length === 0 ? (
           <p className="admin-time">No log entries.</p>
         ) : (
-          <div className="admin-table-wrap">
-            <table className="admin-table">
+          <div className="payment-log-table-wrap">
+            <table className="admin-table payment-log-table">
               <thead>
                 <tr>
                   <th>Time</th>
@@ -454,10 +527,21 @@ export default function AdminOrderDetailPage() {
               <tbody>
                 {paymentLog.map((entry) => (
                   <tr key={entry.id}>
-                    <td className="admin-mono" style={{ fontSize: '0.85rem' }}>{new Date(entry.created_at).toLocaleString()}</td>
-                    <td>{entry.event_type}</td>
-                    <td className="admin-mono" style={{ fontSize: '0.8rem' }}>{entry.stripe_event_id ?? '—'}</td>
-                    <td style={{ fontSize: '0.8rem', maxWidth: 280 }}>{typeof entry.payload === 'object' && entry.payload !== null ? JSON.stringify(entry.payload) : '—'}</td>
+                    <td className="payment-log-time admin-mono">
+                      {new Date(entry.created_at).toLocaleString(undefined, {
+                        dateStyle: 'medium',
+                        timeStyle: 'medium',
+                      })}
+                    </td>
+                    <td className="payment-log-event">
+                      <code>{entry.event_type}</code>
+                    </td>
+                    <td className="payment-log-event-id admin-mono">
+                      {entry.stripe_event_id ?? '—'}
+                    </td>
+                    <td className="payment-log-details-cell">
+                      <PaymentLogDetails payload={entry.payload} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

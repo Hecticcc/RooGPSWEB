@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/admin-auth';
-import { segmentTrips, isUsablePoint, type LocationPoint } from '@/lib/trip-detection';
+import { segmentTrips, isUsablePoint, getSegmentEndPointForPosition, type LocationPoint } from '@/lib/trip-detection';
 
 const CRON_SECRET = process.env.CRON_SECRET ?? process.env.INTERNAL_TRIPS_SECRET ?? '';
 
@@ -174,7 +174,7 @@ export async function POST(request: Request) {
       for (const seg of segments) {
         if (originalLastProcessed && seg.endedAt <= originalLastProcessed) continue;
         const first = seg.points[0];
-        const last = seg.points[seg.points.length - 1];
+        const endPoint = getSegmentEndPointForPosition(seg, points);
         const { data: trip, error: tripErr } = await supabase
           .from('trips')
           .insert({
@@ -187,10 +187,10 @@ export async function POST(request: Request) {
             max_speed_kmh: seg.maxSpeedKmh,
             start_lat: first.latitude,
             start_lon: first.longitude,
-            end_lat: last.latitude,
-            end_lon: last.longitude,
+            end_lat: endPoint.latitude,
+            end_lon: endPoint.longitude,
             start_location_point_id: first.id,
-            end_location_point_id: last.id,
+            end_location_point_id: endPoint.id,
           })
           .select('id')
           .single();

@@ -28,8 +28,30 @@ type DeviceRow = {
   last_seen_at: string | null;
   created_at: string;
   sim_iccid: string | null;
-  sim_status: 'enabled' | 'disabled' | 'unknown' | null;
+  sim_status: string | null;
 };
+
+function simStatusLabel(status: string | null): string {
+  if (!status) return '—';
+  const s = status.toLowerCase().trim();
+  if (s === 'enabled') return 'Enabled';
+  if (s === 'disabled') return 'Disabled';
+  if (s === 'enabling') return 'Enabling';
+  if (s === 'disabling') return 'Disabling';
+  if (s === 'unknown') return 'Unknown';
+  if (s === 'active') return 'Active';
+  if (s === 'inactive') return 'Inactive';
+  return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function simStatusBadgeClass(status: string | null): string {
+  if (!status) return 'admin-badge--muted';
+  const s = status.toLowerCase().trim();
+  if (s === 'enabled' || s === 'active') return 'admin-badge--success';
+  if (s === 'disabled' || s === 'inactive') return 'admin-badge--warn';
+  if (s === 'enabling' || s === 'disabling') return 'admin-badge--muted';
+  return 'admin-badge--muted';
+}
 
 export default function AdminDevicesPage() {
   const { getAuthHeaders } = useAdminAuth();
@@ -178,22 +200,22 @@ export default function AdminDevicesPage() {
                 <td>
                   {d.sim_iccid ? (
                     <>
-                      <span className={`admin-badge admin-badge--${d.sim_status === 'enabled' ? 'success' : d.sim_status === 'disabled' ? 'warn' : 'muted'}`}>
-                        {d.sim_status === 'enabled' ? 'Enabled' : d.sim_status === 'disabled' ? 'Disabled' : 'Unknown'}
+                      <span className={`admin-badge ${simStatusBadgeClass(d.sim_status)}`} title={d.sim_status ?? undefined}>
+                        {simStatusLabel(d.sim_status)}
                       </span>
-                      {(d.sim_status === 'enabled' || d.sim_status === 'disabled') && (
+                      {d.sim_status != null && (d.sim_status.toLowerCase() === 'enabled' || d.sim_status.toLowerCase() === 'disabled') && (
                         <button
                           type="button"
                           className="admin-btn"
                           style={{ marginLeft: '0.5rem', padding: '0.35rem', minWidth: '28px', minHeight: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                           onClick={() => handleSimToggle(d)}
                           disabled={simTogglingIccid === d.sim_iccid}
-                          title={d.sim_status === 'enabled' ? 'Disable SIM' : 'Enable SIM'}
-                          aria-label={d.sim_status === 'enabled' ? 'Disable SIM' : 'Enable SIM'}
+                          title={d.sim_status?.toLowerCase() === 'enabled' ? 'Disable SIM' : 'Enable SIM'}
+                          aria-label={d.sim_status?.toLowerCase() === 'enabled' ? 'Disable SIM' : 'Enable SIM'}
                         >
                           {simTogglingIccid === d.sim_iccid ? (
                             <span style={{ fontSize: '0.75rem' }}>…</span>
-                          ) : d.sim_status === 'enabled' ? (
+                          ) : d.sim_status?.toLowerCase() === 'enabled' ? (
                             <PowerOff size={14} aria-hidden />
                           ) : (
                             <Power size={14} aria-hidden />

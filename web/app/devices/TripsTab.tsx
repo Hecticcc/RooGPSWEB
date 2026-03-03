@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase';
 import { getAuthHeaders } from '@/lib/api-auth';
-import { Route, Loader2, X, Calendar, RefreshCw } from 'lucide-react';
+import { Route, Loader2, X, Calendar, RefreshCw, Eye } from 'lucide-react';
 import TripRouteMap from '@/components/TripRouteMap';
 
 const TIMEZONE = 'Australia/Melbourne';
@@ -84,7 +84,7 @@ type Trip = {
   end_lon: number | null;
 };
 
-type TripPoint = { lat: number; lon: number; occurred_at?: string };
+type TripPoint = { lat: number; lon: number; occurred_at?: string; speed_kph?: number | null };
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-AU', {
@@ -373,33 +373,61 @@ export default function TripsTab({ deviceId, onClose }: Props) {
             </p>
           </div>
         ) : (
-          <ul className="trips-list" aria-label="Trip list">
-            {trips.map((t) => (
-              <li key={t.id}>
-                <button
-                  type="button"
-                  className="trips-card"
-                  onClick={() => setSelectedTripId(t.id)}
-                >
-                  <span className="trips-card-title">
-                    Trip • {formatTime(t.started_at)} → {formatTime(t.ended_at)}
-                  </span>
-                  <span className="trips-card-subtitle">
-                    {(t.distance_meters / 1000).toFixed(1)} km • {formatDuration(t.duration_seconds)}
-                    {t.max_speed_kmh != null ? ` • Max ${Math.round(t.max_speed_kmh)} km/h` : ''}
-                  </span>
-                  <span className="trips-card-date">
-                    {formatDate(t.started_at)}
-                    {isFutureYear(t.started_at) && (
-                      <span className="trips-card-date-warn" title="Trip date is in the future; check tracker clock (e.g. timezone or year).">
-                        {' '}(check device clock)
-                      </span>
-                    )}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="trips-table-wrap">
+            <table className="trips-table" aria-label="Trip list">
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Start</th>
+                  <th scope="col">End</th>
+                  <th scope="col" className="trips-table-distance">Distance</th>
+                  <th scope="col" className="trips-table-num">Duration</th>
+                  <th scope="col" className="trips-table-num">Max speed</th>
+                  <th scope="col" className="trips-table-view-col">View</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trips.map((t) => (
+                  <tr
+                    key={t.id}
+                    className="trips-table-row"
+                    onClick={() => setSelectedTripId(t.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => e.key === 'Enter' || e.key === ' ' ? (e.preventDefault(), setSelectedTripId(t.id)) : undefined}
+                    aria-label={`Trip ${formatDate(t.started_at)} ${formatTime(t.started_at)} to ${formatTime(t.ended_at)}`}
+                  >
+                    <td className="trips-table-date">
+                      {formatDate(t.started_at)}
+                      {isFutureYear(t.started_at) && (
+                        <span className="trips-card-date-warn" title="Trip date is in the future; check tracker clock (e.g. timezone or year).">
+                          {' '}(check clock)
+                        </span>
+                      )}
+                    </td>
+                    <td>{formatTime(t.started_at)}</td>
+                    <td>{formatTime(t.ended_at)}</td>
+                    <td className="trips-table-distance">{(t.distance_meters / 1000).toFixed(1)} km</td>
+                    <td className="trips-table-num">{formatDuration(t.duration_seconds)}</td>
+                    <td className="trips-table-num">
+                      {t.max_speed_kmh != null ? `${Math.round(t.max_speed_kmh)} km/h` : '—'}
+                    </td>
+                    <td className="trips-table-view-col">
+                      <button
+                        type="button"
+                        className="trips-table-view-btn"
+                        onClick={(e) => { e.stopPropagation(); setSelectedTripId(t.id); }}
+                        aria-label={`View trip ${formatDate(t.started_at)}`}
+                      >
+                        <Eye size={16} aria-hidden />
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -413,60 +441,62 @@ export default function TripsTab({ deviceId, onClose }: Props) {
         >
           <div className="trips-detail-modal">
             <div className="trips-detail-header">
-              <h4>Trip</h4>
+              <h4>Trip details</h4>
               <button
                 type="button"
                 className="trips-detail-close"
                 onClick={() => setSelectedTripId(null)}
                 aria-label="Close"
               >
-                <X size={20} strokeWidth={2} />
+                <X size={22} strokeWidth={2} />
               </button>
             </div>
-            {detailLoading ? (
-              <div className="trips-detail-loading">
-                <Loader2 size={28} className="animate-spin" />
-                <span>Loading route…</span>
-              </div>
-            ) : detailTrip ? (
-              <>
-                <div className="trips-detail-map-wrap">
-                  <TripRouteMap
-                    points={detailPoints}
-                    startLat={detailTrip.start_lat}
-                    startLon={detailTrip.start_lon}
-                    endLat={detailTrip.end_lat}
-                    endLon={detailTrip.end_lon}
-                  />
+            <div className="trips-detail-body">
+              {detailLoading ? (
+                <div className="trips-detail-loading">
+                  <Loader2 size={28} className="animate-spin" />
+                  <span>Loading route…</span>
                 </div>
-                <div className="trips-detail-stats">
-                  <div className="trips-detail-stat">
-                    <span className="trips-detail-stat-label">Distance</span>
-                    <span className="trips-detail-stat-value">{(detailTrip.distance_meters / 1000).toFixed(1)} km</span>
+              ) : detailTrip ? (
+                <>
+                  <div className="trips-detail-map-wrap">
+                    <TripRouteMap
+                      points={detailPoints}
+                      startLat={detailTrip.start_lat}
+                      startLon={detailTrip.start_lon}
+                      endLat={detailTrip.end_lat}
+                      endLon={detailTrip.end_lon}
+                    />
                   </div>
-                  <div className="trips-detail-stat">
-                    <span className="trips-detail-stat-label">Duration</span>
-                    <span className="trips-detail-stat-value">{formatDuration(detailTrip.duration_seconds)}</span>
-                  </div>
-                  {detailTrip.max_speed_kmh != null && (
+                  <div className="trips-detail-stats">
+                    <div className="trips-detail-stat">
+                      <span className="trips-detail-stat-label">Distance</span>
+                      <span className="trips-detail-stat-value">{(detailTrip.distance_meters / 1000).toFixed(1)} km</span>
+                    </div>
+                    <div className="trips-detail-stat">
+                      <span className="trips-detail-stat-label">Duration</span>
+                      <span className="trips-detail-stat-value">{formatDuration(detailTrip.duration_seconds)}</span>
+                    </div>
+                    {detailTrip.max_speed_kmh != null && (
                     <div className="trips-detail-stat">
                       <span className="trips-detail-stat-label">Max speed</span>
                       <span className="trips-detail-stat-value">{Math.round(detailTrip.max_speed_kmh)} km/h</span>
                     </div>
-                  )}
-                  <div className="trips-detail-stat">
-                    <span className="trips-detail-stat-label">Started</span>
-                    <span className="trips-detail-stat-value">{formatTime(detailTrip.started_at)}, {formatDate(detailTrip.started_at)}</span>
+                    )}
+                    <div className="trips-detail-stat">
+                      <span className="trips-detail-stat-label">Started</span>
+                      <span className="trips-detail-stat-value">{formatTime(detailTrip.started_at)}, {formatDate(detailTrip.started_at)}</span>
+                    </div>
+                    <div className="trips-detail-stat">
+                      <span className="trips-detail-stat-label">Ended</span>
+                      <span className="trips-detail-stat-value">{formatTime(detailTrip.ended_at)}, {formatDate(detailTrip.ended_at)}</span>
+                    </div>
                   </div>
-                  <div className="trips-detail-stat">
-                    <span className="trips-detail-stat-label">Ended</span>
-                    <span className="trips-detail-stat-value">{formatTime(detailTrip.ended_at)}, {formatDate(detailTrip.ended_at)}</span>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <p className="trips-detail-error">Could not load trip.</p>
-            )}
+                </>
+              ) : (
+                <p className="trips-detail-error">Could not load trip.</p>
+              )}
+            </div>
           </div>
         </div>
       )}

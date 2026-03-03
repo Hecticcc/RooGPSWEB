@@ -38,6 +38,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [paidOrdersCount, setPaidOrdersCount] = useState<number | null>(null);
 
   const closeSidebar = () => setSidebarOpen(false);
 
@@ -79,6 +80,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       cancelled = true;
     };
   }, [router]);
+
+  useEffect(() => {
+    if (!checked || !accessToken) return;
+    let cancelled = false;
+    fetch('/api/admin/orders/count', {
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data.count === 'number') setPaidOrdersCount(data.count);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [checked, accessToken]);
 
   if (!checked) {
     return (
@@ -128,6 +145,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 href === '/admin/dashboard'
                   ? pathname === '/admin' || pathname === '/admin/dashboard'
                   : pathname.startsWith(href);
+              const showPaidBadge = href === '/admin/orders' && paidOrdersCount != null && paidOrdersCount > 0;
               return (
                 <Link
                   key={href}
@@ -137,6 +155,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 >
                   <Icon size={18} />
                   <span>{label}</span>
+                  {showPaidBadge && (
+                    <span className="admin-nav-badge" aria-label={`${paidOrdersCount} paid order${paidOrdersCount === 1 ? '' : 's'}`}>
+                      {paidOrdersCount}
+                    </span>
+                  )}
                 </Link>
               );
             })}

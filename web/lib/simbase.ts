@@ -102,6 +102,36 @@ export async function listSimbaseSimcards(): Promise<SimbaseSim[]> {
   return all;
 }
 
+/**
+ * Set SIM state in Simbase (POST /simcards/{iccid}/state).
+ * Used when a customer activates their device so the SIM is enabled for data.
+ */
+export async function setSimbaseSimState(
+  iccid: string,
+  state: 'enabled' | 'disabled'
+): Promise<{ ok: boolean; error?: string }> {
+  if (!SIMBASE_API_KEY) return { ok: false, error: 'Simbase not configured' };
+  const base = SIMBASE_API_BASE.replace(/\/$/, '');
+  const url = `${base}/simcards/${encodeURIComponent(iccid)}/state`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${SIMBASE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ state }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const text = await res.text();
+    if (res.ok || res.status === 202) return { ok: true };
+    return { ok: false, error: `Simbase ${res.status}: ${text.slice(0, 200)}` };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
 // --- Simbase SMS: Send and List (per Simbase API docs) ---
 
 /**

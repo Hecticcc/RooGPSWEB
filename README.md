@@ -141,6 +141,8 @@ Trips are derived from location points (GPRS history) and shown in the **Trips**
   Users must have **Settings → SMS alerts** enabled and a **mobile number** set; monthly limit (30) applies.
 - **APIs (customer):** `GET /api/trips?deviceId=...&from=...&to=...` (list), `GET /api/trips/[tripId]` (summary), `GET /api/trips/[tripId]/points` (polyline). All require auth; user may only access their own devices’ trips.
 - **UI:** Trips tab shows Today / Yesterday / Last 7 days / Custom date. Tapping a trip opens a modal with map (start green, end red, route polyline), distance, duration, max speed, and start/end times in Australia/Melbourne.
+- **Trip end position:** The red end marker uses the last consecutive *stationary* point after the trip (where the car stopped). If the tracker does not send a ping after stopping, the end will stay at the last moving point. For best accuracy, configure the tracker to send at least one fix after the vehicle stops (e.g. motion‑stop or a short “parked” interval).
+- **Max speed:** When the device does not report speed (or reports 0), max speed is derived from distance/time between consecutive points so short trips still show a plausible value.
 
 ## Ingest service (Vultr VPS)
 

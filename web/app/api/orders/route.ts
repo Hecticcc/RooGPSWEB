@@ -59,6 +59,22 @@ export async function POST(request: Request) {
   const admin = createServiceRoleClient();
   if (!admin) return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
 
+  const isTrackerSku = (sku: string) => (sku ?? '').toLowerCase() === 'gps_tracker' || (sku ?? '').toLowerCase().includes('gps_tracker');
+  const trackerQuantity = items.reduce((sum, i) => sum + (isTrackerSku(i.product_sku) ? i.quantity : 0), 0);
+  if (trackerQuantity > 0) {
+    const { count: usableCount } = await admin
+      .from('tracker_stock')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'in_stock');
+    const usable = (usableCount ?? 0) as number;
+    if (usable < trackerQuantity) {
+      return NextResponse.json(
+        { error: usable === 0 ? 'GPS trackers are currently out of stock. Please try again later.' : `Only ${usable} GPS tracker(s) available. Please reduce quantity or try again later.` },
+        { status: 409 }
+      );
+    }
+  }
+
   const discountCents = Math.max(0, Math.floor(Number(body.discount_cents) ?? 0));
   const voucherId = typeof body.voucher_id === 'string' && body.voucher_id.trim() ? body.voucher_id.trim() : null;
   const hasYearlySim = items.some((i) => (i.product_sku ?? '').toLowerCase().includes('sim_yearly'));

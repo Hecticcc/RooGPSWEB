@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Car, Clock, Plus, ChevronRight, ChevronDown, Settings, Check, Loader2, AlertCircle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin } from 'lucide-react';
 import { FaShieldDog } from 'react-icons/fa6';
 import DashboardMap from '@/components/DashboardMap';
+import { AppContainer } from '@/components/layout';
 
 const GeofencePickerMap = dynamic(() => import('@/components/GeofencePickerMap'), { ssr: false });
 import AppLoadingIcon from '@/components/AppLoadingIcon';
@@ -244,7 +245,7 @@ export default function DevicesListView(props: Props) {
           </div>
         )}
       </section>
-      <div className="dashboard-content">
+      <AppContainer as="div" className="dashboard-content">
         {loading ? (
           <div className="dashboard-content-loading">
             <AppLoadingIcon />
@@ -511,7 +512,7 @@ export default function DevicesListView(props: Props) {
             </section>
           </>
         )}
-      </div>
+      </AppContainer>
 
       {settingsOpenId && (() => {
         const device = devices.find((d) => d.id === settingsOpenId);

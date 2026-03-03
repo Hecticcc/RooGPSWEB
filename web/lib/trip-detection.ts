@@ -12,6 +12,9 @@ const TRIP_START_SPEED_STRONG_KMH = 5;
 const TRIP_END_STATIONARY_MINUTES = 15;
 /** Speed below this is treated as stationary (stops resetting "last moving" so 15 min of low speed ends the trip). */
 const TRIP_END_SPEED_KMH = 3;
+
+/** Speed (km/h) below which we consider the vehicle stopped for "end position" (where the car is parked). */
+const STOPPED_SPEED_KMH = 3;
 const TRIP_END_GAP_MINUTES = 20;
 /** Max gap (min) between points to treat as same window for trip start; 15 allows ~10 min ping interval. */
 const CONSECUTIVE_POINTS_WINDOW_MINUTES = 15;
@@ -61,9 +64,26 @@ export function isUsablePoint(p: LocationPoint): boolean {
   return sats >= MIN_SATS && hdop > MIN_HDOP && hdop <= MAX_HDOP;
 }
 
-function getSpeedKmh(p: LocationPoint): number {
+export function getSpeedKmh(p: LocationPoint): number {
   const v = p.speed_kph ?? (p.extra?.signal as { gps?: { speed_kmh?: number } } | undefined)?.gps?.speed_kmh;
   return typeof v === 'number' && !Number.isNaN(v) ? Math.min(MAX_SPEED_KMH_CAP, v) : 0;
+}
+
+/**
+ * Returns the best point to use for trip end position (where the car stopped).
+ * Prefers the last consecutive stationary point after the segment (so two or more pings at rest
+ * give a more reliable "parked" position); if none, the segment's last point.
+ */
+export function getSegmentEndPointForPosition(segment: TripSegment, allPoints: LocationPoint[]): LocationPoint {
+  const lastInSegment = segment.points[segment.points.length - 1];
+  let best: LocationPoint | null = null;
+  for (let i = segment.endIndex + 1; i < allPoints.length; i++) {
+    const p = allPoints[i];
+    if (!isUsablePoint(p)) break;
+    if (getSpeedKmh(p) >= STOPPED_SPEED_KMH) break;
+    best = p;
+  }
+  return best ?? lastInSegment;
 }
 
 /** When device doesn't report speed, derive from distance/time (so trips can still start). */
@@ -234,7 +254,9 @@ function pushSegment(
     if (dtSec <= GPS_GLITCH_WINDOW_SEC && d > GPS_GLITCH_JUMP_M) continue;
     const { sats, hdop } = getSatsHdop(curr);
     if (hdop <= MAX_HDOP && sats >= MIN_SATS) distanceMeters += d;
-    const sp = getSpeedKmh(curr);
+    const reported = getSpeedKmh(curr);
+    const effective = getEffectiveSpeedKmh(curr, prev);
+    const sp = Math.max(reported, effective);
     if (sp > maxSpeedKmh) maxSpeedKmh = sp;
   }
   const startedAt = pointTime(points[startIdx]) ?? points[startIdx].received_at;

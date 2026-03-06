@@ -150,6 +150,9 @@ export default function LoginForm() {
             <button type="submit" disabled={loading} className="auth-submit">
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
+            <p className="auth-forgot-wrap">
+              <Link href="/login/forgot" className="auth-forgot-link">Forgot password?</Link>
+            </p>
           </form>
           <p className="auth-card-footer">
             No account?{' '}

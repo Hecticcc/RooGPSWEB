@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+const STYLE_MAP = 'mapbox://styles/mapbox/dark-v11';
+const STYLE_SATELLITE = 'mapbox://styles/mapbox/satellite-streets-v12';
 
-type Point = { lat: number; lon: number; occurred_at?: string; speed_kph?: number | null };
+type Point = { lat: number; lon: number; occurred_at?: string; speed_kph?: number | null; gps_valid?: boolean | null };
 
 type Props = {
   points: Point[];
@@ -33,13 +35,15 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   const popupRef = useRef<mapboxgl.Popup | null>(null);
+  const reapplyRouteRef = useRef<(() => void) | null>(null);
+  const [mapStyle, setMapStyle] = useState<'map' | 'satellite'>('map');
 
   useEffect(() => {
     if (!containerRef.current || !token) return;
     mapboxgl.accessToken = token;
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
+      style: STYLE_MAP,
       center: startLon != null && startLat != null ? [startLon, startLat] : [145, -37.8],
       zoom: 12,
     });
@@ -51,6 +55,16 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const url = mapStyle === 'satellite' ? STYLE_SATELLITE : STYLE_MAP;
+    map.setStyle(url);
+    map.once('style.load', () => {
+      reapplyRouteRef.current?.();
+    });
+  }, [mapStyle]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -116,32 +130,15 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
       const pointsToShow = points.length >= 2 ? points : (markerStartLat != null && markerStartLon != null && markerEndLat != null && markerEndLon != null ? [{ lat: markerStartLat, lon: markerStartLon, occurred_at: undefined, speed_kph: undefined }, { lat: markerEndLat, lon: markerEndLon, occurred_at: undefined, speed_kph: undefined }] : []);
       const CLOSE_DEG = 0.00025;
       const NUDGE_DEG = 0.00012;
-      pointsToShow.forEach((p, i) => {
-        const isFirst = i === 0;
-        const isLast = i === pointsToShow.length - 1;
-        const total = pointsToShow.length;
-        let markerLon = p.lon;
-        let markerLat = p.lat;
-        if (!isFirst && !isLast) {
-          const prev = pointsToShow[i - 1];
-          const distToPrev = Math.hypot(p.lon - prev!.lon, p.lat - prev!.lat);
-          if (distToPrev < CLOSE_DEG && distToPrev > 1e-9) {
-            const next = pointsToShow[i + 1];
-            const dx = next ? next.lon - prev!.lon : 0;
-            const dy = next ? next.lat - prev!.lat : 0;
-            const len = Math.hypot(dx, dy) || 1;
-            const perpLon = (-dy / len) * NUDGE_DEG;
-            const perpLat = (dx / len) * NUDGE_DEG;
-            markerLon = p.lon + perpLon;
-            markerLat = p.lat + perpLat;
-          }
-        }
+      const total = pointsToShow.length;
+
+      const addMarker = (p: { lat: number; lon: number; occurred_at?: string; speed_kph?: number | null; gps_valid?: boolean | null }, i: number, isFirst: boolean, isLast: boolean, mlon: number, mlat: number) => {
         const label = isFirst ? 'Start' : isLast ? 'End' : `Waypoint ${i + 1}`;
         const timeStr = formatPointTime(p.occurred_at);
         const pointLabel = total > 0 ? `Point ${i + 1} of ${total}` : '';
         const speedStr = p.speed_kph != null && !Number.isNaN(p.speed_kph) ? `${Math.round(p.speed_kph)} km/h` : '';
-        const popupHtml = `<div class="trip-map-popup"><div class="trip-map-popup-title">${label}</div>${pointLabel ? `<div class="trip-map-popup-row trip-map-popup-meta">${pointLabel}</div>` : ''}${timeStr ? `<div class="trip-map-popup-row"><span class="trip-map-popup-label">Time</span> ${timeStr}</div>` : ''}${speedStr ? `<div class="trip-map-popup-row"><span class="trip-map-popup-label">Speed</span> ${speedStr}</div>` : ''}<div class="trip-map-popup-row trip-map-popup-coords">${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</div></div>`;
-
+        const gpsStr = p.gps_valid != null ? (p.gps_valid ? 'Locked' : 'Not locked') : '';
+        const popupHtml = `<div class="trip-map-popup"><div class="trip-map-popup-title">${label}</div>${pointLabel ? `<div class="trip-map-popup-row trip-map-popup-meta">${pointLabel}</div>` : ''}${timeStr ? `<div class="trip-map-popup-row"><span class="trip-map-popup-label">Time</span> ${timeStr}</div>` : ''}${speedStr ? `<div class="trip-map-popup-row"><span class="trip-map-popup-label">Speed</span> ${speedStr}</div>` : ''}${gpsStr ? `<div class="trip-map-popup-row"><span class="trip-map-popup-label">GPS</span> ${gpsStr}</div>` : ''}<div class="trip-map-popup-row trip-map-popup-coords">${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</div></div>`;
         const el = document.createElement('div');
         el.className = isFirst ? 'trip-map-marker trip-map-marker--start' : isLast ? 'trip-map-marker trip-map-marker--end' : 'trip-map-marker trip-map-marker--waypoint';
         el.style.width = isFirst || isLast ? '16px' : '10px';
@@ -168,9 +165,41 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
           popupRef.current = popup;
           popup.once('close', () => { popupRef.current = null; });
         });
-        const m = new mapboxgl.Marker({ element: el }).setLngLat([markerLon, markerLat]).addTo(map);
+        const m = new mapboxgl.Marker({ element: el }).setLngLat([mlon, mlat]).addTo(map);
         markersRef.current.push(m);
-      });
+      };
+
+      // Add waypoints first, then start, then end so start/end are always on top
+      for (let i = 0; i < pointsToShow.length; i++) {
+        const p = pointsToShow[i];
+        const isFirst = i === 0;
+        const isLast = i === pointsToShow.length - 1;
+        let markerLon = p.lon;
+        let markerLat = p.lat;
+        if (!isFirst && !isLast) {
+          const prev = pointsToShow[i - 1];
+          const distToPrev = Math.hypot(p.lon - prev!.lon, p.lat - prev!.lat);
+          if (distToPrev < CLOSE_DEG && distToPrev > 1e-9) {
+            const next = pointsToShow[i + 1];
+            const dx = next ? next.lon - prev!.lon : 0;
+            const dy = next ? next.lat - prev!.lat : 0;
+            const len = Math.hypot(dx, dy) || 1;
+            const perpLon = (-dy / len) * NUDGE_DEG;
+            const perpLat = (dx / len) * NUDGE_DEG;
+            markerLon = p.lon + perpLon;
+            markerLat = p.lat + perpLat;
+          }
+        }
+        if (!isFirst && !isLast) addMarker(p, i, false, false, markerLon, markerLat);
+      }
+      if (pointsToShow.length > 0) {
+        const first = pointsToShow[0];
+        addMarker(first, 0, true, pointsToShow.length === 1, first.lon, first.lat);
+      }
+      if (pointsToShow.length > 1) {
+        const last = pointsToShow[pointsToShow.length - 1];
+        addMarker(last, pointsToShow.length - 1, false, true, last.lon, last.lat);
+      }
       if (pointsToShow.length === 0 && markerStartLat != null && markerStartLon != null) {
         const el = document.createElement('div');
         el.className = 'trip-map-marker trip-map-marker--start';
@@ -222,33 +251,115 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
       fitBounds(finalCoords);
     };
 
-    const runUpdate = () => {
-      if (map.isStyleLoaded()) {
-        applyRoute(coords);
-      } else {
-        map.once('load', () => applyRoute(coords));
+    const runUpdate = (fallbackCoords: [number, number][]) => {
+      const run = () => {
+        reapplyRouteRef.current = () => applyRoute(fallbackCoords);
+        applyRoute(fallbackCoords);
+      };
+      if (map.isStyleLoaded()) run();
+      else {
+        map.once('load', run);
+        map.once('style.load', run);
       }
     };
 
+    // Downsample to max N points (keeps first, last, evenly spaced); returns chosen indices and downsampled array
+    function downsampleIndices(len: number, max: number): number[] {
+      if (len <= max) return Array.from({ length: len }, (_, i) => i);
+      const indices = [0];
+      const step = (len - 1) / (max - 1);
+      for (let i = 1; i < max - 1; i++) indices.push(Math.round(i * step));
+      indices.push(len - 1);
+      return indices;
+    }
+
     let cancelled = false;
-    if (coords.length >= 2 && coords.length <= 25) {
-      const coordsStr = coords.map((c) => `${c[0]},${c[1]}`).join(';');
+    const MAX_MAPMATCH_COORDS = 100;
+    const indices = downsampleIndices(coords.length, MAX_MAPMATCH_COORDS);
+    const mapMatchCoords = indices.map((i) => coords[i]) as [number, number][];
+
+    if (coords.length >= 2 && mapMatchCoords.length >= 2) {
+      const coordsStr = mapMatchCoords.map((c) => `${c[0]},${c[1]}`).join(';');
+      const allIndicesInPoints = indices.every((i) => i < points.length);
+      const ts =
+        allIndicesInPoints &&
+        points.length >= 2 &&
+        indices
+          .map((i) => points[i]?.occurred_at)
+          .every(Boolean)
+          ? indices.map((i) => Math.floor(new Date(points[i].occurred_at!).getTime() / 1000))
+          : null;
+      const timestampsParam = ts && ts.length === mapMatchCoords.length ? `&timestamps=${ts.join(';')}` : '';
+      // Map Matching follows the actual trace (turns, stops); Directions can add detours between waypoints
       fetch(
-        `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&access_token=${token}`
+        `https://api.mapbox.com/matching/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&tidy=true${timestampsParam}&access_token=${token}`
       )
         .then((r) => r.json())
         .then((data) => {
           if (cancelled) return;
-          const routeCoords = data?.routes?.[0]?.geometry?.coordinates as [number, number][] | undefined;
-          const finalCoords = routeCoords && routeCoords.length >= 2 ? routeCoords : coords;
-          if (map.isStyleLoaded()) applyRoute(finalCoords);
-          else map.once('load', () => applyRoute(finalCoords));
+          const matchings = data?.matchings as Array<{ geometry?: { coordinates?: [number, number][] } }> | undefined;
+          let finalCoords: [number, number][] | undefined;
+          if (matchings && matchings.length > 0) {
+            const merged = matchings
+              .map((m) => m.geometry?.coordinates ?? [])
+              .filter((c) => c.length >= 2);
+            if (merged.length === 1) {
+              finalCoords = merged[0];
+            } else if (merged.length > 1) {
+              finalCoords = merged[0];
+              for (let i = 1; i < merged.length; i++) {
+                const prev = finalCoords![finalCoords!.length - 1];
+                const next = merged[i] as [number, number][];
+                if (next.length >= 2 && Math.hypot(Number(prev[0]) - Number(next[0]), Number(prev[1]) - Number(next[1])) < 1e-6) {
+                  finalCoords = [...finalCoords!, ...next.slice(1)];
+                } else {
+                  finalCoords = [...finalCoords!, ...next];
+                }
+              }
+            }
+          }
+          if (finalCoords && finalCoords.length >= 2) {
+            reapplyRouteRef.current = () => applyRoute(finalCoords);
+            if (map.isStyleLoaded()) applyRoute(finalCoords);
+            else map.once('load', () => applyRoute(finalCoords));
+          } else if (coords.length >= 2 && coords.length <= 25) {
+            // Fallback: Directions (may choose different path between waypoints)
+            const dirStr = coords.map((c) => `${c[0]},${c[1]}`).join(';');
+            fetch(
+              `https://api.mapbox.com/directions/v5/mapbox/driving/${dirStr}?geometries=geojson&overview=full&access_token=${token}`
+            )
+              .then((r2) => r2.json())
+              .then((dirData) => {
+                if (cancelled) return;
+                const routeCoords = dirData?.routes?.[0]?.geometry?.coordinates as [number, number][] | undefined;
+                const fc = routeCoords && routeCoords.length >= 2 ? routeCoords : coords;
+                runUpdate(fc);
+              })
+              .catch(() => { if (!cancelled) runUpdate(coords); });
+          } else {
+            runUpdate(coords);
+          }
         })
         .catch(() => {
-          if (!cancelled) runUpdate();
+          if (cancelled) return;
+          if (coords.length >= 2 && coords.length <= 25) {
+            const coordsStr = coords.map((c) => `${c[0]},${c[1]}`).join(';');
+            fetch(
+              `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&access_token=${token}`
+            )
+              .then((r) => r.json())
+              .then((dirData) => {
+                if (cancelled) return;
+                const routeCoords = dirData?.routes?.[0]?.geometry?.coordinates as [number, number][] | undefined;
+                runUpdate(routeCoords && routeCoords.length >= 2 ? routeCoords : coords);
+              })
+              .catch(() => runUpdate(coords));
+          } else {
+            runUpdate(coords);
+          }
         });
     } else {
-      runUpdate();
+      runUpdate(coords);
     }
 
     return () => { cancelled = true; };
@@ -262,5 +373,18 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
     );
   }
 
-  return <div ref={containerRef} className={className} style={{ width: '100%', height: '100%', minHeight: 220 }} />;
+  return (
+    <div className={className} style={{ position: 'relative', width: '100%', height: '100%', minHeight: 220 }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 220 }} />
+      <div className="trip-map-style-control">
+        <button
+          type="button"
+          onClick={() => setMapStyle((s) => (s === 'map' ? 'satellite' : 'map'))}
+          title={mapStyle === 'map' ? 'Switch to satellite' : 'Switch to map'}
+        >
+          {mapStyle === 'map' ? 'Satellite' : 'Map'}
+        </button>
+      </div>
+    </div>
+  );
 }

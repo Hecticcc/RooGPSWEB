@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
-import { CreditCard, FileText, Smartphone } from 'lucide-react';
+import { CreditCard, FileText, Smartphone, Info } from 'lucide-react';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { getStatusLabel } from '@/lib/order-status';
 
@@ -26,6 +26,7 @@ type Subscription = {
   currency: string;
   period: 'month' | 'year';
   next_due_estimate: string;
+  days_until_due?: number;
 };
 
 type SimTrackerLink = {
@@ -68,6 +69,26 @@ export default function SubscriptionPage() {
   const [paymentsPage, setPaymentsPage] = useState(1);
   const [invoicesPage, setInvoicesPage] = useState(1);
   const [simPage, setSimPage] = useState(1);
+  const [billingPortalLoading, setBillingPortalLoading] = useState(false);
+
+  async function openBillingPortal() {
+    setBillingPortalLoading(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
+      const r = await fetch('/api/stripe/billing-portal', { method: 'POST', credentials: 'include', headers });
+      const j = await r.json();
+      if (j.url) {
+        window.location.href = j.url;
+      } else {
+        setError(j.error ?? 'Could not open billing');
+      }
+    } finally {
+      setBillingPortalLoading(false);
+    }
+  }
 
   useEffect(() => {
     const supabase = createClient();
@@ -92,7 +113,11 @@ export default function SubscriptionPage() {
   const activeSubs = data.subscriptions.filter((s) =>
     ['paid', 'fulfilled', 'processing', 'shipped', 'activated'].includes(s.status)
   );
-  const planPagination = usePagination(activeSubs, planPage);
+  const suspendedSubs = data.subscriptions.filter((s) => s.status === 'suspended');
+  const showPayButton = data.subscriptions.some(
+    (s) => s.status === 'suspended' || (['paid', 'fulfilled', 'processing', 'shipped', 'activated'].includes(s.status) && (s.days_until_due ?? 999) <= 14)
+  );
+  const planPagination = usePagination(data.subscriptions, planPage);
   const paymentsPagination = usePagination(data.subscriptions, paymentsPage);
   const invoicesPagination = usePagination(data.subscriptions, invoicesPage);
   const simPagination = usePagination(data.simTrackerLinks, simPage);
@@ -190,13 +215,48 @@ export default function SubscriptionPage() {
       </div>
 
       <div className="subscription-sections">
+        {suspendedSubs.length > 0 && (
+          <div className="subscription-overdue-banner" role="alert">
+            <p className="subscription-overdue-banner__title">Overdue on payment – SIM suspended</p>
+            <p className="subscription-overdue-banner__detail">
+              Order{suspendedSubs.length > 1 ? 's' : ''}: {suspendedSubs.map((s) => s.order_number ?? s.order_id.slice(0, 8)).join(', ')}.
+              Pay now to restore your SIM.
+            </p>
+            <button
+              type="button"
+              className="admin-btn admin-btn--primary"
+              onClick={openBillingPortal}
+              disabled={billingPortalLoading}
+            >
+              {billingPortalLoading ? 'Opening…' : 'Pay now'}
+            </button>
+          </div>
+        )}
+        {showPayButton && suspendedSubs.length === 0 && (
+          <div className="subscription-pay-reminder">
+            <div className="subscription-pay-reminder__content">
+              <Info size={20} className="subscription-pay-reminder__icon" aria-hidden />
+              <p className="subscription-pay-reminder__text">
+                Your subscription renews in 14 days or less. Update payment method or pay early.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="subscription-pay-reminder__btn"
+              onClick={openBillingPortal}
+              disabled={billingPortalLoading}
+            >
+              {billingPortalLoading ? 'Opening…' : 'Pay invoice'}
+            </button>
+          </div>
+        )}
         {activeTab === 'plan' && (
         <section className="subscription-section subscription-section--plan" role="tabpanel" aria-labelledby="subscription-tab-plan">
           <h2 id="subscription-tab-plan" className="subscription-section-title">
             <CreditCard size={20} aria-hidden />
             Current plan
           </h2>
-          {activeSubs.length === 0 ? (
+          {data.subscriptions.length === 0 ? (
             <div className="subscription-card subscription-card--empty">
               <p>No active SIM subscription.</p>
               <Link href="/order" className="admin-btn admin-btn--primary">
@@ -230,6 +290,11 @@ export default function SubscriptionPage() {
                           <span className={`subscription-badge subscription-badge--status-${s.status}`}>
                             {getStatusLabel(s.status)}
                           </span>
+                          {s.status === 'suspended' && (
+                            <p className="subscription-row-note" style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--error)' }}>
+                              Overdue on payment – Order #{s.order_number ?? s.order_id.slice(0, 8)}
+                            </p>
+                          )}
                         </td>
                         <td>
                           {(() => {
@@ -238,16 +303,28 @@ export default function SubscriptionPage() {
                               return <span className="subscription-badge subscription-badge--enabled">{label}</span>;
                             }
                             if (variant === 'disabled') {
-                              return <span className="subscription-badge subscription-badge--disabled">{label}</span>;
+                              return <span className="subscription-badge subscription-badge--disabled">{s.status === 'suspended' ? 'Suspended' : label}</span>;
                             }
                             return <span className="subscription-badge subscription-badge--unknown">{label}</span>;
                           })()}
                         </td>
                         <td>{formatDate(s.next_due_estimate)}</td>
                         <td>
-                          <Link href={`/account/orders/${s.order_id}`} className="subscription-link">
-                            View order
-                          </Link>
+                          <div className="subscription-plan-actions">
+                            <Link href={`/account/orders/${s.order_id}`} className="subscription-link">
+                              View order
+                            </Link>
+                            {(s.status === 'suspended' || ((s.days_until_due ?? 999) <= 14 && s.status !== 'suspended')) ? (
+                              <button
+                                type="button"
+                                className="subscription-btn-pay"
+                                onClick={openBillingPortal}
+                                disabled={billingPortalLoading}
+                              >
+                                {billingPortalLoading ? 'Opening…' : 'Pay now'}
+                              </button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     ))}

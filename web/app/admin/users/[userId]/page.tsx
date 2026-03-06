@@ -57,6 +57,7 @@ type UserDetail = {
     currency: string;
     period: 'month' | 'year';
     next_due_estimate: string;
+    stripe_subscription_id: string | null;
   }[];
   devices_with_sim: {
     activation_token_id: string;
@@ -88,8 +89,10 @@ export default function AdminUserViewPage() {
   const [manageSubscription, setManageSubscription] = useState<UserDetail['subscriptions'][0] | null>(null);
   const [subModalPrice, setSubModalPrice] = useState('');
   const [subModalRenewal, setSubModalRenewal] = useState('');
+  const [subModalStripeSubId, setSubModalStripeSubId] = useState('');
   const [subModalSaving, setSubModalSaving] = useState(false);
   const [subModalError, setSubModalError] = useState<string | null>(null);
+  const [subModalSuccess, setSubModalSuccess] = useState<string | null>(null);
   const [devicesPage, setDevicesPage] = useState(1);
   const [simsPage, setSimsPage] = useState(1);
   const [subscriptionsPage, setSubscriptionsPage] = useState(1);
@@ -211,6 +214,7 @@ export default function AdminUserViewPage() {
     const d = new Date(s.next_due_estimate);
     const pad = (n: number) => String(n).padStart(2, '0');
     setSubModalRenewal(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    setSubModalStripeSubId(s.stripe_subscription_id ?? '');
     setSubModalError(null);
   }
 
@@ -220,12 +224,14 @@ export default function AdminUserViewPage() {
     const totalCents = Number.isFinite(priceVal) && priceVal >= 0 ? Math.round(priceVal * 100) : manageSubscription.total_cents ?? undefined;
     const renewalVal = subModalRenewal.trim();
     const subscription_next_billing_date = renewalVal ? new Date(renewalVal).toISOString() : null;
-    if (totalCents === undefined && !renewalVal) {
-      setSubModalError('Set price and/or renewal date.');
+    const stripeSubIdVal = subModalStripeSubId.trim() || undefined;
+    if (totalCents === undefined && !renewalVal && stripeSubIdVal === undefined) {
+      setSubModalError('Set price, renewal date, and/or Stripe Subscription ID.');
       return;
     }
     setSubModalSaving(true);
     setSubModalError(null);
+    setSubModalSuccess(null);
     try {
       const res = await fetch(`/api/admin/orders/${encodeURIComponent(manageSubscription.order_id)}`, {
         method: 'PATCH',
@@ -235,6 +241,7 @@ export default function AdminUserViewPage() {
           action: 'update_subscription',
           ...(totalCents !== undefined && { total_cents: totalCents }),
           subscription_next_billing_date,
+          ...(stripeSubIdVal !== undefined && { stripe_subscription_id: stripeSubIdVal }),
         }),
       });
       const d = await res.json().catch(() => ({}));
@@ -242,6 +249,8 @@ export default function AdminUserViewPage() {
         setSubModalError((d as { error?: string }).error ?? 'Failed to update');
         return;
       }
+      const message = (d as { message?: string }).message ?? 'Saved.';
+      setSubModalSuccess(message);
       setData((prev) =>
         prev
           ? {
@@ -258,7 +267,10 @@ export default function AdminUserViewPage() {
             }
           : null
       );
-      setManageSubscription(null);
+      setTimeout(() => {
+        setManageSubscription(null);
+        setSubModalSuccess(null);
+      }, 1800);
     } finally {
       setSubModalSaving(false);
     }
@@ -485,6 +497,7 @@ export default function AdminUserViewPage() {
                   <th>Price</th>
                   <th>Period</th>
                   <th>Next renewal (est.)</th>
+                  <th>Subscription ID</th>
                   <th></th>
                 </tr>
               </thead>
@@ -502,6 +515,7 @@ export default function AdminUserViewPage() {
                     <td>{formatMoney(s.total_cents, s.currency)}</td>
                     <td>{s.period === 'year' ? 'Yearly' : 'Monthly'}</td>
                     <td className="admin-time">{formatDate(s.next_due_estimate)}</td>
+                    <td className="admin-mono" style={{ fontSize: '0.8125rem' }}>{s.stripe_subscription_id ?? '—'}</td>
                     <td>
                       <button
                         type="button"
@@ -581,19 +595,37 @@ export default function AdminUserViewPage() {
                 disabled={subModalSaving}
               />
             </label>
+            <label className="admin-form-row" style={{ display: 'block', marginBottom: '1rem' }}>
+              <span style={{ fontSize: '0.875rem', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>Stripe Subscription ID</span>
+              <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginBottom: '0.5rem' }}>
+                {manageSubscription.stripe_subscription_id
+                  ? `Linked: ${manageSubscription.stripe_subscription_id} — changing the date above will sync to Stripe.`
+                  : 'Not linked. Renewal date is saved in DB only. Paste the ID from Stripe (e.g. sub_xxx) to link and sync.'}
+              </p>
+              <input
+                type="text"
+                placeholder="sub_..."
+                value={subModalStripeSubId}
+                onChange={(e) => setSubModalStripeSubId(e.target.value)}
+                className="admin-input admin-mono"
+                style={{ width: '100%', padding: '0.6rem 0.75rem' }}
+                disabled={subModalSaving}
+              />
+            </label>
             {subModalError && <p style={{ color: 'var(--error)', marginBottom: '0.75rem', fontSize: '0.875rem' }}>{subModalError}</p>}
+            {subModalSuccess && <p style={{ color: 'var(--success)', marginBottom: '0.75rem', fontSize: '0.875rem' }}>{subModalSuccess}</p>}
             <p style={{ marginBottom: '1rem', fontSize: '0.875rem' }}>
               <Link href={`/admin/orders/${manageSubscription.order_id}`} className="admin-btn" style={{ marginRight: '0.5rem' }} onClick={() => setManageSubscription(null)}>
                 View full order
               </Link>
             </p>
-            <div className="admin-confirm-actions">
-              <button type="button" className="admin-btn" onClick={() => setManageSubscription(null)} disabled={subModalSaving}>
+            <div className="admin-confirm-actions admin-manage-subscription-actions">
+              <button type="button" className="admin-btn admin-btn--small" onClick={() => setManageSubscription(null)} disabled={subModalSaving}>
                 Cancel
               </button>
               <button
                 type="button"
-                className="admin-btn admin-btn--primary"
+                className="admin-btn admin-btn--primary admin-btn--small"
                 onClick={saveManageSubscription}
                 disabled={subModalSaving}
               >

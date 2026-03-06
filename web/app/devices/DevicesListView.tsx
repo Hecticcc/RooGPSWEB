@@ -3,11 +3,23 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { Car, Clock, Plus, ChevronRight, ChevronDown, Settings, Check, Loader2, AlertCircle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin } from 'lucide-react';
+/** Mapbox CSS loaded here so the dynamic DashboardMap chunk does not create a separate CSS chunk (avoids dev chunk load errors). */
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { Car, Clock, Plus, ChevronRight, ChevronDown, Settings, Check, Loader2, AlertCircle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin, ShieldAlert } from 'lucide-react';
 import { FaShieldDog } from 'react-icons/fa6';
-import DashboardMap from '@/components/DashboardMap';
 import { AppContainer } from '@/components/layout';
 
+const DashboardMap = dynamic(() => import('@/components/DashboardMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="dashboard-map-placeholder" aria-hidden>
+      <div className="dashboard-map-placeholder-inner">
+        <MapPin size={32} strokeWidth={1.5} style={{ color: 'var(--muted)', opacity: 0.6 }} />
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Loading map…</p>
+      </div>
+    </div>
+  ),
+});
 const GeofencePickerMap = dynamic(() => import('@/components/GeofencePickerMap'), { ssr: false });
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import TrackerIconPreview from '@/components/TrackerIconPreview';
@@ -84,6 +96,12 @@ type Device = {
   night_guard_home_lon?: number | null;
   connection_error?: { error_message: string; created_at: string } | null;
   sim_carrier?: string | null;
+  device_state?: 'ONLINE' | 'SLEEPING' | 'OFFLINE';
+  offline_reason?: string | null;
+  gps_lock_last?: boolean | null;
+  last_battery_voltage?: number | null;
+  emergency_enabled?: boolean;
+  emergency_status?: string | null;
 };
 
 type Props = {
@@ -96,7 +114,6 @@ type Props = {
   addFormOpen: boolean;
   onlineCount: number;
   offlineCount: number;
-  isOnline: (lastSeen: string | null) => boolean;
   onNewIdChange: (v: string) => void;
   onNewNameChange: (v: string) => void;
   onAdd: (e: React.FormEvent) => void;
@@ -126,7 +143,6 @@ export default function DevicesListView(props: Props) {
     addFormOpen,
     onlineCount,
     offlineCount,
-    isOnline,
     onNewIdChange,
     onNewNameChange,
     onAdd,
@@ -211,19 +227,24 @@ export default function DevicesListView(props: Props) {
     () =>
       devices
         .filter((d) => d.latest_lat != null && d.latest_lng != null)
-        .map((d) => ({
-          id: d.id,
-          name: d.name,
-          lat: d.latest_lat!,
-          lng: d.latest_lng!,
-          color: d.marker_color ?? '#f97316',
-          icon: d.marker_icon ?? 'car',
-          batteryPercent: d.latest_battery_percent ?? null,
-          batteryVoltageV: d.latest_battery_voltage_v ?? null,
-          lastSeen: d.last_seen_at ?? null,
-          offline: !isOnline(d.last_seen_at),
-        })),
-    [devices, isOnline]
+        .map((d) => {
+          const emergencyOn = d.emergency_enabled === true && (d.emergency_status === 'ON' || d.emergency_status === 'ERROR');
+          return {
+            id: d.id,
+            name: d.name,
+            lat: d.latest_lat!,
+            lng: d.latest_lng!,
+            color: d.marker_color ?? '#f97316',
+            icon: d.marker_icon ?? 'car',
+            batteryPercent: d.latest_battery_percent ?? null,
+            batteryVoltageV: d.latest_battery_voltage_v ?? null,
+            lastSeen: d.last_seen_at ?? null,
+            offline: d.device_state === 'OFFLINE',
+            device_state: d.device_state,
+            emergencyMode: emergencyOn,
+          };
+        }),
+    [devices]
   );
 
   return (
@@ -247,8 +268,37 @@ export default function DevicesListView(props: Props) {
       </section>
       <AppContainer as="div" className="dashboard-content">
         {loading ? (
-          <div className="dashboard-content-loading">
-            <AppLoadingIcon />
+          <div className="dashboard-content-skeleton" aria-busy="true" aria-label="Loading dashboard">
+            <div className="dashboard-cards" style={{ marginBottom: 28 }}>
+              <div className="dashboard-skeleton-card dashboard-section dashboard-stats-card">
+                <div className="dashboard-skeleton-line dashboard-skeleton-label" />
+                <div className="dashboard-skeleton-line dashboard-skeleton-value" />
+              </div>
+              <div className="dashboard-skeleton-card dashboard-section dashboard-stats-card">
+                <div className="dashboard-skeleton-line dashboard-skeleton-label" />
+                <div className="dashboard-skeleton-line dashboard-skeleton-value" />
+              </div>
+              <div className="dashboard-skeleton-card dashboard-section dashboard-stats-card">
+                <div className="dashboard-skeleton-line dashboard-skeleton-label" />
+                <div className="dashboard-skeleton-line dashboard-skeleton-value" />
+              </div>
+            </div>
+            <section className="dashboard-section trackers-section">
+              <div className="trackers-section-header">
+                <div className="dashboard-skeleton-line dashboard-skeleton-title" style={{ width: 100, height: 22 }} />
+                <div className="dashboard-skeleton-line" style={{ width: 110, height: 36, borderRadius: 'var(--radius-sm)' }} />
+              </div>
+              <div className="dashboard-skeleton-cards">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="dashboard-skeleton-tracker-card">
+                    <div className="dashboard-skeleton-line" style={{ width: '60%', height: 20, marginBottom: 8 }} />
+                    <div className="dashboard-skeleton-line" style={{ width: '40%', height: 14, marginBottom: 12 }} />
+                    <div className="dashboard-skeleton-line" style={{ width: '100%', height: 12 }} />
+                    <div className="dashboard-skeleton-line" style={{ width: '80%', height: 12, marginTop: 6 }} />
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
         ) : (
           <>
@@ -366,20 +416,25 @@ export default function DevicesListView(props: Props) {
               ) : (
                 <div className="trackers-grid">
                   {devices.map((d) => {
-                    const online = isOnline(d.last_seen_at);
+                    const state = d.device_state ?? 'OFFLINE';
+                    const statusLabel = state === 'ONLINE' ? 'Online' : state === 'SLEEPING' ? 'Sleep' : 'Offline';
+                    const statusTitle = state === 'SLEEPING'
+                      ? 'Device is likely sleeping (stopped) and will check in within the heartbeat interval.'
+                      : undefined;
+                    const emergencyOn = d.emergency_enabled === true && (d.emergency_status === 'ON' || d.emergency_status === 'ERROR');
                     const batteryStatus = getBatteryStatus({
-                      voltage_v: d.latest_battery_voltage_v ?? null,
+                      voltage_v: d.last_battery_voltage ?? d.latest_battery_voltage_v ?? null,
                       percent: d.latest_battery_percent ?? null,
                     });
                     return (
                     <article
                       key={d.id}
-                      className={`tracker-card ${online ? 'tracker-card--online' : 'tracker-card--offline'}${highlightedTrackerId === d.id ? ' tracker-card--highlighted' : ''}`}
+                      className={`tracker-card tracker-card--${state.toLowerCase()}${highlightedTrackerId === d.id ? ' tracker-card--highlighted' : ''}${emergencyOn ? ' tracker-card--emergency' : ''}`}
                     >
                       <div
                         className="tracker-card-accent"
-                        style={{ background: d.marker_color ?? '#f97316' }}
-                        title="Map colour"
+                        style={{ background: emergencyOn ? '#ef4444' : (d.marker_color ?? '#f97316') }}
+                        title={emergencyOn ? 'Emergency Mode active' : 'Map colour'}
                       />
                       <div className="tracker-card-body">
                         <div className="tracker-card-primary">
@@ -387,12 +442,15 @@ export default function DevicesListView(props: Props) {
                         </div>
                         <div className="tracker-card-details-row">
                           <span
-                            className={`tracker-card-chip tracker-card-status-chip`}
-                            aria-label={online ? 'Online' : 'Offline'}
-                            style={{ color: online ? 'var(--success)' : 'var(--muted)' }}
+                            className={`tracker-card-chip tracker-card-status-chip${state === 'SLEEPING' ? ' tracker-card-status-chip--sleeping' : ''}`}
+                            aria-label={statusLabel}
+                            title={statusTitle}
+                            style={{
+                              color: state === 'ONLINE' ? 'var(--success)' : state === 'SLEEPING' ? 'var(--sleep)' : 'var(--muted)',
+                            }}
                           >
-                            <span className={`tracker-card-status-dot ${online ? 'tracker-card-status-dot--online' : 'tracker-card-status-dot--offline'}`} aria-hidden />
-                            <span>{online ? 'Online' : 'Offline'}</span>
+                            <span className={`tracker-card-status-dot tracker-card-status-dot--${state.toLowerCase()}`} aria-hidden />
+                            <span>{statusLabel}</span>
                           </span>
                           <span
                             className="tracker-card-chip tracker-card-battery"
@@ -420,25 +478,25 @@ export default function DevicesListView(props: Props) {
                               <span>Error</span>
                             </span>
                           )}
-                          {d.latest_signal?.gps != null && (
+                          {(d.gps_lock_last != null || d.latest_signal?.gps != null) && (
                             <>
                               <span
                                 className="tracker-card-chip tracker-card-signal-gpsfix"
-                                title={d.latest_signal.gps.valid ? 'GPS fix valid' : 'GPS fix invalid'}
-                                style={{ color: d.latest_signal.gps.valid ? 'var(--success)' : 'var(--muted)' }}
+                                title={(d.gps_lock_last ?? d.latest_signal?.gps?.valid) ? 'GPS lock (last packet)' : 'No GPS lock (last packet)'}
+                                style={{ color: (d.gps_lock_last ?? d.latest_signal?.gps?.valid) ? 'var(--success)' : 'var(--muted)' }}
                               >
                                 <Crosshair size={12} strokeWidth={2} aria-hidden />
-                                <span>{d.latest_signal.gps.valid ? 'Valid' : 'Invalid'}</span>
+                                <span>{(d.gps_lock_last ?? d.latest_signal?.gps?.valid) ? 'Valid' : 'Invalid'}</span>
                               </span>
                               <span
                                 className="tracker-card-chip tracker-card-signal-sats"
-                                title={`Satellites: ${d.latest_signal.gps.sats ?? '—'}`}
+                                title={`Satellites: ${d.latest_signal?.gps?.sats ?? '—'}`}
                                 style={{
-                                  color: (d.latest_signal.gps.sats ?? 0) >= 4 ? 'var(--success)' : (d.latest_signal.gps.sats ?? 0) >= 1 ? 'var(--warn)' : 'var(--muted)',
+                                  color: (d.latest_signal?.gps?.sats ?? 0) >= 4 ? 'var(--success)' : (d.latest_signal?.gps?.sats ?? 0) >= 1 ? 'var(--warn)' : 'var(--muted)',
                                 }}
                               >
                                 <Satellite size={12} strokeWidth={2} aria-hidden />
-                                <span>{d.latest_signal.gps.sats ?? '—'}</span>
+                                <span>{d.latest_signal?.gps?.sats ?? '—'}</span>
                               </span>
                             </>
                           )}
@@ -488,6 +546,16 @@ export default function DevicesListView(props: Props) {
                                 : d.night_guard_enabled ? 'On' : 'Off'}
                             </span>
                           </span>
+                          {emergencyOn && (
+                            <span
+                              className="tracker-card-chip tracker-card-chip--emergency"
+                              title="Emergency Mode – 30s updates for recovery"
+                              aria-label="Emergency Mode active"
+                            >
+                              <ShieldAlert size={12} aria-hidden />
+                              <span>Emergency</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                       <button
@@ -595,6 +663,28 @@ export default function DevicesListView(props: Props) {
                 >
                   <X size={20} strokeWidth={2} />
                 </button>
+              </div>
+              <div className="tracker-settings-modal-status" aria-label="Device status (last packet)">
+                <div className="tracker-settings-modal-status-row">
+                  <span className="tracker-settings-modal-status-label">Last seen</span>
+                  <span className="tracker-settings-modal-status-value">
+                    {device.last_seen_at
+                      ? new Date(device.last_seen_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                      : 'Never'}
+                  </span>
+                </div>
+                <div className="tracker-settings-modal-status-row">
+                  <span className="tracker-settings-modal-status-label">GPS lock (last packet)</span>
+                  <span className="tracker-settings-modal-status-value">
+                    {device.gps_lock_last == null ? '—' : device.gps_lock_last ? 'Yes' : 'No'}
+                  </span>
+                </div>
+                <div className="tracker-settings-modal-status-row">
+                  <span className="tracker-settings-modal-status-label">Battery (last packet)</span>
+                  <span className="tracker-settings-modal-status-value">
+                    {device.last_battery_voltage != null ? `${device.last_battery_voltage.toFixed(2)} V` : '—'}
+                  </span>
+                </div>
               </div>
               <div className="tracker-settings-modal-tabs" role="tablist" aria-label="Settings sections">
                 <button
@@ -983,11 +1073,6 @@ export default function DevicesListView(props: Props) {
                     <div className="tracker-settings-modal-section">
                       {device.latest_signal ? (
                         <>
-                          {device.last_seen_at && (
-                            <p className="tracker-settings-signal-updated" aria-label={`Signal data from ${new Date(device.last_seen_at).toLocaleString()}`}>
-                              Updated {new Date(device.last_seen_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}, {new Date(device.last_seen_at).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}
-                            </p>
-                          )}
                           <div className="tracker-settings-signal-simple">
                           {device.latest_signal.gps != null && (
                             <div className="tracker-settings-signal-row">

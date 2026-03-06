@@ -22,8 +22,27 @@ export default function DashboardShell({ children }: Props) {
   const router = useRouter();
   const supabase = createClient();
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userFirstName, setUserFirstName] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+
+  function getFirstName(user: { user_metadata?: { full_name?: string; name?: string }; email?: string | null }): string | null {
+    const name = user.user_metadata?.full_name ?? user.user_metadata?.name;
+    if (typeof name === 'string' && name.trim()) {
+      const first = name.trim().split(/\s+/)[0];
+      return first ?? null;
+    }
+    const email = user.email?.trim();
+    if (email) {
+      const local = email.split('@')[0];
+      if (local) {
+        const cleaned = local.replace(/[._0-9]+/g, ' ').trim() || local;
+        const first = cleaned.split(/\s+/)[0] ?? cleaned;
+        return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+      }
+    }
+    return null;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -34,6 +53,7 @@ export default function DashboardShell({ children }: Props) {
         return;
       }
       setUserEmail(user.email ?? null);
+      setUserFirstName(getFirstName(user));
       setAuthChecked(true);
       // Use same session as client so API sees correct user (avoids cookie/session mismatch)
       const { data: { session } } = await supabase.auth.getSession();
@@ -93,6 +113,8 @@ export default function DashboardShell({ children }: Props) {
                   key={href}
                   href={href}
                   className={`dashboard-nav-link ${isActive ? 'dashboard-nav-link--active' : ''}`}
+                  title={label}
+                  aria-label={label}
                 >
                   <Icon size={20} strokeWidth={2} />
                   <span>{label}</span>
@@ -101,26 +123,28 @@ export default function DashboardShell({ children }: Props) {
             })}
           </nav>
           <div className="dashboard-sidebar-footer">
-            {userEmail && (
-              <div className="dashboard-sidebar-email" title={userEmail}>
-                {userEmail}
-              </div>
-            )}
-            {userRole && (
-              <div className="dashboard-sidebar-role">
-                {roleLabel(userRole)}
-              </div>
-            )}
-            {showAdmin && (
-              <Link href="/admin" className="dashboard-sidebar-admin" title="Admin">
-                <Shield size={16} />
-                <span>Admin</span>
-              </Link>
-            )}
-            <button type="button" onClick={handleSignOut} className="dashboard-sidebar-logout">
-              <LogOut size={16} />
-              <span>Log out</span>
-            </button>
+            <div className="dashboard-sidebar-greeting">
+              <p className="dashboard-sidebar-hello">
+                Hello{userFirstName ? `, ${userFirstName}` : ''}
+              </p>
+              {userRole && (
+                <span className="dashboard-sidebar-role-badge" title={userEmail ?? undefined}>
+                  {roleLabel(userRole)}
+                </span>
+              )}
+            </div>
+            <div className="dashboard-sidebar-actions">
+              {showAdmin && (
+                <Link href="/admin" className="dashboard-sidebar-admin" title="Admin">
+                  <Shield size={16} />
+                  <span>Admin</span>
+                </Link>
+              )}
+              <button type="button" onClick={handleSignOut} className="dashboard-sidebar-logout">
+                <LogOut size={16} />
+                <span>Log out</span>
+              </button>
+            </div>
           </div>
         </aside>
         <div className="dashboard-main">

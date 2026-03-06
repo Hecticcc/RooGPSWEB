@@ -23,7 +23,8 @@ type DeviceRow = {
   user_email: string | null;
   user_role: string | null;
   name: string | null;
-  status: 'online' | 'offline';
+  status: 'online' | 'sleep' | 'offline';
+  device_state: 'ONLINE' | 'SLEEPING' | 'OFFLINE';
   battery_percent: number | null;
   last_seen_at: string | null;
   created_at: string;
@@ -190,8 +191,17 @@ export default function AdminDevicesPage() {
                 <td className="admin-mono">{d.id}</td>
                 <td>{d.user_email ?? (d.user_id ? '—' : 'Unassigned')}</td>
                 <td>
-                  <span className={`admin-badge admin-badge--${d.status === 'online' ? 'success' : 'warn'}`}>
-                    {d.status}
+                  <span
+                    className={`admin-badge ${
+                      d.status === 'online'
+                        ? 'admin-badge--success'
+                        : d.status === 'sleep'
+                          ? 'admin-badge--sleep'
+                          : 'admin-badge--warn'
+                    }`}
+                    title={d.status === 'sleep' ? 'Device is in sleep mode (stopped, within heartbeat window)' : undefined}
+                  >
+                    {d.status === 'sleep' ? 'Sleep' : d.status}
                   </span>
                 </td>
                 <td>{d.battery_percent != null ? `${d.battery_percent}%` : '—'}</td>

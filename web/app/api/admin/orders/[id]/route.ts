@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireRole, createServiceRoleClient } from '@/lib/admin-auth';
 import { hasMinRole } from '@/lib/roles';
+import { getStripeServer } from '@/lib/stripe';
 import { randomBytes } from 'crypto';
 
 const SIMBASE_API_BASE = process.env.SIMBASE_API_URL ?? 'https://api.simbase.com/v2';
@@ -112,6 +113,7 @@ export async function PATCH(
     sim_iccid?: string;
     total_cents?: number;
     subscription_next_billing_date?: string | null;
+    stripe_subscription_id?: string;
   };
   try {
     body = await request.json();
@@ -396,11 +398,29 @@ export async function PATCH(
         : typeof body.subscription_next_billing_date === 'string' && body.subscription_next_billing_date.trim()
           ? body.subscription_next_billing_date.trim()
           : undefined;
-    if (totalCents === undefined && nextBilling === undefined) {
-      return NextResponse.json({ error: 'Provide total_cents and/or subscription_next_billing_date' }, { status: 400 });
+    const stripeSubscriptionIdInput =
+      typeof body.stripe_subscription_id === 'string' && body.stripe_subscription_id.trim()
+        ? body.stripe_subscription_id.trim()
+        : undefined;
+    if (totalCents === undefined && nextBilling === undefined && stripeSubscriptionIdInput === undefined) {
+      return NextResponse.json({ error: 'Provide total_cents, subscription_next_billing_date, and/or stripe_subscription_id' }, { status: 400 });
     }
-    const { data: orderRow } = await admin.from('orders').select('id').eq('id', orderId).single();
+    const { data: orderRow } = await admin
+      .from('orders')
+      .select('id, stripe_subscription_id')
+      .eq('id', orderId)
+      .single();
     if (!orderRow) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    let stripeSubId = (orderRow as { stripe_subscription_id?: string | null }).stripe_subscription_id ?? null;
+    if (stripeSubscriptionIdInput !== undefined) {
+      const normalized = stripeSubscriptionIdInput.startsWith('sub_') ? stripeSubscriptionIdInput : `sub_${stripeSubscriptionIdInput}`;
+      const { error: linkErr } = await admin
+        .from('orders')
+        .update({ stripe_subscription_id: normalized, updated_at: new Date().toISOString() })
+        .eq('id', orderId);
+      if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
+      stripeSubId = normalized;
+    }
     const updates: { total_cents?: number; subscription_next_billing_date?: string | null; updated_at: string } = {
       updated_at: new Date().toISOString(),
     };
@@ -408,7 +428,135 @@ export async function PATCH(
     if (nextBilling !== undefined) updates.subscription_next_billing_date = nextBilling;
     const { error: updateErr } = await admin.from('orders').update(updates).eq('id', orderId);
     if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
-    return NextResponse.json({ ok: true, message: 'Subscription updated' });
+    let stripeNextBilling: string | null = null;
+    const orderHadNoStripeId = !(orderRow as { stripe_subscription_id?: string | null }).stripe_subscription_id;
+    if (nextBilling && stripeSubId) {
+      const stripe = getStripeServer();
+      if (stripe) {
+        try {
+          const safeTsToIso = (ts: number | null | undefined): string | null => {
+            if (ts == null || typeof ts !== 'number' || !Number.isFinite(ts)) return null;
+            const ms = ts < 1e12 ? ts * 1000 : ts;
+            const d = new Date(ms);
+            return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+          };
+          const renewalTimestamp = Math.floor(new Date(nextBilling).getTime() / 1000);
+          const nowSeconds = Math.floor(Date.now() / 1000);
+
+          const subRaw = await stripe.subscriptions.retrieve(stripeSubId, {
+            expand: ['items.data.price'],
+          });
+          const sub = subRaw as {
+            billing_mode?: { type?: string };
+            schedule?: string | { id?: string } | null;
+            current_period_start?: number;
+            items: { data: Array<{ price: string | { id: string; recurring?: { interval?: string; interval_count?: number } }; quantity?: number }> };
+          };
+          const billingMode = sub.billing_mode?.type;
+          const isFlexible = billingMode === 'flexible';
+
+          if (renewalTimestamp > nowSeconds && isFlexible) {
+            const scheduleId =
+              typeof sub.schedule === 'string' ? sub.schedule : (sub.schedule && typeof sub.schedule === 'object' ? sub.schedule.id : null) ?? null;
+            let sid = scheduleId;
+            if (!sid) {
+              const created = await stripe.subscriptionSchedules.create({
+                from_subscription: stripeSubId,
+              });
+              sid = created.id;
+            }
+            const schedule = await stripe.subscriptionSchedules.retrieve(sid);
+            const phases = (schedule as { phases?: Array<{ start_date: number; end_date?: number }> }).phases ?? [];
+            const currentPhase = phases.find(
+              (p) => p.start_date <= nowSeconds && (p.end_date == null || nowSeconds < p.end_date)
+            ) ?? phases[0];
+            const phase0Start =
+              currentPhase && typeof currentPhase.start_date === 'number' && Number.isFinite(currentPhase.start_date)
+                ? currentPhase.start_date
+                : typeof sub.current_period_start === 'number' && Number.isFinite(sub.current_period_start)
+                  ? sub.current_period_start
+                  : nowSeconds;
+            const items = sub.items.data.map((item) => ({
+              price: typeof item.price === 'string' ? item.price : item.price.id,
+              quantity: item.quantity ?? 1,
+            }));
+            const price = sub.items.data[0]?.price;
+            const recurring =
+              typeof price === 'object' && price && 'recurring' in price
+                ? (price as { recurring?: { interval?: string; interval_count?: number } }).recurring
+                : null;
+            const intervalRaw = recurring?.interval ?? 'month';
+            const interval: 'day' | 'week' | 'month' | 'year' =
+              intervalRaw === 'day' || intervalRaw === 'week' || intervalRaw === 'month' || intervalRaw === 'year'
+                ? intervalRaw
+                : 'month';
+            const intervalCount = recurring?.interval_count ?? 1;
+            await stripe.subscriptionSchedules.update(sid, {
+              default_settings: { billing_cycle_anchor: 'phase_start' },
+              phases: [
+                {
+                  start_date: phase0Start,
+                  end_date: renewalTimestamp,
+                  items,
+                  proration_behavior: 'none',
+                },
+                {
+                  start_date: renewalTimestamp,
+                  duration: { interval, interval_count: intervalCount },
+                  items,
+                  billing_cycle_anchor: 'phase_start',
+                  proration_behavior: 'none',
+                },
+              ],
+            });
+          } else if (renewalTimestamp > nowSeconds) {
+            await stripe.subscriptions.update(stripeSubId, {
+              trial_end: renewalTimestamp,
+              proration_behavior: 'none',
+            });
+          } else {
+            await stripe.subscriptions.update(stripeSubId, {
+              billing_cycle_anchor: 'now',
+              proration_behavior: 'create_prorations',
+            });
+          }
+          const updated = await stripe.subscriptions.retrieve(stripeSubId, {
+            expand: ['schedule'],
+          });
+          const updatedTrialEnd = (updated as { trial_end?: number | null }).trial_end ?? null;
+          const nextTs = updatedTrialEnd ?? updated.current_period_end ?? null;
+          const nextBillingIso = nextTs ? safeTsToIso(nextTs) : null;
+          if (nextBillingIso) {
+            stripeNextBilling = nextBillingIso;
+            await admin
+              .from('orders')
+              .update({
+                subscription_next_billing_date: stripeNextBilling,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', orderId);
+          }
+        } catch (stripeErr) {
+          const msg = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
+          return NextResponse.json(
+            { ok: true, message: 'Subscription updated in DB; Stripe sync failed: ' + msg },
+            { status: 200 }
+          );
+        }
+      }
+    }
+    let msg: string;
+    if (stripeNextBilling) {
+      const nextBillingDate = new Date(stripeNextBilling);
+      const dateStr = Number.isFinite(nextBillingDate.getTime()) ? nextBillingDate.toLocaleString() : stripeNextBilling;
+      msg = `Subscription updated (DB and Stripe). Next billing: ${dateStr}`;
+    } else if (orderHadNoStripeId && !stripeSubscriptionIdInput) {
+      msg =
+        'Subscription updated in database only. No Stripe subscription is linked to this order—link one in the modal (paste Subscription ID from Stripe, e.g. sub_xxx) to sync dates with Stripe.';
+    } else {
+      msg = 'Subscription updated (DB and Stripe)';
+    }
+    return NextResponse.json({ ok: true, message: msg });
   }
 
   if (body.action === 'reassign_sim') {

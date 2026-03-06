@@ -30,15 +30,19 @@ type Device = {
   night_guard_home_lon?: number | null;
   connection_error?: { error_message: string; created_at: string } | null;
   sim_carrier?: string | null;
+  device_state?: 'ONLINE' | 'SLEEPING' | 'OFFLINE';
+  offline_reason?: string | null;
+  gps_lock_last?: boolean | null;
+  last_battery_voltage?: number | null;
+  emergency_enabled?: boolean;
+  emergency_status?: string | null;
 };
 
-/** Consider device online if last_seen within this window. Must be > GPS ping interval (e.g. 10 min) so we don't flip offline between pings. */
-const ONLINE_MS = 20 * 60 * 1000; // 20 min (allows ~2 missed 10-min pings before offline)
 const POLL_INTERVAL_MS = 30 * 1000; // refresh trackers and map every 30s
 
-function isOnline(lastSeen: string | null): boolean {
-  if (!lastSeen) return false;
-  return Date.now() - new Date(lastSeen).getTime() < ONLINE_MS;
+/** For map/counts: "online" = actively reporting (ONLINE state only). */
+function isOnline(device: Device): boolean {
+  return device.device_state === 'ONLINE';
 }
 
 export default function DevicesList() {
@@ -63,43 +67,53 @@ export default function DevicesList() {
   }, []);
 
   async function load(retried = false) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      router.push('/login');
-      return;
-    }
-    const authHeaders = await getAuthHeaders(supabase);
-    let res = await fetch('/api/devices', { credentials: 'include', headers: authHeaders });
-    if (res.status === 401 && !retried) {
-      const { error: refreshErr } = await supabase.auth.refreshSession();
-      if (!refreshErr) {
-        const newHeaders = await getAuthHeaders(supabase);
-        res = await fetch('/api/devices', { credentials: 'include', headers: newHeaders });
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push('/login');
+        return;
       }
-    }
-    if (!res.ok) {
-      setError(res.status === 401 ? 'Session expired' : 'Failed to load devices');
-      setLoading(false);
-      return;
-    }
-    const data = await res.json();
-    setDevices(Array.isArray(data) ? data : []);
-    setError(null);
+      let authHeaders = await getAuthHeaders(supabase);
 
-    const [subRes, meRes] = await Promise.all([
-      fetch('/api/subscription', { credentials: 'include', headers: authHeaders }),
-      fetch('/api/me', { credentials: 'include', cache: 'no-store', headers: authHeaders }),
-    ]);
-    const role: UserRole = meRes.ok ? ((await meRes.json())?.role ?? 'customer') : 'customer';
-    const isCustomerOnly = role === 'customer';
-    if (subRes.ok) {
-      const subData = await subRes.json();
-      const hasActive = subData.hasActiveSimSubscription === true;
-      setCanShowMap(isCustomerOnly ? hasActive : true);
-    } else {
-      setCanShowMap(isCustomerOnly ? false : true);
+      const [devicesRes, subRes, meRes] = await Promise.all([
+        fetch('/api/devices', { credentials: 'include', headers: authHeaders }),
+        fetch('/api/subscription', { credentials: 'include', headers: authHeaders }),
+        fetch('/api/me', { credentials: 'include', cache: 'no-store', headers: authHeaders }),
+      ]);
+
+      let devicesResponse = devicesRes;
+      if (devicesRes.status === 401 && !retried) {
+        const { error: refreshErr } = await supabase.auth.refreshSession();
+        if (!refreshErr) {
+          authHeaders = await getAuthHeaders(supabase);
+          devicesResponse = await fetch('/api/devices', { credentials: 'include', headers: authHeaders });
+        }
+      }
+
+      if (!devicesResponse.ok) {
+        setError(devicesResponse.status === 401 ? 'Session expired' : 'Failed to load devices');
+        setDevices([]);
+        return;
+      }
+      const data = await devicesResponse.json();
+      setDevices(Array.isArray(data) ? data : []);
+      setError(null);
+
+      const role: UserRole = meRes.ok ? ((await meRes.json())?.role ?? 'customer') : 'customer';
+      const isCustomerOnly = role === 'customer';
+      if (subRes.ok) {
+        const subData = await subRes.json();
+        const hasActive = subData.hasActiveSimSubscription === true;
+        setCanShowMap(isCustomerOnly ? hasActive : true);
+      } else {
+        setCanShowMap(isCustomerOnly ? false : true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load devices');
+      setDevices([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -316,8 +330,8 @@ export default function DevicesList() {
     }, 500);
   }
 
-  const onlineCount = devices.filter((d) => isOnline(d.last_seen_at)).length;
-  const offlineCount = devices.length - onlineCount;
+  const onlineCount = devices.filter((d) => isOnline(d)).length;
+  const offlineCount = devices.filter((d) => d.device_state === 'OFFLINE').length;
 
   return (
     <DevicesListView
@@ -330,7 +344,6 @@ export default function DevicesList() {
       addFormOpen={addFormOpen}
       onlineCount={onlineCount}
       offlineCount={offlineCount}
-      isOnline={isOnline}
       onNewIdChange={setNewId}
       onNewNameChange={setNewName}
       onAdd={handleAdd}

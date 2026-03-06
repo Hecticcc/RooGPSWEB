@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
 import { getMarkerSvgPath } from '@/lib/tracker-icon-svg';
 
 const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -46,15 +45,22 @@ export type MapMarker = {
   batteryVoltageV?: number | null;
   lastSeen?: string | null;
   offline?: boolean;
+  device_state?: 'ONLINE' | 'SLEEPING' | 'OFFLINE';
+  emergencyMode?: boolean;
 };
 
 const MARKER_ICON_TYPES = ['car', 'car_alt', 'caravan', 'trailer', 'truck', 'misc'] as const;
 
-function createMarkerElement(hexColor: string, offline?: boolean, iconType?: string | null): HTMLDivElement {
+type MarkerBadge = 'none' | 'sleep' | 'offline';
+
+function createMarkerElement(hexColor: string, badge: MarkerBadge, iconType?: string | null, emergencyMode?: boolean): HTMLDivElement {
   const icon = (iconType && (MARKER_ICON_TYPES as readonly string[]).includes(iconType)) ? iconType : 'car';
   const { viewBox, path, fillRule } = getMarkerSvgPath(icon);
   const el = document.createElement('div');
-  el.className = 'dashboard-map-car-marker' + (offline ? ' dashboard-map-car-marker--offline' : '');
+  el.className = 'dashboard-map-car-marker' +
+    (badge === 'offline' ? ' dashboard-map-car-marker--offline' : '') +
+    (badge === 'sleep' ? ' dashboard-map-car-marker--sleep' : '') +
+    (emergencyMode ? ' dashboard-map-car-marker--emergency' : '');
   el.style.width = '36px';
   el.style.height = '36px';
   el.style.cursor = 'pointer';
@@ -65,11 +71,16 @@ function createMarkerElement(hexColor: string, offline?: boolean, iconType?: str
   const safeColor = hexColor.replace(/[^#0-9A-Fa-f]/g, '');
   const pathAttrs = fillRule ? `d="${path}" fill-rule="${fillRule}"` : `d="${path}"`;
   const svg = `<svg class="dashboard-map-car-svg" width="32" height="32" viewBox="${viewBox}" fill="${safeColor}" xmlns="http://www.w3.org/2000/svg" style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.5));"><path ${pathAttrs}/></svg>`;
-  const alertBadge = offline
-    ? `<span class="dashboard-map-offline-badge" title="Offline – last known location" aria-label="Offline, last known location">
+  let alertBadge = '';
+  if (badge === 'offline') {
+    alertBadge = `<span class="dashboard-map-offline-badge" title="Offline – last known location" aria-label="Offline, last known location">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-       </span>`
-    : '';
+       </span>`;
+  } else if (badge === 'sleep') {
+    alertBadge = `<span class="dashboard-map-sleep-badge" title="Sleep – last known location" aria-label="Sleep, last known location">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+       </span>`;
+  }
   el.innerHTML = svg + alertBadge;
   return el;
 }
@@ -120,12 +131,13 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   const [mapStyle, setMapStyle] = useState<'dark' | 'satellite'>('dark');
 
+  // Create map once; switch style with setStyle() to avoid teardown/reinit jitter
   useEffect(() => {
     if (!containerRef.current || !token) return;
     mapboxgl.accessToken = token;
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: mapStyle === 'satellite' ? STYLE_SATELLITE : STYLE_DARK,
+      style: STYLE_DARK,
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
     });
@@ -136,18 +148,28 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
       map.remove();
       mapRef.current = null;
     };
-  }, [mapStyle]);
+  }, []);
 
+  // When user toggles Satellite/Map, swap style in place (keeps center/zoom, no full reload)
+  const styleUrlRef = useRef(STYLE_DARK);
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !token) return;
+    if (!map) return;
+    const nextUrl = mapStyle === 'satellite' ? STYLE_SATELLITE : STYLE_DARK;
+    if (styleUrlRef.current === nextUrl) return;
+    styleUrlRef.current = nextUrl;
+    map.setStyle(nextUrl);
+  }, [mapStyle]);
+
+  function addMarkersAndFit(map: mapboxgl.Map) {
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
     let currentPopup: mapboxgl.Popup | null = null;
     const valid = markers.filter((m) => typeof m.lat === 'number' && typeof m.lng === 'number');
     valid.forEach((m) => {
       const color = m.color && /^#[0-9A-Fa-f]{6}$/.test(m.color) ? m.color : '#f97316';
-      const el = createMarkerElement(color, m.offline, m.icon);
+      const badge: MarkerBadge = m.device_state === 'OFFLINE' ? 'offline' : m.device_state === 'SLEEPING' ? 'sleep' : m.offline ? 'offline' : 'none';
+      const el = createMarkerElement(color, badge, m.icon, m.emergencyMode);
       const marker = new mapboxgl.Marker({ element: el })
         .setLngLat([m.lng, m.lat])
         .addTo(map);
@@ -170,9 +192,15 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
           const lastCheck = m.lastSeen
             ? new Date(m.lastSeen).toLocaleString()
             : 'Never';
-          const statusLine = m.offline
-            ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
-            : '';
+          const statusLine = m.emergencyMode
+            ? `<div class="map-popup__status map-popup__status--emergency">Emergency Mode · 30s updates</div>`
+            : m.device_state === 'OFFLINE'
+              ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
+              : m.device_state === 'SLEEPING'
+                ? `<div class="map-popup__status map-popup__status--sleep">Sleep · Last known location</div>`
+                : m.offline
+                  ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
+                  : '';
           const popupContent = buildPopupHtml(name, batteryRowContent, lastCheck, statusLine, null);
           const popup = new mapboxgl.Popup({ anchor: 'bottom', offset: [-8, -24], closeButton: true })
             .setLngLat([m.lng, m.lat])
@@ -205,6 +233,18 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
     } else {
       map.setCenter(DEFAULT_CENTER);
       map.setZoom(DEFAULT_ZOOM);
+    }
+  }
+
+  // Sync markers (and fit) when markers change or after style has loaded (e.g. after Satellite/Map toggle)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !token) return;
+    const run = () => addMarkersAndFit(map);
+    if (map.isStyleLoaded()) {
+      run();
+    } else {
+      map.once('style.load', run);
     }
   }, [markers, onMarkerClick, onPopupClose, mapStyle, showVoltage]);
 

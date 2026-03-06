@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { redirect } from 'next/navigation';
 import Logo from '@/components/Logo';
+import MarketingHeader from '@/components/MarketingHeader';
 import MarketingPricing from '@/components/MarketingPricing';
 import {
   Car,
@@ -37,20 +38,7 @@ export default async function HomePage() {
 
   return (
     <main className="marketing-page">
-      <header className="marketing-header">
-        <div className="marketing-header-inner">
-          <Link href="/" className="marketing-logo">
-            <Logo size={40} wide />
-          </Link>
-          <nav className="marketing-nav">
-            <a href="#benefits">Benefits</a>
-            <a href="#features">Features</a>
-            <a href="#why-choose">Why RooGPS</a>
-            <a href="#pricing">Pricing</a>
-            <Link href="/login" className="marketing-cta-header">Dashboard</Link>
-          </nav>
-        </div>
-      </header>
+      <MarketingHeader />
 
       <div className="marketing-aussie-bar" role="region" aria-label="Australian business">
         <img

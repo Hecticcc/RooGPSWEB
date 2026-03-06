@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase';
 import { getAuthHeaders } from '@/lib/api-auth';
-import { Route, Loader2, X, Calendar, RefreshCw, Eye } from 'lucide-react';
+import { Route, Loader2, Calendar, RefreshCw } from 'lucide-react';
 import TripRouteMap from '@/components/TripRouteMap';
 
 const TIMEZONE = 'Australia/Melbourne';
@@ -84,7 +84,63 @@ type Trip = {
   end_lon: number | null;
 };
 
-type TripPoint = { lat: number; lon: number; occurred_at?: string; speed_kph?: number | null };
+/** Max gap (ms) between trip end and next trip start to count as same time frame (15 min). */
+const TRIP_MERGE_GAP_MS = 15 * 60 * 1000;
+
+/**
+ * Merge trips that overlap or are within the same time frame (short gap) into one display row.
+ * Sorts by started_at ascending, then groups: if next.started_at <= prev.ended_at + GAP, merge.
+ */
+function mergeTripsInSameTimeFrame(trips: Trip[]): Array<{ display: Trip; ids: string[] }> {
+  if (trips.length === 0) return [];
+  const sorted = [...trips].sort(
+    (a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime()
+  );
+  const groups: Trip[][] = [];
+  let current: Trip[] = [sorted[0]!];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = current[current.length - 1]!;
+    const next = sorted[i]!;
+    const prevEnd = new Date(prev.ended_at).getTime();
+    const nextStart = new Date(next.started_at).getTime();
+    if (nextStart <= prevEnd + TRIP_MERGE_GAP_MS) {
+      current.push(next);
+    } else {
+      groups.push(current);
+      current = [next];
+    }
+  }
+  groups.push(current);
+
+  return groups.map((group) => {
+    const first = group[0]!;
+    const last = group[group.length - 1]!;
+    const startMs = new Date(first.started_at).getTime();
+    const endMs = new Date(last.ended_at).getTime();
+    const durationSeconds = Math.round((endMs - startMs) / 1000);
+    const distance_meters = group.reduce((s, t) => s + t.distance_meters, 0);
+    const max_speed_kmh =
+      group.reduce((m, t) => (t.max_speed_kmh != null && (m == null || t.max_speed_kmh > m) ? t.max_speed_kmh : m), null as number | null) ?? null;
+    return {
+      display: {
+        id: first.id,
+        device_id: first.device_id,
+        started_at: first.started_at,
+        ended_at: last.ended_at,
+        duration_seconds: durationSeconds,
+        distance_meters,
+        max_speed_kmh,
+        start_lat: first.start_lat,
+        start_lon: first.start_lon,
+        end_lat: last.end_lat,
+        end_lon: last.end_lon,
+      },
+      ids: group.map((t) => t.id),
+    };
+  });
+}
+
+type TripPoint = { lat: number; lon: number; occurred_at?: string; speed_kph?: number | null; gps_valid?: boolean | null };
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-AU', {
@@ -132,10 +188,16 @@ export default function TripsTab({ deviceId, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [selectedTripIds, setSelectedTripIds] = useState<string[]>([]);
   const [detailTrip, setDetailTrip] = useState<Trip | null>(null);
   const [detailPoints, setDetailPoints] = useState<TripPoint[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const supabase = createClient();
+
+  const mergedTrips = useMemo(
+    () => mergeTripsInSameTimeFrame(trips).reverse(),
+    [trips]
+  );
 
   const fetchTrips = useCallback(async () => {
     setLoading(true);
@@ -248,7 +310,7 @@ export default function TripsTab({ deviceId, onClose }: Props) {
   }, [fetchTrips]);
 
   useEffect(() => {
-    if (!selectedTripId) {
+    if (!selectedTripId || selectedTripIds.length === 0) {
       setDetailTrip(null);
       setDetailPoints([]);
       return;
@@ -257,38 +319,30 @@ export default function TripsTab({ deviceId, onClose }: Props) {
     let cancelled = false;
     getAuthHeaders(supabase).then((headers) => {
       if (cancelled) return;
-      return Promise.all([
-        fetch(`/api/trips/${selectedTripId}`, { credentials: 'include', headers: { ...headers, 'Cache-Control': 'no-cache' } }),
-        fetch(`/api/trips/${selectedTripId}/points`, { credentials: 'include', headers: { ...headers, 'Cache-Control': 'no-cache' } }),
-      ]).then(async ([tr, pt]) => {
+      const pointPromises = selectedTripIds.map((id) =>
+        fetch(`/api/trips/${id}/points`, { credentials: 'include', headers: { ...headers!, 'Cache-Control': 'no-cache' } }).then((r) => r.json())
+      );
+      return Promise.all(pointPromises).then((results) => {
         if (cancelled) return;
-        if (!tr.ok || !pt.ok) {
-          setDetailTrip(null);
-          setDetailPoints([]);
-          return;
+        const combined: TripPoint[] = [];
+        for (const pointsData of results) {
+          const list = Array.isArray(pointsData) ? pointsData : [];
+          for (const p of list) {
+            combined.push(p as TripPoint);
+          }
         }
-        const tripData = await tr.json();
-        const pointsData = await pt.json();
-        const pointsList = Array.isArray(pointsData) ? pointsData : [];
-        setDetailTrip(tripData);
-        setDetailPoints(pointsList);
-
-        if (typeof window !== 'undefined') {
-          console.group('[RooGPS Trips] Trip detail');
-          console.log('Trip id:', selectedTripId);
-          console.log('Trip:', { started_at: tripData?.started_at, ended_at: tripData?.ended_at, duration_seconds: tripData?.duration_seconds, distance_meters: tripData?.distance_meters, max_speed_kmh: tripData?.max_speed_kmh });
-          console.log('Points for this trip:', pointsList.length);
-          pointsList.forEach((p: TripPoint, i: number) => {
-            console.log(`  point ${i + 1}: lat=${p.lat}, lon=${p.lon}${p.occurred_at ? ` at ${p.occurred_at}` : ''}`);
-          });
-          console.groupEnd();
-        }
+        combined.sort((a, b) => {
+          const ta = a.occurred_at ? new Date(a.occurred_at).getTime() : 0;
+          const tb = b.occurred_at ? new Date(b.occurred_at).getTime() : 0;
+          return ta - tb;
+        });
+        setDetailPoints(combined);
       }).finally(() => {
         if (!cancelled) setDetailLoading(false);
       });
     });
     return () => { cancelled = true; };
-  }, [selectedTripId, supabase]);
+  }, [selectedTripId, selectedTripIds, supabase]);
 
   return (
     <div id="tracker-settings-panel-trips" role="tabpanel" aria-labelledby="tracker-settings-tab-trips" className="tracker-settings-modal-panel">
@@ -359,12 +413,63 @@ export default function TripsTab({ deviceId, onClose }: Props) {
           </p>
         )}
 
+        {/* Map and trip stats above the table */}
+        <div className="trips-map-section">
+          <div className="trips-detail-map-wrap">
+            {detailLoading ? (
+              <div className="trips-detail-loading">
+                <Loader2 size={28} className="animate-spin" />
+                <span>Loading route…</span>
+              </div>
+            ) : detailTrip ? (
+              <TripRouteMap
+                points={detailPoints}
+                startLat={detailTrip.start_lat}
+                startLon={detailTrip.start_lon}
+                endLat={detailTrip.end_lat}
+                endLon={detailTrip.end_lon}
+              />
+            ) : (
+              <div className="trips-map-placeholder">
+                <Route size={32} strokeWidth={1.5} aria-hidden />
+                <p>Select a trip below to show it on the map</p>
+              </div>
+            )}
+          </div>
+          {detailTrip && !detailLoading && (
+            <div className="trips-detail-stats">
+              <div className="trips-detail-stat">
+                <span className="trips-detail-stat-label">Distance</span>
+                <span className="trips-detail-stat-value">{(detailTrip.distance_meters / 1000).toFixed(1)} km</span>
+              </div>
+              <div className="trips-detail-stat">
+                <span className="trips-detail-stat-label">Duration</span>
+                <span className="trips-detail-stat-value">{formatDuration(detailTrip.duration_seconds)}</span>
+              </div>
+              {detailTrip.max_speed_kmh != null && (
+                <div className="trips-detail-stat">
+                  <span className="trips-detail-stat-label">Max speed</span>
+                  <span className="trips-detail-stat-value">{Math.round(detailTrip.max_speed_kmh)} km/h</span>
+                </div>
+              )}
+              <div className="trips-detail-stat">
+                <span className="trips-detail-stat-label">Started</span>
+                <span className="trips-detail-stat-value">{formatTime(detailTrip.started_at)}, {formatDate(detailTrip.started_at)}</span>
+              </div>
+              <div className="trips-detail-stat">
+                <span className="trips-detail-stat-label">Ended</span>
+                <span className="trips-detail-stat-value">{formatTime(detailTrip.ended_at)}, {formatDate(detailTrip.ended_at)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
         {loading ? (
           <div className="trips-loading" aria-busy="true">
             <Loader2 size={24} className="animate-spin" />
             <span>Loading trips…</span>
           </div>
-        ) : trips.length === 0 ? (
+        ) : mergedTrips.length === 0 ? (
           <div className="trips-empty">
             <Route size={32} strokeWidth={1.5} aria-hidden />
             <p>No trips in this range.</p>
@@ -383,45 +488,45 @@ export default function TripsTab({ deviceId, onClose }: Props) {
                   <th scope="col" className="trips-table-distance">Distance</th>
                   <th scope="col" className="trips-table-num">Duration</th>
                   <th scope="col" className="trips-table-num">Max speed</th>
-                  <th scope="col" className="trips-table-view-col">View</th>
                 </tr>
               </thead>
               <tbody>
-                {trips.map((t) => (
+                {mergedTrips.map(({ display, ids }) => (
                   <tr
-                    key={t.id}
-                    className="trips-table-row"
-                    onClick={() => setSelectedTripId(t.id)}
+                    key={ids.join(',')}
+                    className={`trips-table-row${selectedTripId === display.id ? ' trips-table-row--selected' : ''}`}
+                    onClick={() => {
+                      setSelectedTripId(display.id);
+                      setSelectedTripIds(ids);
+                      setDetailTrip(display);
+                    }}
                     role="button"
                     tabIndex={0}
-                    onKeyDown={(e) => e.key === 'Enter' || e.key === ' ' ? (e.preventDefault(), setSelectedTripId(t.id)) : undefined}
-                    aria-label={`Trip ${formatDate(t.started_at)} ${formatTime(t.started_at)} to ${formatTime(t.ended_at)}`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedTripId(display.id);
+                        setSelectedTripIds(ids);
+                        setDetailTrip(display);
+                      }
+                    }}
+                    aria-label={`Trip ${formatDate(display.started_at)} ${formatTime(display.started_at)} to ${formatTime(display.ended_at)}`}
+                    aria-selected={selectedTripId === display.id}
                   >
                     <td className="trips-table-date">
-                      {formatDate(t.started_at)}
-                      {isFutureYear(t.started_at) && (
+                      {formatDate(display.started_at)}
+                      {isFutureYear(display.started_at) && (
                         <span className="trips-card-date-warn" title="Trip date is in the future; check tracker clock (e.g. timezone or year).">
                           {' '}(check clock)
                         </span>
                       )}
                     </td>
-                    <td>{formatTime(t.started_at)}</td>
-                    <td>{formatTime(t.ended_at)}</td>
-                    <td className="trips-table-distance">{(t.distance_meters / 1000).toFixed(1)} km</td>
-                    <td className="trips-table-num">{formatDuration(t.duration_seconds)}</td>
+                    <td>{formatTime(display.started_at)}</td>
+                    <td>{formatTime(display.ended_at)}</td>
+                    <td className="trips-table-distance">{(display.distance_meters / 1000).toFixed(1)} km</td>
+                    <td className="trips-table-num">{formatDuration(display.duration_seconds)}</td>
                     <td className="trips-table-num">
-                      {t.max_speed_kmh != null ? `${Math.round(t.max_speed_kmh)} km/h` : '—'}
-                    </td>
-                    <td className="trips-table-view-col">
-                      <button
-                        type="button"
-                        className="trips-table-view-btn"
-                        onClick={(e) => { e.stopPropagation(); setSelectedTripId(t.id); }}
-                        aria-label={`View trip ${formatDate(t.started_at)}`}
-                      >
-                        <Eye size={16} aria-hidden />
-                        View
-                      </button>
+                      {display.max_speed_kmh != null ? `${Math.round(display.max_speed_kmh)} km/h` : '—'}
                     </td>
                   </tr>
                 ))}
@@ -430,76 +535,6 @@ export default function TripsTab({ deviceId, onClose }: Props) {
           </div>
         )}
       </div>
-
-      {selectedTripId && (
-        <div
-          className="trips-detail-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Trip detail"
-          onClick={(e) => e.target === e.currentTarget && setSelectedTripId(null)}
-        >
-          <div className="trips-detail-modal">
-            <div className="trips-detail-header">
-              <h4>Trip details</h4>
-              <button
-                type="button"
-                className="trips-detail-close"
-                onClick={() => setSelectedTripId(null)}
-                aria-label="Close"
-              >
-                <X size={22} strokeWidth={2} />
-              </button>
-            </div>
-            <div className="trips-detail-body">
-              {detailLoading ? (
-                <div className="trips-detail-loading">
-                  <Loader2 size={28} className="animate-spin" />
-                  <span>Loading route…</span>
-                </div>
-              ) : detailTrip ? (
-                <>
-                  <div className="trips-detail-map-wrap">
-                    <TripRouteMap
-                      points={detailPoints}
-                      startLat={detailTrip.start_lat}
-                      startLon={detailTrip.start_lon}
-                      endLat={detailTrip.end_lat}
-                      endLon={detailTrip.end_lon}
-                    />
-                  </div>
-                  <div className="trips-detail-stats">
-                    <div className="trips-detail-stat">
-                      <span className="trips-detail-stat-label">Distance</span>
-                      <span className="trips-detail-stat-value">{(detailTrip.distance_meters / 1000).toFixed(1)} km</span>
-                    </div>
-                    <div className="trips-detail-stat">
-                      <span className="trips-detail-stat-label">Duration</span>
-                      <span className="trips-detail-stat-value">{formatDuration(detailTrip.duration_seconds)}</span>
-                    </div>
-                    {detailTrip.max_speed_kmh != null && (
-                    <div className="trips-detail-stat">
-                      <span className="trips-detail-stat-label">Max speed</span>
-                      <span className="trips-detail-stat-value">{Math.round(detailTrip.max_speed_kmh)} km/h</span>
-                    </div>
-                    )}
-                    <div className="trips-detail-stat">
-                      <span className="trips-detail-stat-label">Started</span>
-                      <span className="trips-detail-stat-value">{formatTime(detailTrip.started_at)}, {formatDate(detailTrip.started_at)}</span>
-                    </div>
-                    <div className="trips-detail-stat">
-                      <span className="trips-detail-stat-label">Ended</span>
-                      <span className="trips-detail-stat-value">{formatTime(detailTrip.ended_at)}, {formatDate(detailTrip.ended_at)}</span>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <p className="trips-detail-error">Could not load trip.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

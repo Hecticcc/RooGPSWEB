@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getStripeServer, STRIPE_WEBHOOK_SECRET, STRIPE_PRODUCT_SIM } from '@/lib/stripe';
 import { createServiceRoleClient } from '@/lib/admin-auth';
+import { setSimbaseSimState } from '@/lib/simbase';
 
 export const dynamic = 'force-dynamic';
 
@@ -149,6 +150,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true });
     }
 
+    // When a subscription is created (e.g. by Stripe Checkout subscription mode or Dashboard) with our order_id in metadata, link it to the order so we can manage it and track due dates.
+    if (event.type === 'customer.subscription.created') {
+      const subscription = event.data.object as Stripe.Subscription;
+      const orderId = subscription.metadata?.order_id ?? null;
+      if (!orderId || !subscription.id) return NextResponse.json({ received: true });
+      const { data: orderRow } = await admin
+        .from('orders')
+        .select('id, stripe_subscription_id')
+        .eq('id', orderId)
+        .maybeSingle();
+      if (!orderRow || (orderRow as { stripe_subscription_id?: string | null }).stripe_subscription_id) return NextResponse.json({ received: true });
+      const periodEnd = subscription.current_period_end
+        ? new Date(subscription.current_period_end * 1000).toISOString()
+        : null;
+      await admin.from('orders').update({
+        stripe_subscription_id: subscription.id,
+        ...(periodEnd && { subscription_next_billing_date: periodEnd }),
+        updated_at: new Date().toISOString(),
+      }).eq('id', orderId);
+      logEvent(admin, orderId, 'subscription.linked', event.id, subscription.id, {
+        subscription_id: subscription.id,
+        current_period_end: periodEnd,
+      });
+      return NextResponse.json({ received: true });
+    }
+
     if (event.type === 'invoice.paid') {
       const invoice = event.data.object as Stripe.Invoice & { subscription?: string | { id?: string } };
       const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id;
@@ -156,23 +183,38 @@ export async function POST(request: Request) {
 
       const { data: orderRow } = await admin
         .from('orders')
-        .select('id')
+        .select('id, status')
         .eq('stripe_subscription_id', subscriptionId)
         .maybeSingle();
       const orderId = orderRow?.id ?? null;
+      const wasSuspended = orderRow && (orderRow as { status?: string }).status === 'suspended';
 
       const periodEnd = invoice.period_end ? new Date(invoice.period_end * 1000).toISOString() : null;
       if (orderId && periodEnd) {
         await admin.from('orders').update({
           subscription_next_billing_date: periodEnd,
           updated_at: new Date().toISOString(),
+          ...(wasSuspended ? { status: 'paid' } : {}),
         }).eq('id', orderId);
+      }
+
+      if (orderId && wasSuspended) {
+        const { data: tokens } = await admin
+          .from('activation_tokens')
+          .select('sim_iccid')
+          .eq('order_id', orderId)
+          .not('sim_iccid', 'is', null);
+        const iccids = Array.from(new Set((tokens ?? []).map((t) => t.sim_iccid).filter(Boolean))) as string[];
+        for (const iccid of iccids) {
+          await setSimbaseSimState(iccid, 'enabled');
+        }
       }
 
       logEvent(admin, orderId, event.type, event.id, invoice.id, {
         subscription_id: subscriptionId,
         period_end: periodEnd,
         amount_paid: invoice.amount_paid,
+        reinstated: wasSuspended,
       });
       return NextResponse.json({ received: true });
     }

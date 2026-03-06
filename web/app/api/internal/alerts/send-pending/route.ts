@@ -54,6 +54,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ processed: 0, sent: 0, error: eventsErr?.message ?? null });
   }
 
+  const deviceIds = Array.from(new Set(events.map((e) => e.device_id).filter(Boolean)));
+  const deviceNameById: Record<string, string> = {};
+  if (deviceIds.length > 0) {
+    const { data: devices } = await admin
+      .from('devices')
+      .select('id, name')
+      .in('id', deviceIds);
+    for (const d of devices ?? []) {
+      deviceNameById[d.id] = (d.name && d.name.trim()) ? d.name.trim() : d.id;
+    }
+  }
+
+  const trackerLabel = (deviceId: string) => {
+    const name = deviceNameById[deviceId] ?? deviceId;
+    const short = name.length > 20 ? name.slice(0, 17) + '...' : name;
+    return short;
+  };
+
   let sent = 0;
   for (const ev of events) {
     const [profileRes, settingsRes, usageRes] = await Promise.all([
@@ -86,25 +104,26 @@ export async function POST(request: Request) {
       }
     }
 
+    const tracker = trackerLabel(ev.device_id);
     let message: string;
     if (ev.alert_type === 'watchdog') {
       const p = (ev.payload as { speed_kph?: number; distance_m?: number }) ?? {};
       const speed = p.speed_kph != null ? Math.round(p.speed_kph) : 0;
       const dist = p.distance_m != null ? Math.round(p.distance_m) : 0;
-      message = `RooGPS WatchDog: Your tracker moved. Speed: ${speed} km/h, distance: ${dist} m. Check your dashboard.`;
+      message = `RooGPS [${tracker}] WatchDog: Your tracker moved. Speed: ${speed} km/h, distance: ${dist} m. Check your dashboard.`;
     } else if (ev.alert_type === 'night_guard') {
-      message = `RooGPS Night Guard: Your tracker left the zone. Check your dashboard.`;
+      message = `RooGPS [${tracker}] Night Guard: Your tracker left the zone. Check your dashboard.`;
     } else if (ev.alert_type === 'geofence') {
       const p = (ev.payload as { geofence_type?: string; name?: string }) ?? {};
       const zoneType = p.geofence_type === 'keep_out' ? 'Keep out' : 'Keep in';
       const name = p.name ? ` (${String(p.name).slice(0, 20)})` : '';
-      message = `RooGPS: ${zoneType} zone${name} – tracker alert. Check your dashboard.`;
+      message = `RooGPS [${tracker}]: ${zoneType} zone${name} – tracker alert. Check your dashboard.`;
     } else if (ev.alert_type === 'battery') {
       const p = (ev.payload as { threshold_percent?: number }) ?? {};
       const pct = p.threshold_percent != null ? p.threshold_percent : 20;
-      message = `RooGPS: Tracker battery is below ${pct}%. Check your dashboard.`;
+      message = `RooGPS [${tracker}]: Tracker battery is below ${pct}%. Check your dashboard.`;
     } else {
-      message = `RooGPS: Alert (${ev.alert_type}). Check your dashboard.`;
+      message = `RooGPS [${tracker}]: Alert (${ev.alert_type}). Check your dashboard.`;
     }
 
     const result = await sendSms(mobile, message);

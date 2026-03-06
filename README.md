@@ -144,6 +144,33 @@ Trips are derived from location points (GPRS history) and shown in the **Trips**
 - **Trip end position:** The red end marker uses the last consecutive *stationary* point after the trip (where the car stopped). If the tracker does not send a ping after stopping, the end will stay at the last moving point. For best accuracy, configure the tracker to send at least one fix after the vehicle stops (e.g. motion‑stop or a short “parked” interval).
 - **Max speed:** When the device does not report speed (or reports 0), max speed is derived from distance/time between consecutive points so short trips still show a plausible value.
 
+### View Tracker (Live tab) – configurable constants
+
+The **View Tracker** page (device Live tab) shows consumer statuses (Live, Sleep, Indoor / No GPS, Offline) and uses these configurable values:
+
+| Constant | Where | Default | Purpose |
+|----------|--------|---------|---------|
+| **grace_seconds** | `web/lib/device-state.ts` → `DEVICE_STATE_CONFIG.default_grace_seconds` | 3600 | Grace beyond heartbeat window before marking Offline. |
+| **heartbeat_minutes** | `web/lib/device-state.ts` → `DEVICE_STATE_CONFIG.default_heartbeat_minutes` | 720 | Default expected check-in interval when sleeping (12 h). Per device: `devices.heartbeat_minutes` (migration `20250319000001_device_heartbeat_moving_interval.sql`). |
+| **moving_interval_seconds** | Per device: `devices.moving_interval_seconds` | — | Reporting interval when moving; used to derive online threshold (`max(180, moving_interval_seconds * 2)`). |
+| **online_threshold fallback** | `web/lib/device-state.ts` → `default_online_threshold_seconds`, `online_threshold_min_seconds` | 600, 180 | Seconds since last seen to still consider “online”; fallback when moving_interval not set. |
+| **CSQ → signal bars** | `web/lib/signal.ts` → `DEFAULT_CSQ_BAR_THRESHOLDS` | [6, 12, 18, 24] | CSQ (0–31) thresholds for 1–4 bars. |
+| **Battery thresholds** | `web/lib/battery.ts` | High ≥4.0 V, Medium ≥3.8 V, Low ≥3.6 V | Voltage tiers for “High” / “Medium” / “Low” labels. |
+| **Low battery (Offline reason)** | `web/lib/device-state.ts` → `low_battery_voltage_threshold` | 3.55 V | When Offline and last known voltage ≤ this → `OFFLINE_LOW_BATTERY`. |
+
+### Emergency / Stolen Mode (PT60-L)
+
+Emergency Mode lets the customer switch the tracker to **~30 s updates** for live recovery (e.g. car stolen). When disabled, the tracker is restored to the stored **normal profile** (e.g. 120 s moving, 12 h heartbeat, sleep after 180 s).
+
+- **Where:** Device **View** page (Live tab) → **Emergency Mode** card. Toggle **Activate Emergency Mode** (with confirmation); when on, a red **Emergency Mode Active** badge and **Disable** button.
+- **APIs:** `POST /api/devices/:id/emergency/enable`, `POST /api/devices/:id/emergency/disable`, `GET /api/devices/:id/emergency` (owner only). Commands are sent via existing SMS/Simbase layer (`device_command_jobs` + worker).
+- **Profiles (defaults):**
+  - **Normal (restore target):** `102,120,,600` (moving 120 s, stopped 600 s), `124,1,180` (sleep after 180 s), `122,720` (12 h heartbeat). Stored in `devices.normal_profile` on first enable; if missing, product defaults are used and saved.
+  - **Emergency (applied on enable):** `102,30,,60` (moving 30 s, stopped 60 s), `124,0` (sleep off), `122,60` (1 h heartbeat).
+- **Config:** Edit `web/lib/emergency-mode.ts`: `DEFAULT_NORMAL_PROFILE` and `DEFAULT_EMERGENCY_PROFILE`. To change intervals later (e.g. different moving/stopped seconds), update those objects and redeploy; existing devices keep their saved `normal_profile` until they run **Disable** (which reapplies the then-current stored profile).
+- **Database:** Migration `20250320000001_emergency_mode.sql` adds `devices.emergency_enabled`, `emergency_activated_at`, `emergency_activated_by`, `emergency_status` (OFF | ENABLING | ON | DISABLING | ERROR), `emergency_last_error`, `normal_profile`, `emergency_profile`.
+- **Battery:** UI states that Emergency Mode uses frequent updates and will reduce battery life significantly.
+
 ## Ingest service (Vultr VPS)
 
 ### Run locally

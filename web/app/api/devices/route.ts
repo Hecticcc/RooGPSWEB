@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { computeDeviceState } from '@/lib/device-state';
 
 const SIMBASE_API_BASE = process.env.SIMBASE_API_URL ?? 'https://api.simbase.com/v2';
 const SIMBASE_API_KEY = process.env.SIMBASE_API_KEY ?? '';
@@ -36,18 +37,21 @@ export async function GET(request: Request) {
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  // Base columns only so the query works even if heartbeat/moving_interval migration hasn't been run
   const { data: devices, error: devErr } = await supabase
     .from('devices')
-    .select('id, name, created_at, last_seen_at, marker_color, marker_icon, watchdog_armed, watchdog_armed_at')
+    .select('id, name, created_at, last_seen_at, marker_color, marker_icon, watchdog_armed, watchdog_armed_at, emergency_enabled, emergency_status, heartbeat_minutes, moving_interval_seconds')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   if (devErr) {
     return NextResponse.json({ error: devErr.message }, { status: 500 });
   }
-  if (!devices?.length) {
+  type DeviceRow = (typeof devices)[number];
+  const devicesWithOpt = devices as DeviceRow[] | null;
+  if (!devicesWithOpt?.length) {
     return NextResponse.json([]);
   }
-  const deviceIds = devices.map((d) => d.id);
+  const deviceIds = devicesWithOpt.map((d) => d.id);
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data: connectionErrors } = await supabase
     .from('device_connection_errors')
@@ -62,19 +66,34 @@ export async function GET(request: Request) {
     }
   }
   const withLocation = await Promise.all(
-    devices.map(async (d) => {
+    devicesWithOpt.map(async (d) => {
       const { data: loc } = await supabase
         .from('locations')
-        .select('latitude, longitude, extra')
+        .select('latitude, longitude, received_at, extra')
         .eq('device_id', d.id)
         .order('received_at', { ascending: false })
         .limit(1)
         .maybeSingle();
       const extra = (loc?.extra as {
         battery?: { percent?: number; voltage_v?: number };
-        signal?: { gps?: { valid?: boolean; sats?: number; hdop?: number; has_signal?: boolean }; gsm?: { csq?: number; percent?: number | null; quality?: string } };
+        signal?: { gps?: { valid?: boolean; fix_flag?: string; sats?: number; hdop?: number; has_signal?: boolean }; gsm?: { csq?: number; percent?: number | null; quality?: string } };
+        pt60_state?: { is_stopped?: boolean };
+        gps_lock?: boolean;
+        power?: { battery_voltage_v?: number };
+        internal_battery_voltage_v?: number;
       } | null) ?? null;
       const connError = latestErrorByDevice[d.id] ?? null;
+      const lastBatteryV = extra?.battery?.voltage_v ?? extra?.power?.battery_voltage_v ?? extra?.internal_battery_voltage_v ?? null;
+      const lastIsStopped = extra?.pt60_state?.is_stopped ?? null;
+      const gpsLockLast = extra?.gps_lock ?? extra?.signal?.gps?.valid ?? null;
+      const lastSeenAt = loc?.received_at ?? d.last_seen_at;
+      const stateResult = computeDeviceState({
+        last_seen_at: lastSeenAt,
+        moving_interval_seconds: d.moving_interval_seconds ?? null,
+        heartbeat_minutes: d.heartbeat_minutes ?? null,
+        last_known_is_stopped: lastIsStopped,
+        last_known_battery_voltage: lastBatteryV,
+      });
       return {
         ...d,
         latest_lat: loc?.latitude ?? null,
@@ -84,6 +103,10 @@ export async function GET(request: Request) {
         latest_signal: extra?.signal ?? null,
         marker_color: d.marker_color ?? '#f97316',
         connection_error: connError,
+        device_state: stateResult.device_state,
+        offline_reason: stateResult.offline_reason,
+        gps_lock_last: gpsLockLast,
+        last_battery_voltage: lastBatteryV,
       };
     })
   );

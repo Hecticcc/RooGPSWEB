@@ -10,6 +10,7 @@ const LABELS: Record<string, string> = {
   shipped: 'Shipped',
   activated: 'Activated',
   cancelled: 'Cancelled',
+  suspended: 'Suspended',
 };
 
 export function getStatusLabel(status: string): string {
@@ -28,7 +29,7 @@ export function isCancelled(status: string): boolean {
 /** Admin UI: CSS class for status badge colour (e.g. admin-badge--status-paid) */
 export function getStatusBadgeClass(status: string): string {
   const s = status?.toLowerCase();
-  if (['pending', 'paid', 'fulfilled', 'processing', 'shipped', 'activated', 'cancelled'].includes(s))
+  if (['pending', 'paid', 'fulfilled', 'processing', 'shipped', 'activated', 'cancelled', 'suspended'].includes(s))
     return `admin-badge admin-badge--status-${s}`;
   return 'admin-badge admin-badge--muted';
 }
@@ -36,7 +37,7 @@ export function getStatusBadgeClass(status: string): string {
 /** Customer My Orders card: pill class for status (order-card-status--paid etc.) */
 export function getOrderCardStatusClass(status: string): string {
   const s = status?.toLowerCase();
-  if (['pending', 'paid', 'fulfilled', 'processing', 'shipped', 'activated', 'cancelled'].includes(s))
+  if (['pending', 'paid', 'fulfilled', 'processing', 'shipped', 'activated', 'cancelled', 'suspended'].includes(s))
     return `order-card-status order-card-status--${s}`;
   return 'order-card-status order-card-status--muted';
 }

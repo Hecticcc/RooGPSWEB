@@ -87,6 +87,8 @@ export async function GET(request: Request) {
     periodBySku[p.sku] = p.period === 'year' ? 'year' : 'month';
   }
 
+  const nowMs = Date.now();
+  const oneDayMs = 24 * 60 * 60 * 1000;
   const subscriptions = orderList
     .filter((o) => subscriptionOrderIds.includes(o.id))
     .map((o) => {
@@ -102,6 +104,8 @@ export async function GET(request: Request) {
         else est.setMonth(est.getMonth() + 1);
         nextDue = est.toISOString();
       }
+      const nextDueMs = new Date(nextDue).getTime();
+      const daysUntilDue = Math.ceil((nextDueMs - nowMs) / oneDayMs);
       return {
         order_id: o.id,
         order_number: o.order_number ?? null,
@@ -111,6 +115,7 @@ export async function GET(request: Request) {
         currency: o.currency,
         period,
         next_due_estimate: nextDue,
+        days_until_due: daysUntilDue,
         stripe_subscription_id: (o as { stripe_subscription_id?: string | null }).stripe_subscription_id ?? null,
       };
     });

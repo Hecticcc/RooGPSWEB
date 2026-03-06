@@ -49,7 +49,7 @@ export async function GET(
     admin.from('profiles').select('first_name, last_name, address_line1, address_line2, suburb, state, postcode, country, mobile').eq('user_id', userId).maybeSingle(),
     admin.from('user_roles').select('role, created_at').eq('user_id', userId).maybeSingle(),
     admin.from('devices').select('id, name, created_at, last_seen_at, ingest_disabled').eq('user_id', userId).order('created_at', { ascending: false }),
-    admin.from('orders').select('id, order_number, status, total_cents, currency, created_at, subscription_next_billing_date').eq('user_id', userId).order('created_at', { ascending: false }),
+    admin.from('orders').select('id, order_number, status, total_cents, currency, created_at, subscription_next_billing_date, stripe_subscription_id').eq('user_id', userId).order('created_at', { ascending: false }),
     admin.from('activation_tokens').select('id, order_id, device_id, sim_iccid').eq('user_id', userId),
   ]);
 
@@ -106,6 +106,7 @@ export async function GET(
         currency: o.currency,
         period,
         next_due_estimate: nextDue.toISOString(),
+        stripe_subscription_id: (o as { stripe_subscription_id?: string | null }).stripe_subscription_id ?? null,
       };
     });
 

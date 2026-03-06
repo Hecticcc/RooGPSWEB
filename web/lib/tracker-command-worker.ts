@@ -7,6 +7,8 @@ import { sendSms } from '@/lib/smsportal';
 import { sendSimbaseSms } from '@/lib/simbase';
 
 const COMMAND_TIMEOUT_SEC = 120;
+const MAX_SEND_RETRIES = 3;
+const RETRY_BASE_MS = 1000;
 
 export type CommandJobRow = {
   id: string;
@@ -44,20 +46,26 @@ export async function processCommandJob(
     .eq('id', jobId);
 
   const useSimbase = !!(job.target_iccid && String(job.target_iccid).trim());
-  let ok: boolean;
+  let ok = false;
   let error: string | undefined;
   let messageId: string | null = null;
 
-  if (useSimbase) {
-    const result = await sendSimbaseSms(job.target_iccid!.trim(), job.command_text);
-    ok = result.ok;
-    error = result.error;
-    // Simbase 202 does not return a message ID in the doc; leave null
-  } else {
-    const result = await sendSms(job.target_phone, job.command_text);
-    ok = result.ok;
-    error = result.error;
-    messageId = result.messageId ?? null;
+  for (let attempt = 1; attempt <= MAX_SEND_RETRIES; attempt++) {
+    if (useSimbase) {
+      const result = await sendSimbaseSms(job.target_iccid!.trim(), job.command_text);
+      ok = result.ok;
+      error = result.error;
+    } else {
+      const result = await sendSms(job.target_phone, job.command_text);
+      ok = result.ok;
+      error = result.error;
+      messageId = result.messageId ?? null;
+    }
+    if (ok) break;
+    if (attempt < MAX_SEND_RETRIES) {
+      const delayMs = RETRY_BASE_MS * Math.pow(2, attempt - 1);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
   }
 
   if (ok) {

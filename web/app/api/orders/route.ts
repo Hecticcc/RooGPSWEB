@@ -80,20 +80,45 @@ export async function POST(request: Request) {
   const hasYearlySim = items.some((i) => (i.product_sku ?? '').toLowerCase().includes('sim_yearly'));
   const simPlan = hasYearlySim ? 'yearly' : 'monthly';
 
+  let shippingName = (body.shipping_name ?? '').trim() || null;
+  let shippingMobile = (body.shipping_mobile ?? '').trim() || null;
+  let shippingAddressLine1 = (body.shipping_address_line1 ?? '').trim() || null;
+  let shippingAddressLine2 = (body.shipping_address_line2 ?? '').trim() || null;
+  let shippingSuburb = (body.shipping_suburb ?? '').trim() || null;
+  let shippingState = (body.shipping_state ?? '').trim() || null;
+  let shippingPostcode = (body.shipping_postcode ?? '').trim() || null;
+  let shippingCountry = (body.shipping_country ?? '').trim() || 'Australia';
+
+  if (!shippingName || !shippingAddressLine1 || !shippingMobile) {
+    const { data: profile } = await admin.from('profiles').select('first_name, last_name, mobile, address_line1, address_line2, suburb, state, postcode, country').eq('user_id', user.id).maybeSingle();
+    if (profile) {
+      if (!shippingName && (profile.first_name || profile.last_name)) {
+        shippingName = [profile.first_name, profile.last_name].filter(Boolean).join(' ').trim() || null;
+      }
+      if (!shippingMobile && profile.mobile) shippingMobile = profile.mobile;
+      if (!shippingAddressLine1 && profile.address_line1) shippingAddressLine1 = profile.address_line1;
+      if (!shippingAddressLine2 && profile.address_line2) shippingAddressLine2 = profile.address_line2;
+      if (!shippingSuburb && profile.suburb) shippingSuburb = profile.suburb;
+      if (!shippingState && profile.state) shippingState = profile.state;
+      if (!shippingPostcode && profile.postcode) shippingPostcode = profile.postcode;
+      if (shippingCountry === 'Australia' && profile.country) shippingCountry = profile.country;
+    }
+  }
+
   const { data: order, error: orderErr } = await admin
     .from('orders')
     .insert({
       user_id: user.id,
       status: 'pending',
       sim_plan: simPlan,
-      shipping_name: body.shipping_name ?? null,
-      shipping_mobile: body.shipping_mobile ?? null,
-      shipping_address_line1: body.shipping_address_line1 ?? null,
-      shipping_address_line2: body.shipping_address_line2 ?? null,
-      shipping_suburb: body.shipping_suburb ?? null,
-      shipping_state: body.shipping_state ?? null,
-      shipping_postcode: body.shipping_postcode ?? null,
-      shipping_country: body.shipping_country ?? 'Australia',
+      shipping_name: shippingName,
+      shipping_mobile: shippingMobile,
+      shipping_address_line1: shippingAddressLine1,
+      shipping_address_line2: shippingAddressLine2,
+      shipping_suburb: shippingSuburb,
+      shipping_state: shippingState,
+      shipping_postcode: shippingPostcode,
+      shipping_country: shippingCountry,
       total_cents: body.total_cents ?? null,
       discount_cents: discountCents,
       voucher_id: voucherId,

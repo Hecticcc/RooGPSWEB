@@ -383,6 +383,43 @@ export function parseIStartekLine(rawLine: string): IStartekParsed {
       }
     }
 
+    // PT60-L system-sta: 8-hex-digit string (e.g. in token "505|2|D070|0152CF42"). Bit5=stop, Bit2=GPS, Bit3=ext power.
+    let systemStaHex: string | null = null;
+    for (const t of tokens) {
+      if (/^[0-9A-Fa-f]{8}$/.test(t)) {
+        systemStaHex = t;
+        break;
+      }
+      if (t.includes('|')) {
+        const segment = t.split('|').find((s) => /^[0-9A-Fa-f]{8}$/.test(s));
+        if (segment) {
+          systemStaHex = segment;
+          break;
+        }
+      }
+    }
+    if (systemStaHex) {
+      const systemStaInt = parseInt(systemStaHex, 16);
+      if (!Number.isNaN(systemStaInt)) {
+        const is_stopped = ((systemStaInt >> 5) & 1) === 1;
+        const gps_status_bit = ((systemStaInt >> 2) & 1) === 1;
+        const ext_power_connected = ((systemStaInt >> 3) & 1) === 1;
+        empty.extra.pt60_state = {
+          system_sta: systemStaInt,
+          is_stopped,
+          gps_status_bit,
+          ext_power_connected,
+        };
+      }
+    }
+
+    // gps_lock from fix_flag (A = locked, V = not locked)
+    if (empty.extra.signal != null && typeof (empty.extra.signal as { gps?: { fix_flag?: string } }).gps?.fix_flag === 'string') {
+      empty.extra.gps_lock = (empty.extra.signal as { gps: { fix_flag: string } }).gps.fix_flag === 'A';
+    } else if (empty.gpsValid != null) {
+      empty.extra.gps_lock = empty.gpsValid;
+    }
+
     // Battery (iStartek Protocol v2.2): ext-V|bat-V in LAST comma-separated token.
     // tailToken e.g. "0000|019AE4" => extV_hex=0000, batV_hex=019A (first 4 after pipe), checksum_hex=E4 (last 2). V*100 in hex.
     const tailToken = tokens.length > 0 ? tokens[tokens.length - 1] : '';
@@ -425,6 +462,7 @@ export function parseIStartekLine(rawLine: string): IStartekParsed {
     if (batteryVoltageV != null) {
       empty.batteryVoltageV = batteryVoltageV;
       empty.batteryPercent = Math.max(0, Math.min(100, voltageToPercent(batteryVoltageV)));
+      empty.extra.internal_battery_voltage_v = batteryVoltageV;
       empty.extra.battery = {
         voltage_v: batteryVoltageV,
         percent: empty.batteryPercent,

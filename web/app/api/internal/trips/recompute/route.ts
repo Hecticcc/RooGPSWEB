@@ -171,10 +171,73 @@ export async function POST(request: Request) {
       let tripsCreated = 0;
       const segmentErrors: string[] = [];
 
+      /** Same start within 2 minutes = same trip; we update existing instead of inserting a duplicate. */
+      const START_MATCH_WINDOW_MS = 2 * 60 * 1000;
+
       for (const seg of segments) {
         if (originalLastProcessed && seg.endedAt <= originalLastProcessed) continue;
         const first = seg.points[0];
         const endPoint = getSegmentEndPointForPosition(seg, points);
+        const startedAtMs = new Date(seg.startedAt).getTime();
+
+        const { data: existing } = await supabase
+          .from('trips')
+          .select('id, ended_at, distance_meters')
+          .eq('device_id', did)
+          .gte('started_at', new Date(startedAtMs - START_MATCH_WINDOW_MS).toISOString())
+          .lte('started_at', new Date(startedAtMs + START_MATCH_WINDOW_MS).toISOString())
+          .order('ended_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const existingEndedAt = existing?.ended_at ? new Date(existing.ended_at).getTime() : 0;
+        const segEndedAt = new Date(seg.endedAt).getTime();
+        const isLonger = segEndedAt > existingEndedAt || seg.distanceMeters > (existing?.distance_meters ?? 0);
+
+        if (existing && isLonger) {
+          const { error: updateErr } = await supabase
+            .from('trips')
+            .update({
+              ended_at: seg.endedAt,
+              duration_seconds: seg.durationSeconds,
+              distance_meters: seg.distanceMeters,
+              max_speed_kmh: seg.maxSpeedKmh,
+              end_lat: endPoint.latitude,
+              end_lon: endPoint.longitude,
+              end_location_point_id: endPoint.id,
+            })
+            .eq('id', existing.id);
+          if (updateErr) {
+            segmentErrors.push(updateErr.message);
+          } else {
+            await supabase.from('trip_points').delete().eq('trip_id', existing.id);
+            const tripPoints = seg.points.map((p) => ({
+              trip_id: existing.id,
+              device_id: did,
+              point_id: p.id,
+              occurred_at: p.received_at ?? p.gps_time,
+              lat: p.latitude!,
+              lon: p.longitude!,
+            }));
+            const chunk = 200;
+            for (let i = 0; i < tripPoints.length; i += chunk) {
+              const { error: ptsErr } = await supabase.from('trip_points').insert(tripPoints.slice(i, i + chunk));
+              if (ptsErr) segmentErrors.push(`trip_points: ${ptsErr.message}`);
+            }
+            tripsCreated++;
+          }
+          const segEnd = seg.points[seg.points.length - 1];
+          const endTs = segEnd.received_at ?? segEnd.gps_time;
+          if (endTs > lastProcessedAt) lastProcessedAt = endTs;
+          continue;
+        }
+        if (existing && !isLonger) {
+          const segEnd = seg.points[seg.points.length - 1];
+          const endTs = segEnd.received_at ?? segEnd.gps_time;
+          if (endTs > lastProcessedAt) lastProcessedAt = endTs;
+          continue;
+        }
+
         const { data: trip, error: tripErr } = await supabase
           .from('trips')
           .insert({

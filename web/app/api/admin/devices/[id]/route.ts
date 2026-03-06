@@ -91,3 +91,60 @@ export async function GET(
     payload_limit: limit,
   });
 }
+
+/** PATCH /api/admin/devices/[id] – update assigned SIM (staff+). Body: { sim_iccid: string }. */
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const guard = await requireRole(request, 'staff');
+  if (!guard.ok) return NextResponse.json(guard.body, { status: guard.status });
+  const { id: deviceId } = await params;
+  if (!deviceId) return NextResponse.json({ error: 'Device ID required' }, { status: 400 });
+
+  let body: { sim_iccid?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+  const simIccid = typeof body.sim_iccid === 'string' ? body.sim_iccid.trim() : null;
+  if (!simIccid) return NextResponse.json({ error: 'sim_iccid required' }, { status: 400 });
+
+  const admin = createServiceRoleClient();
+  if (!admin) return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
+
+  const { data: token, error: tokenErr } = await admin
+    .from('activation_tokens')
+    .select('id, order_id')
+    .eq('device_id', deviceId)
+    .limit(1)
+    .maybeSingle();
+  if (tokenErr) return NextResponse.json({ error: tokenErr.message }, { status: 500 });
+  if (!token) {
+    return NextResponse.json(
+      { error: 'No activation token for this device. Assign SIM via order fulfilment first.' },
+      { status: 400 }
+    );
+  }
+
+  const { error: updateErr } = await admin
+    .from('activation_tokens')
+    .update({ sim_iccid: simIccid })
+    .eq('id', token.id);
+  if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+
+  const { data: orderItem } = await admin
+    .from('order_items')
+    .select('id')
+    .eq('activation_token_id', token.id)
+    .maybeSingle();
+  if (orderItem) {
+    await admin
+      .from('order_items')
+      .update({ assigned_sim_iccid: simIccid })
+      .eq('id', orderItem.id);
+  }
+
+  return NextResponse.json({ ok: true, sim_iccid: simIccid });
+}

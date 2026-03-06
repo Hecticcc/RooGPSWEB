@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireRole, createServiceRoleClient } from '@/lib/admin-auth';
 import { listSimbaseSimcards } from '@/lib/simbase';
-
-/** Consider device online if last_seen within this window. Must be > GPS ping interval (e.g. 10 min) so we don't mark offline between pings. */
-const ONLINE_THRESHOLD_MS = 20 * 60 * 1000; // 20 min
+import { computeDeviceState } from '@/lib/device-state';
 
 function normalizeIccid(iccid: string): string {
   return String(iccid ?? '').trim();
@@ -26,7 +24,7 @@ export async function GET(request: Request) {
 
   const { data: devices, error: devErr } = await admin
     .from('devices')
-    .select('id, user_id, name, created_at, last_seen_at')
+    .select('id, user_id, name, created_at, last_seen_at, heartbeat_minutes, moving_interval_seconds')
     .order('created_at', { ascending: false });
   if (devErr) {
     return NextResponse.json({ error: devErr.message }, { status: 500 });
@@ -40,11 +38,8 @@ export async function GET(request: Request) {
   const { data: authData } = await admin.auth.admin.listUsers({ perPage: 500 });
   const emailByUser = new Map((authData?.users ?? []).map((u) => [u.id, u.email ?? null]));
 
-  const now = Date.now();
-  const onlineCutoff = new Date(now - ONLINE_THRESHOLD_MS).toISOString();
-
   const deviceIds = deviceList.map((d) => d.id);
-  const latestLocations: Record<string, { battery_percent?: number }> = {};
+  const latestLocations: Record<string, { battery_percent?: number; extra?: unknown }> = {};
   if (deviceIds.length > 0) {
     const { data: locs } = await admin
       .from('locations')
@@ -58,8 +53,11 @@ export async function GET(request: Request) {
       }
     }
     Array.from(byDevice.entries()).forEach(([did, v]) => {
-      const extra = (v.extra as { battery?: { percent?: number } }) ?? null;
-      latestLocations[did] = { battery_percent: extra?.battery?.percent };
+      const extra = (v.extra as { battery?: { percent?: number }; pt60_state?: { is_stopped?: boolean } }) ?? null;
+      latestLocations[did] = {
+        battery_percent: extra?.battery?.percent,
+        extra: v.extra,
+      };
     });
   }
 
@@ -84,9 +82,20 @@ export async function GET(request: Request) {
     // Simbase not configured or error
   }
 
+  type DeviceRow = (typeof deviceList)[number] & { heartbeat_minutes?: number | null; moving_interval_seconds?: number | null };
   let list = deviceList.map((d) => {
-    const isOnline = d.last_seen_at && d.last_seen_at >= onlineCutoff;
     const battery = latestLocations[d.id]?.battery_percent;
+    const locExtra = latestLocations[d.id]?.extra as { pt60_state?: { is_stopped?: boolean } } | undefined;
+    const lastIsStopped = locExtra?.pt60_state?.is_stopped ?? null;
+    const deviceRow = d as DeviceRow;
+    const stateResult = computeDeviceState({
+      last_seen_at: d.last_seen_at,
+      moving_interval_seconds: deviceRow.moving_interval_seconds ?? null,
+      heartbeat_minutes: deviceRow.heartbeat_minutes ?? null,
+      last_known_is_stopped: lastIsStopped,
+    });
+    const status: 'online' | 'sleep' | 'offline' =
+      stateResult.device_state === 'ONLINE' ? 'online' : stateResult.device_state === 'SLEEPING' ? 'sleep' : 'offline';
     const sim_iccid = simIccidByDevice[d.id] ?? null;
     const rawSimState = sim_iccid ? simStateByIccid.get(normalizeIccid(sim_iccid)) ?? simStateByIccid.get(sim_iccid.replace(/^0+/, '')) : undefined;
     const sim_status = sim_iccid ? (rawSimState ?? 'unknown') : null;
@@ -96,7 +105,8 @@ export async function GET(request: Request) {
       user_email: d.user_id ? emailByUser.get(d.user_id) ?? null : null,
       user_role: d.user_id ? roleByUser.get(d.user_id) ?? null : null,
       name: d.name,
-      status: isOnline ? 'online' : 'offline',
+      status,
+      device_state: stateResult.device_state,
       battery_percent: battery ?? null,
       last_seen_at: d.last_seen_at,
       created_at: d.created_at,

@@ -4,6 +4,9 @@ import { getStripeServer, STRIPE_WEBHOOK_SECRET, STRIPE_PRODUCT_SIM } from '@/li
 import { createServiceRoleClient } from '@/lib/admin-auth';
 import { setSimbaseSimState } from '@/lib/simbase';
 import { trialEndUnixFromMonths } from '@/lib/trial';
+import { scheduleEmailEvent } from '@/lib/email/emailDispatcher';
+import { EMAIL_EVENTS } from '@/lib/email/emailEvents';
+import { getEmailForUserId } from '@/lib/email/getRecipients';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,7 +69,7 @@ export async function POST(request: Request) {
 
       const { data: order, error: fetchErr } = await admin
         .from('orders')
-        .select('id, status, user_id')
+        .select('id, status, user_id, order_number, created_at')
         .eq('id', orderId)
         .single();
       if (fetchErr || !order) {
@@ -89,6 +92,16 @@ export async function POST(request: Request) {
         sim_plan: simPlan,
         amount_total: session.amount_total,
       });
+
+      const orderEmail = await getEmailForUserId((order as { user_id: string }).user_id);
+      if (orderEmail) {
+        scheduleEmailEvent(EMAIL_EVENTS.ORDER_CONFIRMATION, {
+          orderId: String(order.id),
+          orderNumber: (order as { order_number?: string }).order_number ?? String(order.id),
+          recipientEmail: orderEmail,
+          orderDate: (order as { created_at?: string }).created_at ?? new Date().toISOString(),
+        });
+      }
 
       // Create subscription for SIM only (recurring); price from product_pricing (DB) so sales/price changes apply without env changes
       const sku = simPlan === 'yearly' ? 'sim_yearly' : 'sim_monthly';
@@ -194,6 +207,26 @@ export async function POST(request: Request) {
             trial_end: trialEndUnix ?? null,
             trial_months_applied: trialMonthsApplied,
           });
+
+          const billingRecipient = await getEmailForUserId((order as { user_id: string }).user_id);
+          if (billingRecipient) {
+            const planName = simPlan === 'yearly' ? 'SIM Yearly' : 'SIM Monthly';
+            if (trialMonthsApplied != null && trialEndsAt) {
+              scheduleEmailEvent(EMAIL_EVENTS.BILLING_TRIAL_STARTED, {
+                recipientEmail: billingRecipient,
+                planName,
+                trialEndsAt,
+                billingPeriod: simPlan === 'yearly' ? 'year' : 'month',
+              });
+            } else {
+              scheduleEmailEvent(EMAIL_EVENTS.BILLING_SUBSCRIPTION_STARTED, {
+                recipientEmail: billingRecipient,
+                planName,
+                nextBillingDate: periodEnd,
+                billingPeriod: simPlan === 'yearly' ? 'year' : 'month',
+              });
+            }
+          }
         } catch (subErr) {
           const errMsg = subErr instanceof Error ? subErr.message : String(subErr);
           logEvent(admin, orderId, 'subscription.create_failed', event.id, null, { error: errMsg, sim_plan: simPlan });
@@ -267,12 +300,20 @@ export async function POST(request: Request) {
         .eq('stripe_subscription_id', subscription.id)
         .maybeSingle();
       const uid = orderRow ? (orderRow as { user_id?: string }).user_id : null;
+      const trialEndsAt = subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : undefined;
+      const recipient = uid ? await getEmailForUserId(uid) : null;
+      if (recipient) {
+        scheduleEmailEvent(EMAIL_EVENTS.BILLING_TRIAL_ENDING, {
+          recipientEmail: recipient,
+          planName: 'SIM subscription',
+          trialEndsAt: trialEndsAt ?? '',
+        });
+      }
       logEvent(admin, orderId, event.type, event.id, subscription.id, {
         trial_end: subscription.trial_end,
         user_id: uid,
-        email_sent: false,
+        email_sent: !!recipient,
       });
-      // TODO: send trial ending email and in-app notification (integrate with email provider and notifications table)
       return NextResponse.json({ received: true });
     }
 
@@ -282,7 +323,7 @@ export async function POST(request: Request) {
       if (!subscriptionId) return NextResponse.json({ received: true });
       const { data: orderRow } = await admin
         .from('orders')
-        .select('id')
+        .select('id, user_id')
         .eq('stripe_subscription_id', subscriptionId)
         .maybeSingle();
       const orderId = orderRow?.id ?? null;
@@ -300,6 +341,16 @@ export async function POST(request: Request) {
         const iccids = Array.from(new Set((tokens ?? []).map((t) => t.sim_iccid).filter(Boolean))) as string[];
         for (const iccid of iccids) {
           await setSimbaseSimState(iccid, 'disabled');
+        }
+        const recipient = orderRow && (orderRow as { user_id?: string }).user_id
+          ? await getEmailForUserId((orderRow as { user_id: string }).user_id)
+          : null;
+        if (recipient) {
+          scheduleEmailEvent(EMAIL_EVENTS.BILLING_PAYMENT_FAILED, {
+            recipientEmail: recipient,
+            planName: 'SIM subscription',
+            idempotencyKey: `payment_failed:${orderId}:${invoice.id}`,
+          });
         }
         logEvent(admin, orderId, event.type, event.id, invoice.id, {
           subscription_id: subscriptionId,
@@ -330,7 +381,7 @@ export async function POST(request: Request) {
 
       const { data: orderRow } = await admin
         .from('orders')
-        .select('id, status')
+        .select('id, status, user_id')
         .eq('stripe_subscription_id', subscriptionId)
         .maybeSingle();
       const orderId = orderRow?.id ?? null;
@@ -355,6 +406,20 @@ export async function POST(request: Request) {
         for (const iccid of iccids) {
           await setSimbaseSimState(iccid, 'enabled');
         }
+      }
+
+      const recipient = orderRow && (orderRow as { user_id?: string }).user_id
+        ? await getEmailForUserId((orderRow as { user_id: string }).user_id)
+        : null;
+      if (recipient) {
+        scheduleEmailEvent(EMAIL_EVENTS.BILLING_PAYMENT_SUCCESS, {
+          recipientEmail: recipient,
+          planName: 'SIM subscription',
+          amountCents: invoice.amount_paid ?? 0,
+          currency: (invoice.currency ?? 'aud').toUpperCase(),
+          nextBillingDate: periodEnd ?? undefined,
+          idempotencyKey: `payment_success:${orderId}:${invoice.id}`,
+        });
       }
 
       logEvent(admin, orderId, event.type, event.id, invoice.id, {

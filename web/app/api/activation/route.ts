@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/admin-auth';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { setSimbaseSimState } from '@/lib/simbase';
+import { scheduleEmailEvent } from '@/lib/email/emailDispatcher';
+import { EMAIL_EVENTS } from '@/lib/email/emailEvents';
 
 /** POST /api/activation – consume activation code, link device to user, mark token used */
 export async function POST(request: Request) {
@@ -76,6 +78,10 @@ export async function POST(request: Request) {
     .eq('id', token.id);
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
 
+  if (token.sim_iccid?.trim()) {
+    await admin.from('devices').update({ sim_iccid: token.sim_iccid.trim() }).eq('id', deviceId);
+  }
+
   await admin
     .from('orders')
     .update({ status: 'activated', updated_at: new Date().toISOString() })
@@ -85,6 +91,14 @@ export async function POST(request: Request) {
   if (token.sim_iccid && token.sim_iccid.trim()) {
     const result = await setSimbaseSimState(token.sim_iccid.trim(), 'enabled');
     sim_enabled = result.ok;
+  }
+
+  if (user.email) {
+    scheduleEmailEvent(EMAIL_EVENTS.DEVICE_TRACKER_ACTIVATED, {
+      recipientEmail: user.email,
+      deviceId,
+      deviceName: deviceModelName ?? `Tracker ${deviceId}`,
+    });
   }
 
   return NextResponse.json({

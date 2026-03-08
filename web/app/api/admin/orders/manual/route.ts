@@ -65,11 +65,21 @@ export async function POST(request: Request) {
   const hasYearlySim = items.some((i) => (i.product_sku ?? '').toLowerCase().includes('sim_yearly'));
   const simPlan = (body.sim_plan === 'yearly' || body.sim_plan === 'monthly') ? body.sim_plan : (hasYearlySim ? 'yearly' : 'monthly');
 
-  const trackerQuantity = items.reduce((sum, i) => sum + (isTrackerSku(i.product_sku) ? i.quantity : 0), 0);
-  if (trackerQuantity > 0) {
-    const { count } = await admin.from('tracker_stock').select('*', { count: 'exact', head: true }).eq('status', 'in_stock');
-    if ((count ?? 0) < trackerQuantity) {
-      return NextResponse.json({ error: `Not enough trackers in stock (need ${trackerQuantity}, have ${count ?? 0})` }, { status: 409 });
+  const quantityBySku: Record<string, number> = {};
+  for (const i of items) {
+    if (!isTrackerSku(i.product_sku)) continue;
+    const sku = (i.product_sku ?? '').trim().toLowerCase();
+    const key = sku === 'gps_tracker_wired' ? 'gps_tracker_wired' : 'gps_tracker';
+    quantityBySku[key] = (quantityBySku[key] ?? 0) + (i.quantity ?? 1);
+  }
+  for (const [sku, needed] of Object.entries(quantityBySku)) {
+    const { count } = await admin
+      .from('tracker_stock')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'in_stock')
+      .eq('product_sku', sku);
+    if ((count ?? 0) < needed) {
+      return NextResponse.json({ error: `Not enough ${sku === 'gps_tracker_wired' ? 'Wired' : 'Wireless'} trackers in stock (need ${needed}, have ${count ?? 0})` }, { status: 409 });
     }
   }
 

@@ -12,6 +12,7 @@ type PricingRow = {
   sale_price_cents: number | null;
   period: string;
   device_model_name?: string | null;
+  show_in_checkout?: boolean;
   updated_at?: string;
 };
 
@@ -85,7 +86,7 @@ export default function AdminPricingPage() {
     load();
   }, [getAuthHeaders]);
 
-  function updateRow(sku: string, field: keyof PricingRow, value: number | string | null) {
+  function updateRow(sku: string, field: keyof PricingRow, value: number | string | boolean | null) {
     setRows((prev) =>
       prev.map((r) => (r.sku === sku ? { ...r, [field]: value } : r))
     );
@@ -127,6 +128,7 @@ export default function AdminPricingPage() {
       sale_price_cents: r.sale_price_cents,
       period: r.period,
       device_model_name: r.device_model_name ?? null,
+      show_in_checkout: r.show_in_checkout !== false,
     }));
     try {
       const res = await fetch('/api/admin/pricing', {
@@ -254,6 +256,17 @@ export default function AdminPricingPage() {
                     <span className="admin-pricing-card__preview-period"> / {r.period}</span>
                   )}
                 </span>
+              </div>
+              <div className="admin-pricing-card__cell admin-pricing-card__cell--checkout">
+                <label className="admin-pricing-card__label-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={r.show_in_checkout !== false}
+                    onChange={(e) => updateRow(r.sku, 'show_in_checkout', e.target.checked)}
+                    aria-label="Show in checkout"
+                  />
+                  Show in checkout
+                </label>
               </div>
             </div>
           ))}

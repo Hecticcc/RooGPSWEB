@@ -60,18 +60,27 @@ export async function POST(request: Request) {
   if (!admin) return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
 
   const isTrackerSku = (sku: string) => (sku ?? '').toLowerCase() === 'gps_tracker' || (sku ?? '').toLowerCase().includes('gps_tracker');
-  const trackerQuantity = items.reduce((sum, i) => sum + (isTrackerSku(i.product_sku) ? i.quantity : 0), 0);
-  if (trackerQuantity > 0) {
-    const { count: usableCount } = await admin
-      .from('tracker_stock')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'in_stock');
-    const usable = (usableCount ?? 0) as number;
-    if (usable < trackerQuantity) {
-      return NextResponse.json(
-        { error: usable === 0 ? 'GPS trackers are currently out of stock. Please try again later.' : `Only ${usable} GPS tracker(s) available. Please reduce quantity or try again later.` },
-        { status: 409 }
-      );
+  const trackerItems = items.filter((i) => isTrackerSku(i.product_sku));
+  if (trackerItems.length > 0) {
+    const quantityBySku: Record<string, number> = {};
+    for (const i of trackerItems) {
+      const sku = (i.product_sku ?? '').trim().toLowerCase();
+      if (sku !== 'gps_tracker' && sku !== 'gps_tracker_wired') continue;
+      quantityBySku[sku] = (quantityBySku[sku] ?? 0) + (i.quantity ?? 1);
+    }
+    for (const [sku, needed] of Object.entries(quantityBySku)) {
+      const { count } = await admin
+        .from('tracker_stock')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'in_stock')
+        .eq('product_sku', sku);
+      const usable = (count ?? 0) as number;
+      if (usable < needed) {
+        return NextResponse.json(
+          { error: usable === 0 ? 'That GPS tracker type is currently out of stock. Please try again later.' : `Only ${usable} available for that tracker type. Please reduce quantity or try again later.` },
+          { status: 409 }
+        );
+      }
     }
   }
 

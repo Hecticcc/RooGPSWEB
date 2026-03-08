@@ -74,7 +74,7 @@ export async function GET(request: Request) {
   }
   for (const d of deviceList) {
     const deviceIccid = (d as { sim_iccid?: string | null }).sim_iccid?.trim();
-    if (deviceIccid && !simIccidByDevice[d.id]) simIccidByDevice[d.id] = deviceIccid;
+    if (deviceIccid) simIccidByDevice[d.id] = deviceIccid;
   }
   const suspendedDeviceIds = new Set<string>();
   const deviceIdToOrderId: Record<string, string> = {};

@@ -67,14 +67,30 @@ export async function GET(
     const { data: trackers } = await admin.from('tracker_stock').select('id, imei').in('id', trackerIds);
     (trackers ?? []).forEach((t) => { trackerImeiById[t.id] = t.imei ?? ''; });
   }
-  const itemsWithImei = (items ?? []).map((i) => ({
-    ...i,
-    assigned_tracker_imei: i.assigned_tracker_stock_id ? trackerImeiById[i.assigned_tracker_stock_id] ?? null : null,
-  }));
+
+  const skus = Array.from(new Set((items ?? []).map((i) => (i.product_sku ?? '').trim()).filter(Boolean)));
+  const pricingBySku: Record<string, { label: string; device_model_name: string | null }> = {};
+  if (skus.length > 0) {
+    const { data: pricingRows } = await admin.from('product_pricing').select('sku, label, device_model_name').in('sku', skus);
+    (pricingRows ?? []).forEach((r: { sku: string; label: string; device_model_name?: string | null }) => {
+      pricingBySku[r.sku] = { label: r.label, device_model_name: r.device_model_name ?? null };
+    });
+  }
+
+  const itemsWithImei = (items ?? []).map((i) => {
+    const sku = (i.product_sku ?? '').trim();
+    const pricing = pricingBySku[sku];
+    return {
+      ...i,
+      assigned_tracker_imei: i.assigned_tracker_stock_id ? trackerImeiById[i.assigned_tracker_stock_id] ?? null : null,
+      product_label: pricing?.label ?? null,
+      device_model_name: pricing?.device_model_name ?? null,
+    };
+  });
 
   const { data: trackersAvailable } = await admin
     .from('tracker_stock')
-    .select('id, imei, status')
+    .select('id, imei, status, product_sku')
     .eq('status', 'in_stock');
 
   let activation_code: string | null = null;
@@ -134,6 +150,20 @@ export async function PATCH(
     const s = (sku ?? '').toLowerCase();
     return ['sim_monthly', 'sim_yearly'].includes(s) || s.includes('sim_monthly') || s.includes('sim_yearly');
   };
+
+  if (body.action === 'cancel') {
+    const { data: orderRow } = await admin.from('orders').select('status').eq('id', orderId).single();
+    if (!orderRow) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    if (orderRow.status === 'cancelled') {
+      return NextResponse.json({ error: 'Order is already cancelled' }, { status: 400 });
+    }
+    const { error } = await admin
+      .from('orders')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('id', orderId);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, status: 'cancelled' });
+  }
 
   if (body.action === 'ship') {
     const { data: orderRow } = await admin.from('orders').select('status').eq('id', orderId).single();
@@ -281,8 +311,12 @@ export async function PATCH(
       return NextResponse.json({ error: 'tracker_stock_id required for tracker product' }, { status: 400 });
     }
 
-    const { data: tracker } = await admin.from('tracker_stock').select('id, imei, status').eq('id', trackerStockId).eq('status', 'in_stock').single();
+    const { data: tracker } = await admin.from('tracker_stock').select('id, imei, status, product_sku').eq('id', trackerStockId).eq('status', 'in_stock').single();
     if (!tracker) return NextResponse.json({ error: 'Tracker not found or not in stock' }, { status: 400 });
+    const orderItemSku = (orderItem.product_sku ?? '').trim().toLowerCase();
+    if (orderItemSku && (tracker as { product_sku?: string }).product_sku !== orderItemSku) {
+      return NextResponse.json({ error: 'Tracker type does not match order item (use Wireless stock for Wireless orders, Wired for Wired)' }, { status: 400 });
+    }
 
     const { error: itemErr } = await admin
       .from('order_items')
@@ -335,13 +369,17 @@ export async function PATCH(
     if (!oldTrackerStockId) return NextResponse.json({ error: 'Item has no tracker assigned to reassign' }, { status: 400 });
     const { data: newTracker } = await admin
       .from('tracker_stock')
-      .select('id, imei, status')
+      .select('id, imei, status, product_sku')
       .eq('id', newTrackerStockId)
       .single();
     if (!newTracker) return NextResponse.json({ error: 'New tracker not found' }, { status: 404 });
     if (newTracker.id === oldTrackerStockId) return NextResponse.json({ error: 'Same tracker already assigned' }, { status: 400 });
     const inStock = newTracker.status === 'in_stock';
     if (!inStock) return NextResponse.json({ error: 'New tracker is not available (must be in_stock)' }, { status: 400 });
+    const orderItemSku = (orderItem.product_sku ?? '').trim().toLowerCase();
+    if (orderItemSku && (newTracker as { product_sku?: string }).product_sku !== orderItemSku) {
+      return NextResponse.json({ error: 'New tracker type does not match order item (use Wireless for Wireless, Wired for Wired)' }, { status: 400 });
+    }
 
     const { data: token } = await admin
       .from('activation_tokens')

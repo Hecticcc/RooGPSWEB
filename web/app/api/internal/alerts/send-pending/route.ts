@@ -119,9 +119,10 @@ export async function POST(request: Request) {
       const name = p.name ? ` (${String(p.name).slice(0, 20)})` : '';
       message = `RooGPS [${tracker}]: ${zoneType} zone${name} – tracker alert. Check your dashboard.`;
     } else if (ev.alert_type === 'battery') {
-      const p = (ev.payload as { threshold_percent?: number }) ?? {};
+      const p = (ev.payload as { threshold_percent?: number; battery_type?: string }) ?? {};
       const pct = p.threshold_percent != null ? p.threshold_percent : 20;
-      message = `RooGPS [${tracker}]: Tracker battery is below ${pct}%. Check your dashboard.`;
+      const batteryLabel = p.battery_type === 'backup' ? 'Backup battery' : 'Tracker battery';
+      message = `RooGPS [${tracker}]: ${batteryLabel} is below ${pct}%. Check your dashboard.`;
     } else {
       message = `RooGPS [${tracker}]: Alert (${ev.alert_type}). Check your dashboard.`;
     }

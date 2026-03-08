@@ -126,7 +126,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          minHeight: '100vh',
           minHeight: '100dvh',
           width: '100%',
         }}

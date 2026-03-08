@@ -31,6 +31,7 @@ type BatteryAlert = {
   notify_email: boolean;
   notify_sms?: boolean;
   enabled: boolean;
+  battery_type?: 'main' | 'backup';
   created_at: string;
 };
 type Geofence = {
@@ -249,7 +250,9 @@ function BatteryTab({
   const [notifyEmail, setNotifyEmail] = useState(true);
   const [notifySms, setNotifySms] = useState(false);
   const [enabled, setEnabled] = useState(true);
+  const [batteryType, setBatteryType] = useState<'main' | 'backup'>('main');
   const [batteryPage, setBatteryPage] = useState(1);
+  const [editBatteryType, setEditBatteryType] = useState<'main' | 'backup'>('main');
 
   useEffect(() => {
     if (devices.length && !deviceId) setDeviceId(devices[0].id);
@@ -282,6 +285,7 @@ function BatteryTab({
           notify_email: notifyEmail,
           notify_sms: notifySms,
           enabled,
+          battery_type: batteryType,
         }),
       });
       if (!res.ok) {
@@ -302,6 +306,7 @@ function BatteryTab({
     setEditThreshold(a.threshold_percent);
     setEditNotifyEmail(a.notify_email);
     setEditNotifySms(a.notify_sms === true);
+    setEditBatteryType(a.battery_type === 'backup' ? 'backup' : 'main');
   }
 
   function cancelEdit() {
@@ -322,6 +327,7 @@ function BatteryTab({
           threshold_percent: thresholdNum,
           notify_email: editNotifyEmail,
           notify_sms: editNotifySms,
+          battery_type: editBatteryType,
         }),
       });
       if (!res.ok) {
@@ -389,6 +395,13 @@ function BatteryTab({
                 {editingId === a.id ? (
                   <div className="dashboard-alerts-form" style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 'none' }}>
                     <div className="dashboard-alerts-field">
+                      <label>Battery type</label>
+                      <select value={editBatteryType} onChange={(e) => setEditBatteryType(e.target.value === 'backup' ? 'backup' : 'main')}>
+                        <option value="main">Main battery</option>
+                        <option value="backup">Backup battery (wired trackers)</option>
+                      </select>
+                    </div>
+                    <div className="dashboard-alerts-field">
                       <label>Alert when battery below (%)</label>
                       <input
                         type="number"
@@ -431,7 +444,7 @@ function BatteryTab({
                   <>
                     <div>
                       <div className="dashboard-alerts-geofence-name">
-                        {deviceName(a.device_id)} — below {a.threshold_percent}%
+                        {deviceName(a.device_id)} — {a.battery_type === 'backup' ? 'Backup battery' : 'Main battery'} below {a.threshold_percent}%
                       </div>
                       <div className="dashboard-alerts-geofence-meta">
                         Email {a.notify_email ? 'on' : 'off'} · SMS {a.notify_sms ? 'on' : 'off'} · {a.enabled ? 'Enabled' : 'Paused'}
@@ -473,6 +486,13 @@ function BatteryTab({
             {devices.map((d) => (
               <option key={d.id} value={d.id}>{d.name || d.id}</option>
             ))}
+          </select>
+        </div>
+        <div className="dashboard-alerts-field">
+          <label>Battery type</label>
+          <select value={batteryType} onChange={(e) => setBatteryType(e.target.value === 'backup' ? 'backup' : 'main')}>
+            <option value="main">Main battery</option>
+            <option value="backup">Backup battery (wired trackers)</option>
           </select>
         </div>
         <div className="dashboard-alerts-field">

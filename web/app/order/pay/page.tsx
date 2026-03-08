@@ -138,7 +138,7 @@ function PayPageContent() {
           <section className="pay-page-main">
             <div className="checkout-card pay-card">
               <h2 className="checkout-card-heading">Payment</h2>
-              <p className="checkout-card-desc">You will be redirected to Stripe Checkout to pay securely. Your card is charged once for the full order; SIM renewal is set up separately at the monthly or yearly rate.</p>
+              <p className="checkout-card-desc">You will be redirected to Stripe Checkout to pay securely. Your card is charged once for the amount below. Your SIM subscription is set up separately—if you have a free trial, you&apos;ll be charged for SIM after the trial unless you cancel.</p>
               {payError && <p className="checkout-voucher-error">{payError}</p>}
               <button
                 type="button"

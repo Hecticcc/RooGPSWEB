@@ -235,9 +235,11 @@ type OrderItem = {
   assigned_tracker_imei?: string | null;
   assigned_sim_iccid: string | null;
   activation_token_id: string | null;
+  product_label?: string | null;
+  device_model_name?: string | null;
 };
 
-type TrackerOption = { id: string; imei: string; status: string };
+type TrackerOption = { id: string; imei: string; status: string; product_sku?: string };
 type SimOption = { iccid?: string; id?: string; state?: string };
 
 function isTrackerProduct(sku: string): boolean {
@@ -446,6 +448,24 @@ export default function AdminOrderDetailPage() {
       .finally(() => setActing(false));
   }
 
+  function handleCancelOrder() {
+    setActionError(null);
+    setActing(true);
+    fetch(`/api/admin/orders/${id}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancel' }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        return refetchOrder();
+      })
+      .catch((e) => setActionError(e.message))
+      .finally(() => setActing(false));
+  }
+
   if (loading) return <div className="app-loading"><AppLoadingIcon /></div>;
   if (error) return <p className="admin-time" style={{ color: 'var(--error)' }}>{error}</p>;
   if (!order) return null;
@@ -492,6 +512,13 @@ export default function AdminOrderDetailPage() {
             <tr><td>Total</td><td>{order.total_cents != null ? `$${(order.total_cents / 100).toFixed(2)}` : '—'}</td></tr>
           </tbody>
         </table>
+        {order.status !== 'cancelled' && canEditAssignments && (
+          <div style={{ marginTop: '1rem' }}>
+            <button type="button" className="admin-btn" onClick={handleCancelOrder} disabled={acting}>
+              Cancel order
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="admin-card">
@@ -587,9 +614,12 @@ export default function AdminOrderDetailPage() {
                   ? (item.assigned_tracker_imei ?? 'Assigned')
                   : showTrackerCell ? '—' : '—';
                 const simDisplay = showSimCell && item.assigned_sim_iccid ? item.assigned_sim_iccid : showSimCell ? '—' : '—';
+                const productDisplay = item.device_model_name
+                  ? `${item.product_label ?? item.product_sku} (${item.device_model_name})`
+                  : (item.product_label ?? item.product_sku);
                 return (
                   <tr key={item.id}>
-                    <td>{item.product_sku}</td>
+                    <td title={item.product_sku}>{productDisplay}</td>
                     <td>{item.quantity}</td>
                     <td className="admin-mono" title={showTrackerCell && item.assigned_tracker_imei ? 'GPS Tracker IMEI' : undefined}>
                       {trackerDisplay}
@@ -602,7 +632,9 @@ export default function AdminOrderDetailPage() {
                         <form onSubmit={(e) => handleFulfil(e, item.id, false)} className="admin-order-items-action-form">
                           <SearchableSelect
                             name="tracker"
-                            options={trackersAvailable.map((t) => ({ value: t.id, label: t.imei }))}
+                            options={trackersAvailable
+                              .filter((t) => (t.product_sku ?? 'gps_tracker') === (item.product_sku ?? '').trim().toLowerCase())
+                              .map((t) => ({ value: t.id, label: t.imei }))}
                             placeholder="Search tracker (IMEI)…"
                             required
                             minWidth={200}
@@ -631,7 +663,9 @@ export default function AdminOrderDetailPage() {
                           <form onSubmit={(e) => handleReassignTracker(e, item.id)} className="admin-order-items-action-form">
                             <SearchableSelect
                               name="tracker"
-                              options={trackersAvailable.map((t) => ({ value: t.id, label: t.imei }))}
+                              options={trackersAvailable
+                                .filter((t) => (t.product_sku ?? 'gps_tracker') === (item.product_sku ?? '').trim().toLowerCase())
+                                .map((t) => ({ value: t.id, label: t.imei }))}
                               placeholder="Pick replacement tracker (IMEI)…"
                               required
                               minWidth={200}

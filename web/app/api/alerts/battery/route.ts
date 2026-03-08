@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   }
   const { data, error } = await supabase
     .from('battery_alerts')
-    .select('id, device_id, threshold_percent, notify_email, notify_sms, enabled, created_at')
+    .select('id, device_id, threshold_percent, notify_email, notify_sms, enabled, battery_type, created_at')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   if (error) {
@@ -36,6 +36,7 @@ export async function POST(request: Request) {
     notify_email?: boolean;
     notify_sms?: boolean;
     enabled?: boolean;
+    battery_type?: 'main' | 'backup';
   };
   try {
     body = await request.json();
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
   const threshold = typeof body.threshold_percent === 'number'
     ? Math.max(0, Math.min(100, body.threshold_percent))
     : 20;
+  const batteryType = body.battery_type === 'backup' ? 'backup' : 'main';
   const { data, error } = await supabase
     .from('battery_alerts')
     .insert({
@@ -57,9 +59,10 @@ export async function POST(request: Request) {
       notify_email: body.notify_email !== false,
       notify_sms: body.notify_sms === true,
       enabled: body.enabled !== false,
+      battery_type: batteryType,
       updated_at: new Date().toISOString(),
     })
-    .select('id, device_id, threshold_percent, notify_email, notify_sms, enabled, created_at')
+    .select('id, device_id, threshold_percent, notify_email, notify_sms, enabled, battery_type, created_at')
     .single();
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

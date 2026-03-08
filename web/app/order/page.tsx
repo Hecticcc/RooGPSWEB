@@ -24,7 +24,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 
-type PricingMap = Record<string, { label: string; price_cents: number; sale_price_cents: number | null; period: string; device_model_name?: string | null }>;
+type PricingMap = Record<string, { label: string; price_cents: number; sale_price_cents: number | null; period: string; device_model_name?: string | null; show_in_checkout?: boolean }>;
 type SimPlan = 'monthly' | 'yearly';
 
 function formatPrice(cents: number, period?: 'one-time' | 'month' | 'year') {
@@ -50,19 +50,21 @@ export default function OrderPage() {
   const [voucherApplying, setVoucherApplying] = useState(false);
   const [voucherError, setVoucherError] = useState<string | null>(null);
   const [appliedVoucher, setAppliedVoucher] = useState<{ voucher_id: string; discount_cents: number; message: string } | null>(null);
-  const [usableTrackers, setUsableTrackers] = useState<number | null>(null);
+  const [stockBySku, setStockBySku] = useState<Record<string, number> | null>(null);
   const [trialOffer, setTrialOffer] = useState<{ trial_enabled: boolean; trial_months: number | null } | null>(null);
   const [selectedTrackerSku, setSelectedTrackerSku] = useState<string>('gps_tracker');
 
-  const LOW_STOCK_THRESHOLD = 3;
-  const stockStatus = usableTrackers === null ? null : usableTrackers === 0 ? 'out' : usableTrackers <= LOW_STOCK_THRESHOLD ? 'low' : 'in';
-  const outOfStock = stockStatus === 'out';
-
   const trackerOptions = pricing
-    ? Object.entries(pricing).filter(([, p]) => p.period === 'one-time').map(([sku, p]) => ({ sku, ...p }))
+    ? Object.entries(pricing)
+        .filter(([, p]) => p.period === 'one-time' && (p.show_in_checkout !== false))
+        .map(([sku, p]) => ({ sku, ...p }))
     : [];
   const defaultTrackerSku = trackerOptions.length > 0 ? trackerOptions[0].sku : 'gps_tracker';
   const effectiveTrackerSku = selectedTrackerSku && pricing?.[selectedTrackerSku] ? selectedTrackerSku : defaultTrackerSku;
+  const usableTrackers = stockBySku && effectiveTrackerSku ? (stockBySku[effectiveTrackerSku] ?? 0) : null;
+  const LOW_STOCK_THRESHOLD = 3;
+  const stockStatus = usableTrackers === null ? null : usableTrackers === 0 ? 'out' : usableTrackers <= LOW_STOCK_THRESHOLD ? 'low' : 'in';
+  const outOfStock = stockStatus === 'out';
 
   useEffect(() => {
     if (!pricing || pricing[selectedTrackerSku]) return;
@@ -88,8 +90,8 @@ export default function OrderPage() {
   useEffect(() => {
     fetch('/api/stock', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => setUsableTrackers(typeof data?.usable_trackers === 'number' ? data.usable_trackers : null))
-      .catch(() => setUsableTrackers(null));
+      .then((data) => setStockBySku(data?.by_sku && typeof data.by_sku === 'object' ? data.by_sku : null))
+      .catch(() => setStockBySku(null));
   }, []);
 
   useEffect(() => {
@@ -114,7 +116,8 @@ export default function OrderPage() {
   const showTrial = trialOffer?.trial_enabled && (trialOffer?.trial_months ?? 0) > 0;
   const trialMonths = trialOffer?.trial_months ?? 0;
 
-  const subtotalCents = gpsCents + simCents;
+  // When trial is active, user is not billed for SIM until after the trial – only hardware is charged upfront
+  const subtotalCents = showTrial ? gpsCents : gpsCents + simCents;
   const discountCents = appliedVoucher?.discount_cents ?? 0;
   const totalCents = Math.max(0, subtotalCents - discountCents);
 
@@ -126,7 +129,7 @@ export default function OrderPage() {
     try {
       const items = [
         { product_sku: effectiveTrackerSku, quantity: 1, unit_price_cents: gpsCents },
-        { product_sku: simPlan === 'monthly' ? 'sim_monthly' : 'sim_yearly', quantity: 1, unit_price_cents: simCents },
+        { product_sku: simPlan === 'monthly' ? 'sim_monthly' : 'sim_yearly', quantity: 1, unit_price_cents: showTrial ? 0 : simCents },
       ];
       const res = await fetch('/api/vouchers/validate', {
         method: 'POST',
@@ -417,7 +420,11 @@ export default function OrderPage() {
               </li>
               <li className="checkout-summary-item">
                 <span>{simLabel}</span>
-                <span>{simPlan === 'monthly' ? formatPrice(simCents, 'month') : formatPrice(simCents, 'year')}</span>
+                <span>
+                  {showTrial
+                    ? (trialMonths === 1 ? 'Free for 1 month' : `Free for ${trialMonths} months`)
+                    : (simPlan === 'monthly' ? formatPrice(simCents, 'month') : formatPrice(simCents, 'year'))}
+                </span>
               </li>
             </ul>
             <div className="checkout-summary-divider" />
@@ -431,7 +438,11 @@ export default function OrderPage() {
               <span>Total</span>
               <span>{formatPrice(totalCents)}</span>
             </div>
-            <p className="checkout-summary-secure">Pay with Stripe at the next step. Your card is charged once for the full amount; SIM renews at the monthly or yearly rate.</p>
+            <p className="checkout-summary-secure">
+              {showTrial
+                ? "Pay with Stripe at the next step. Your card is charged once for the hardware only; your SIM subscription includes a free trial and you'll be charged after the trial unless you cancel."
+                : 'Pay with Stripe at the next step. Your card is charged once for the full amount; SIM renews at the monthly or yearly rate.'}
+            </p>
           </div>
         </aside>
       </div>

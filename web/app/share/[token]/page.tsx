@@ -29,7 +29,7 @@ type ViewState = 'LIVE' | 'SLEEPING' | 'INDOOR_NO_GPS' | 'OFFLINE';
 type Motion = 'in_motion' | 'stopped';
 
 type ShareData = {
-  device: { id: string; name: string };
+  device: { id: string; name: string; model_name?: string | null };
   expires_at: string;
   view_state?: ViewState;
   motion?: Motion;

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 /** Mapbox CSS loaded here so the dynamic DashboardMap chunk does not create a separate CSS chunk (avoids dev chunk load errors). */
@@ -27,6 +28,8 @@ import BatteryLevelIcon from '@/components/BatteryLevelIcon';
 import { getBatteryStatus } from '@/lib/battery';
 import { TRACKER_NAME_MAX, validateTrackerName } from '@/lib/device-constants';
 import { getDeviceCapabilities } from '@/lib/device-capabilities';
+import { createClient } from '@/lib/supabase';
+import { getAuthHeaders } from '@/lib/api-auth';
 
 const TRACKER_ICONS = [
   { id: 'car', label: 'Car' },
@@ -34,6 +37,9 @@ const TRACKER_ICONS = [
   { id: 'caravan', label: 'Caravan' },
   { id: 'trailer', label: 'Trailer' },
   { id: 'truck', label: 'Truck' },
+  { id: 'toolbox', label: 'Toolbox' },
+  { id: 'motorbike', label: 'Motorbike' },
+  { id: 'scooter', label: 'Scooter' },
   { id: 'misc', label: 'Misc' },
 ] as const;
 
@@ -109,6 +115,7 @@ type Device = {
   latest_external_power_connected?: boolean | null;
   latest_backup_battery_percent?: number | null;
   latest_acc_status?: 'on' | 'off' | null;
+  moving_interval_seconds?: number | null;
 };
 
 type Props = {
@@ -126,6 +133,7 @@ type Props = {
   onAdd: (e: React.FormEvent) => void;
   onToggleAddForm: () => void;
   onColorChange: (deviceId: string, hex: string) => void;
+  onSaveAppearance?: (deviceId: string, updates: { marker_icon?: string; marker_color?: string }) => void;
   onSettingsChange: (deviceId: string, updates: { marker_color?: string; marker_icon?: string; watchdog_armed?: boolean; name?: string | null }) => void;
   onWatchdogToggle: (deviceId: string, armed: boolean) => void;
   onNightGuardToggle: (deviceId: string, enabled: boolean) => void;
@@ -157,6 +165,7 @@ export default function DevicesListView(props: Props) {
     onAdd,
     onToggleAddForm,
     onColorChange,
+    onSaveAppearance,
     onSettingsChange,
     onWatchdogToggle,
     onNightGuardToggle,
@@ -171,7 +180,24 @@ export default function DevicesListView(props: Props) {
   } = props;
 
   const [settingsOpenId, setSettingsOpenId] = useState<string | null>(null);
-  const [settingsTab, setSettingsTab] = useState<'appearance' | 'alerts' | 'signal'>('appearance');
+  const [settingsTab, setSettingsTab] = useState<'appearance' | 'alerts' | 'signal' | 'settings'>('appearance');
+  const [pendingAppearance, setPendingAppearance] = useState<{ deviceId: string; marker_icon: string; marker_color: string } | null>(null);
+  const [trackingIntervalStatus, setTrackingIntervalStatus] = useState<{ deviceId: string; status: 'sending' | 'sent' | 'error'; message?: string } | null>(null);
+  const [trackingIntervalSeconds, setTrackingIntervalSeconds] = useState<number>(300);
+  const [lastAppliedIntervalByDevice, setLastAppliedIntervalByDevice] = useState<Record<string, number>>({});
+  const [intervalDropdownOpen, setIntervalDropdownOpen] = useState(false);
+  const [intervalDropdownRect, setIntervalDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const intervalDropdownRef = useRef<HTMLDivElement>(null);
+  const intervalListRef = useRef<HTMLDivElement>(null);
+
+  const GPS_INTERVAL_OPTIONS = [
+    { value: 60, label: '1 minute' },
+    { value: 300, label: '5 minutes' },
+    { value: 600, label: '10 minutes' },
+    { value: 1800, label: '30 minutes' },
+    { value: 3600, label: '1 hour' },
+  ] as const;
+  const intervalSecondsToLabel = (sec: number) => GPS_INTERVAL_OPTIONS.find((o) => o.value === sec)?.label ?? null;
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState('');
   const [nightGuardRule, setNightGuardRule] = useState<{ start_time_local: string; end_time_local: string; timezone: string; radius_m: number; home_lat: number | null; home_lon: number | null } | null>(null);
@@ -210,15 +236,72 @@ export default function DevicesListView(props: Props) {
   }, [settingsOpenId, settingsTab]);
 
   useEffect(() => {
-    if (!settingsOpenId) setEditingNameId(null);
+    if (!settingsOpenId) {
+      setEditingNameId(null);
+      setTrackingIntervalStatus(null);
+      setIntervalDropdownOpen(false);
+    }
   }, [settingsOpenId]);
+
+  useLayoutEffect(() => {
+    if (!intervalDropdownOpen || !intervalDropdownRef.current) {
+      setIntervalDropdownRect(null);
+      return;
+    }
+    const rect = intervalDropdownRef.current.getBoundingClientRect();
+    setIntervalDropdownRect({
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+    });
+  }, [intervalDropdownOpen]);
+
+  useEffect(() => {
+    if (!intervalDropdownOpen) return;
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const inTrigger = intervalDropdownRef.current?.contains(target);
+      const inList = intervalListRef.current?.contains(target);
+      if (!inTrigger && !inList) setIntervalDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [intervalDropdownOpen]);
+
+  async function handleSetTrackingInterval(deviceId: string, seconds: number) {
+    setTrackingIntervalStatus({ deviceId, status: 'sending' });
+    try {
+      const supabase = createClient();
+      const authHeaders = await getAuthHeaders(supabase);
+      const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/tracking-interval`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interval_seconds: seconds }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string; error?: string; interval_seconds?: number };
+      if (res.ok && data.status === 'sent') {
+        if (typeof data.interval_seconds === 'number') {
+          setLastAppliedIntervalByDevice((prev) => ({ ...prev, [deviceId]: data.interval_seconds! }));
+        }
+        setTrackingIntervalStatus({ deviceId, status: 'sent', message: data.message ?? 'Updated Interval has been sent to the tracker.' });
+      } else {
+        setTrackingIntervalStatus({ deviceId, status: 'error', message: data.error ?? data.message ?? 'Failed to send' });
+      }
+    } catch {
+      setTrackingIntervalStatus({ deviceId, status: 'error', message: 'Network error' });
+    }
+  }
 
   useEffect(() => {
     if (!settingsOpenId) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (editingNameId) setEditingNameId(null);
-        else setSettingsOpenId(null);
+        else {
+          setPendingAppearance(null);
+          setSettingsOpenId(null);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -463,7 +546,7 @@ export default function DevicesListView(props: Props) {
                       />
                       <div className="tracker-card-body">
                         <div className="tracker-card-primary">
-                          <span className="tracker-card-name">{d.name || d.id}{d.model_name ? <span style={{ color: 'var(--muted)', fontWeight: 500 }}> · {d.model_name}</span> : null}</span>
+                          <span className="tracker-card-name">{d.name || d.id}{d.model_name ? <span style={{ color: 'var(--muted)', fontWeight: 500, fontSize: '0.8em' }}> · {d.model_name}</span> : null}</span>
                           {d.subscription_suspended ? (
                             <div className="tracker-card-suspended-wrap">
                               <div className="tracker-card-suspended-block" aria-label="Subscription suspended – overdue on payment">
@@ -499,11 +582,11 @@ export default function DevicesListView(props: Props) {
                               </span>
                               <span
                                 className="tracker-card-chip tracker-card-battery"
-                                title={`Backup battery: ${d.latest_backup_battery_percent != null ? `${d.latest_backup_battery_percent}%` : batteryStatus.label}`}
+                                title={`Backup battery: ${batteryStatus.label}${d.latest_backup_battery_percent != null ? ` (${d.latest_backup_battery_percent}%)` : ''} — ${batteryStatus.microcopy}`}
                                 style={{ color: batteryStatus.color.text }}
                               >
                                 <BatteryLevelIcon tier={batteryStatus.tier} size={12} color={batteryStatus.color.text} aria-hidden />
-                                <span>{d.latest_backup_battery_percent != null ? `${d.latest_backup_battery_percent}%` : batteryStatus.label}</span>
+                                <span>{batteryStatus.label}</span>
                               </span>
                             </>
                           ) : (
@@ -642,8 +725,10 @@ export default function DevicesListView(props: Props) {
       {settingsOpenId && (() => {
         const device = devices.find((d) => d.id === settingsOpenId);
         if (!device) return null;
-        const color = device.marker_color ?? '#f97316';
-        const currentIcon = device.marker_icon ?? 'car';
+        const currentIcon = pendingAppearance?.deviceId === device.id ? pendingAppearance.marker_icon : (device.marker_icon ?? 'car');
+        const color = pendingAppearance?.deviceId === device.id ? pendingAppearance.marker_color : (device.marker_color ?? '#f97316');
+        const hasPendingAppearance = pendingAppearance?.deviceId === device.id &&
+          (pendingAppearance.marker_icon !== (device.marker_icon ?? 'car') || pendingAppearance.marker_color !== (device.marker_color ?? '#f97316'));
         return (
           <div
             className="tracker-settings-modal-overlay"
@@ -651,7 +736,12 @@ export default function DevicesListView(props: Props) {
             aria-modal="true"
             aria-labelledby="tracker-settings-modal-title"
             ref={modalRef}
-            onClick={(e) => e.target === e.currentTarget && setSettingsOpenId(null)}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setSettingsOpenId(null);
+                setPendingAppearance(null);
+              }
+            }}
           >
             <div className="tracker-settings-modal" onClick={(e) => e.stopPropagation()}>
               <div className="tracker-settings-modal-header">
@@ -693,7 +783,7 @@ export default function DevicesListView(props: Props) {
                   <div className="tracker-settings-modal-title-row">
                     <h2 id="tracker-settings-modal-title" className="tracker-settings-modal-title">
                       {device.name || device.id}
-                      {device.model_name && <span className="tracker-settings-modal-model" style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.9em' }}> · {device.model_name}</span>}
+                      {device.model_name && <span className="tracker-settings-modal-model" style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.78em' }}> · {device.model_name}</span>}
                     </h2>
                     <button
                       type="button"
@@ -713,6 +803,7 @@ export default function DevicesListView(props: Props) {
                   type="button"
                   onClick={() => {
                     if (editingNameId === device.id) setEditingNameId(null);
+                    setPendingAppearance(null);
                     setSettingsOpenId(null);
                   }}
                   className="tracker-settings-modal-close"
@@ -789,6 +880,20 @@ export default function DevicesListView(props: Props) {
                   <Radio size={16} strokeWidth={2} />
                   <span>Signal</span>
                 </button>
+                {device.capabilities?.isWired && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={settingsTab === 'settings'}
+                    aria-controls="tracker-settings-panel-settings"
+                    id="tracker-settings-tab-settings"
+                    className={`tracker-settings-modal-tab${settingsTab === 'settings' ? ' tracker-settings-modal-tab--active' : ''}`}
+                    onClick={() => setSettingsTab('settings')}
+                  >
+                    <Clock size={16} strokeWidth={2} />
+                    <span>Settings</span>
+                  </button>
+                )}
               </div>
               <div className="tracker-settings-modal-body">
                 {settingsTab === 'appearance' && (
@@ -802,7 +907,7 @@ export default function DevicesListView(props: Props) {
                             key={ico.id}
                             type="button"
                             title={ico.label}
-                            onClick={() => onSettingsChange(device.id, { marker_icon: ico.id })}
+                            onClick={() => setPendingAppearance({ deviceId: device.id, marker_icon: ico.id, marker_color: color })}
                             className={`tracker-settings-icon-btn${currentIcon === ico.id ? ' tracker-settings-icon-btn--active' : ''}`}
                             aria-pressed={currentIcon === ico.id}
                             aria-label={ico.label}
@@ -813,16 +918,17 @@ export default function DevicesListView(props: Props) {
                       </div>
                       <p className="tracker-settings-modal-selected-label">{TRACKER_ICONS.find((i) => i.id === currentIcon)?.label ?? 'Icon'}</p>
                     </div>
-                    <div className="tracker-settings-modal-section">
+                    <div className="tracker-settings-modal-section tracker-settings-modal-section--colour">
                       <h3 className="tracker-settings-modal-section-title">Colour</h3>
                       <p className="tracker-settings-modal-hint">Marker colour on the map.</p>
+                      <div className="tracker-settings-colour-row-wrap">
                       <div className="tracker-settings-colour-row" role="group" aria-label="Marker colour">
                         {COLOUR_PRESETS.map((hex) => (
                           <button
                             key={hex}
                             type="button"
                             title={hex}
-                            onClick={() => onColorChange(device.id, hex)}
+                            onClick={() => setPendingAppearance({ deviceId: device.id, marker_icon: currentIcon, marker_color: hex })}
                             className={`tracker-settings-colour-chip${color.toLowerCase() === hex.toLowerCase() ? ' tracker-settings-colour-chip--active' : ''}`}
                             style={{ backgroundColor: hex }}
                             aria-pressed={color.toLowerCase() === hex.toLowerCase()}
@@ -834,11 +940,12 @@ export default function DevicesListView(props: Props) {
                           <input
                             type="color"
                             value={color}
-                            onChange={(e) => onColorChange(device.id, e.target.value)}
+                            onChange={(e) => setPendingAppearance({ deviceId: device.id, marker_icon: currentIcon, marker_color: e.target.value })}
                             className="tracker-settings-colour-input"
                             aria-label="Custom colour"
                           />
                         </label>
+                      </div>
                       </div>
                       <div className="tracker-settings-modal-colour-footer">
                         {colorSaveStatus?.deviceId === device.id && (
@@ -862,6 +969,19 @@ export default function DevicesListView(props: Props) {
                               </>
                             )}
                           </span>
+                        )}
+                        {onSaveAppearance && (
+                          <button
+                            type="button"
+                            className="tracker-settings-appearance-save-btn"
+                            disabled={!hasPendingAppearance || (colorSaveStatus?.deviceId === device.id && colorSaveStatus?.status === 'saving')}
+                            onClick={() => {
+                              onSaveAppearance(device.id, { marker_icon: currentIcon, marker_color: color });
+                              setPendingAppearance((p) => (p?.deviceId === device.id ? null : p));
+                            }}
+                          >
+                            Save
+                          </button>
                         )}
                       </div>
                     </div>
@@ -1221,6 +1341,116 @@ export default function DevicesListView(props: Props) {
                           )}
                         </>
                       )}
+                    </div>
+                  </div>
+                )}
+                {settingsTab === 'settings' && device.capabilities?.isWired && (
+                  <div id="tracker-settings-panel-settings" role="tabpanel" aria-labelledby="tracker-settings-tab-settings" className="tracker-settings-modal-panel">
+                    <div className="tracker-settings-modal-section">
+                      <h3 className="tracker-settings-modal-section-title">GPS tracking interval</h3>
+                      {device.model_name && (
+                        <p className="tracker-settings-modal-hint" style={{ marginBottom: 8, marginTop: 0 }}>
+                          Model: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{device.model_name}</strong>
+                        </p>
+                      )}
+                      <p className="tracker-settings-modal-hint" style={{ marginBottom: 12 }}>
+                        How often the tracker sends its location. The new interval is sent to the device and will take effect shortly.
+                      </p>
+                      <p className="tracker-settings-modal-hint" style={{ marginBottom: 12, marginTop: 0 }}>
+                        Current interval:{' '}
+                        <strong style={{ color: 'var(--text)', fontWeight: 600 }}>
+                          {(lastAppliedIntervalByDevice[device.id] ?? device.moving_interval_seconds) != null
+                            ? (intervalSecondsToLabel(lastAppliedIntervalByDevice[device.id] ?? device.moving_interval_seconds!) ?? `${lastAppliedIntervalByDevice[device.id] ?? device.moving_interval_seconds}s`)
+                            : '—'}
+                        </strong>
+                      </p>
+                      <div className="tracker-settings-modal-section" style={{ marginTop: 0 }}>
+                        <label className="tracker-settings-modal-status-label" id="tracking-interval-label" style={{ display: 'block', marginBottom: 8 }}>
+                          New interval
+                        </label>
+                        <div ref={intervalDropdownRef} className="tracker-settings-interval-dropdown">
+                          <button
+                            type="button"
+                            onClick={() => setIntervalDropdownOpen((o) => !o)}
+                            disabled={trackingIntervalStatus?.deviceId === device.id && trackingIntervalStatus?.status === 'sending'}
+                            className="tracker-settings-interval-dropdown-trigger"
+                            aria-haspopup="listbox"
+                            aria-expanded={intervalDropdownOpen}
+                            aria-labelledby="tracking-interval-label"
+                            aria-label="GPS tracking interval"
+                          >
+                            <span>{GPS_INTERVAL_OPTIONS.find((o) => o.value === trackingIntervalSeconds)?.label ?? 'Select'}</span>
+                            <ChevronDown size={16} style={{ flexShrink: 0, opacity: 0.8 }} aria-hidden />
+                          </button>
+                          {intervalDropdownOpen &&
+                            intervalDropdownRect &&
+                            typeof document !== 'undefined' &&
+                            createPortal(
+                              <div
+                                ref={intervalListRef}
+                                className="tracker-settings-interval-dropdown-list-portal"
+                                style={{
+                                  position: 'fixed',
+                                  top: intervalDropdownRect.top,
+                                  left: intervalDropdownRect.left,
+                                  width: intervalDropdownRect.width,
+                                  zIndex: 10000,
+                                }}
+                              >
+                                <ul
+                                  className="tracker-settings-interval-dropdown-list"
+                                  role="listbox"
+                                  aria-labelledby="tracking-interval-label"
+                                >
+                                  {GPS_INTERVAL_OPTIONS.map((opt) => (
+                                    <li key={opt.value} role="option" aria-selected={trackingIntervalSeconds === opt.value}>
+                                      <button
+                                        type="button"
+                                        className={`tracker-settings-interval-dropdown-option${trackingIntervalSeconds === opt.value ? ' tracker-settings-interval-dropdown-option--selected' : ''}`}
+                                        onClick={() => {
+                                          setTrackingIntervalSeconds(opt.value);
+                                          setIntervalDropdownOpen(false);
+                                        }}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>,
+                              document.body
+                            )}
+                        </div>
+                        <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleSetTrackingInterval(device.id, trackingIntervalSeconds)}
+                            disabled={trackingIntervalStatus?.deviceId === device.id && trackingIntervalStatus?.status === 'sending'}
+                            className="tracker-settings-interval-apply-btn"
+                          >
+                            {trackingIntervalStatus?.deviceId === device.id && trackingIntervalStatus?.status === 'sending' ? (
+                              <>
+                                <Loader2 size={18} className="animate-spin" style={{ marginRight: 8 }} aria-hidden />
+                                Sending…
+                              </>
+                            ) : (
+                              'Apply'
+                            )}
+                          </button>
+                          {trackingIntervalStatus?.deviceId === device.id && trackingIntervalStatus?.status === 'sent' && (
+                            <span className="tracker-settings-modal-save-status" style={{ color: 'var(--success)' }}>
+                              <Check size={16} aria-hidden />
+                              {trackingIntervalStatus.message ?? 'Sent'}
+                            </span>
+                          )}
+                          {trackingIntervalStatus?.deviceId === device.id && trackingIntervalStatus?.status === 'error' && (
+                            <span className="tracker-settings-modal-save-status" style={{ color: 'var(--error)' }} role="alert">
+                              <AlertCircle size={16} aria-hidden />
+                              {trackingIntervalStatus.message ?? 'Failed'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}

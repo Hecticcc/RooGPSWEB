@@ -41,7 +41,7 @@ export async function GET(request: Request) {
   // Base columns only so the query works even if heartbeat/moving_interval migration hasn't been run
   const { data: devices, error: devErr } = await supabase
     .from('devices')
-    .select('id, name, model_name, created_at, last_seen_at, marker_color, marker_icon, watchdog_armed, watchdog_armed_at, emergency_enabled, emergency_status, heartbeat_minutes, moving_interval_seconds')
+    .select('id, name, model_name, sim_iccid, created_at, last_seen_at, marker_color, marker_icon, watchdog_armed, watchdog_armed_at, emergency_enabled, emergency_status, heartbeat_minutes, moving_interval_seconds')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   if (devErr) {
@@ -69,7 +69,8 @@ export async function GET(request: Request) {
   const withLocation = await Promise.all(
     devicesWithOpt.map(async (d) => {
       const caps = getDeviceCapabilities((d as { model_name?: string | null }).model_name);
-      const limit = caps.isWired ? 8 : 1;
+      // Fetch multiple recent locations so we can show last-known signal/GPS even when the latest packet (e.g. sleep ping) has no telemetry
+      const limit = 8;
       const { data: locs } = await supabase
         .from('locations')
         .select('latitude, longitude, received_at, extra')
@@ -87,10 +88,10 @@ export async function GET(request: Request) {
         return bat?.percent != null || bat?.voltage_v != null || pow?.battery_voltage_v != null;
       };
       const hasSignal = (e: Record<string, unknown> | null) => e?.signal != null;
-      const locForBattery = caps.isWired && list.length > 1 && !hasBatteryData(extra)
+      const locForBattery = list.length > 1 && !hasBatteryData(extra)
         ? list.find((l) => hasBatteryData(l.extra as Record<string, unknown> | null)) ?? loc
         : loc;
-      const locForSignal = caps.isWired && list.length > 1 && !hasSignal(extra)
+      const locForSignal = list.length > 1 && !hasSignal(extra)
         ? list.find((l) => hasSignal(l.extra as Record<string, unknown> | null)) ?? loc
         : loc;
       const extraForBattery = (locForBattery?.extra as Record<string, unknown> | null) ?? null;
@@ -104,7 +105,7 @@ export async function GET(request: Request) {
       const lastIsStopped = (extra?.pt60_state as { is_stopped?: boolean })?.is_stopped ?? null;
       const gpsLockFromExtra = (e: Record<string, unknown> | null) =>
         (e?.gps_lock as boolean) ?? (e?.signal as { gps?: { valid?: boolean } })?.gps?.valid ?? null;
-      const gpsLockLast = caps.isWired && locForSignal ? gpsLockFromExtra(extraForSignal) : gpsLockFromExtra(extra);
+      const gpsLockLast = gpsLockFromExtra(extraForSignal ?? extra);
       const lastSeenAt = loc?.received_at ?? d.last_seen_at;
       const stateResult = computeDeviceState({
         last_seen_at: lastSeenAt,
@@ -160,7 +161,41 @@ export async function GET(request: Request) {
       if (suspendedOrderIds.has(orderId)) suspendedDeviceIds.add(deviceId);
     }
   }
-  const uniqueIccids = Array.from(new Set(Object.values(iccidByDevice)));
+  // Derive model_name from order product when device.model_name is null (e.g. older devices never backfilled)
+  const orderIdToTrackerSku: Record<string, string> = {};
+  const derivedModelByDevice: Record<string, string | null> = {};
+  if (orderIdsFromTokens.length > 0) {
+    const { data: orderItems } = await supabase
+      .from('order_items')
+      .select('order_id, product_sku')
+      .in('order_id', orderIdsFromTokens);
+    const isTrackerSku = (sku: string) => (sku ?? '').toLowerCase().includes('gps_tracker');
+    for (const row of orderItems ?? []) {
+      const oid = (row as { order_id: string }).order_id;
+      const sku = (row as { product_sku?: string }).product_sku ?? '';
+      if (isTrackerSku(sku) && !orderIdToTrackerSku[oid]) orderIdToTrackerSku[oid] = sku;
+    }
+    const trackerSkus = Array.from(new Set(Object.values(orderIdToTrackerSku)));
+    const { data: pricingRows } = await supabase
+      .from('product_pricing')
+      .select('sku, device_model_name')
+      .in('sku', trackerSkus.length > 0 ? trackerSkus : ['gps_tracker']);
+    const productModelBySku: Record<string, string | null> = {};
+    for (const p of pricingRows ?? []) {
+      const r = p as { sku: string; device_model_name?: string | null };
+      productModelBySku[r.sku] = r.device_model_name?.trim() ?? null;
+    }
+    for (const [deviceId, orderId] of Object.entries(orderIdByDevice)) {
+      const sku = orderIdToTrackerSku[orderId];
+      derivedModelByDevice[deviceId] = sku ? (productModelBySku[sku] ?? null) : null;
+    }
+  }
+  // Fetch Simbase carrier for every ICCID we might show: from activation_tokens and from devices.sim_iccid
+  const iccidsFromTokens = Object.values(iccidByDevice);
+  const iccidsFromDevices = devicesWithOpt
+    .map((d) => (d as { sim_iccid?: string | null }).sim_iccid?.trim())
+    .filter((s): s is string => !!s);
+  const uniqueIccids = Array.from(new Set([...iccidsFromTokens, ...iccidsFromDevices]));
   const carrierByIccid: Record<string, string | null> = {};
   await Promise.all(
     uniqueIccids.map(async (iccid) => {
@@ -185,7 +220,8 @@ export async function GET(request: Request) {
   }
 
   const withCarrier = withLocation.map((d) => {
-    const iccid = iccidByDevice[d.id];
+    const deviceIccid = (d as { sim_iccid?: string | null }).sim_iccid?.trim() ?? null;
+    const iccid = deviceIccid ?? iccidByDevice[d.id];
     const sim_carrier = iccid ? carrierByIccid[iccid] ?? null : null;
     const ng = nightGuardByDevice[d.id];
     const night_guard_enabled = ng?.enabled === true;
@@ -196,7 +232,9 @@ export async function GET(request: Request) {
     const night_guard_home_lat = ng?.home_lat ?? null;
     const night_guard_home_lon = ng?.home_lon ?? null;
     const subscription_suspended = suspendedDeviceIds.has(d.id);
-    return { ...d, sim_carrier, night_guard_enabled, night_guard_start_time_local, night_guard_end_time_local, night_guard_timezone, night_guard_radius_m, night_guard_home_lat, night_guard_home_lon, subscription_suspended };
+    const storedModel = (d as { model_name?: string | null }).model_name?.trim() ?? null;
+    const model_name = storedModel || derivedModelByDevice[d.id] || null;
+    return { ...d, model_name, sim_carrier, night_guard_enabled, night_guard_start_time_local, night_guard_end_time_local, night_guard_timezone, night_guard_radius_m, night_guard_home_lat, night_guard_home_lon, subscription_suspended };
   });
 
   return NextResponse.json(withCarrier);

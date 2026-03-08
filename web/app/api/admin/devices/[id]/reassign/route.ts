@@ -34,5 +34,7 @@ export async function POST(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  // Keep stock status in sync: device assigned to user → tracker_stock assigned
+  await admin.from('tracker_stock').update({ status: 'assigned', updated_at: new Date().toISOString() }).eq('imei', deviceId);
   return NextResponse.json({ ok: true });
 }

@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSupportAuth, getServiceRoleClient } from '../../../auth';
+import { scheduleEmailEvent } from '@/lib/email/emailDispatcher';
+import { EMAIL_EVENTS } from '@/lib/email/emailEvents';
+import { getEmailForUserId, getStaffNotificationEmails } from '@/lib/email/getRecipients';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +19,11 @@ export async function POST(
   const { id: ticketId } = await params;
   if (!ticketId) return NextResponse.json({ error: 'Ticket ID required' }, { status: 400 });
 
-  const { data: ticket } = await admin.from('support_tickets').select('id, user_id, status').eq('id', ticketId).single();
+  const { data: ticket } = await admin
+    .from('support_tickets')
+    .select('id, user_id, status, ticket_number, subject, priority, category')
+    .eq('id', ticketId)
+    .single();
   if (!ticket) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const isOwner = (ticket as { user_id: string }).user_id === auth.userId;
@@ -69,6 +76,35 @@ export async function POST(
     actor_user_id: auth.userId,
     message_id: message.id,
   });
+
+  // Transactional emails (fire-and-forget); skip for internal notes
+  if (!isInternal) {
+    const t = ticket as { ticket_number?: string; subject?: string; priority?: string; category?: string };
+    const replyPreview = messageBody.length > 200 ? messageBody.slice(0, 197) + '...' : messageBody;
+    const basePayload = {
+      ticketId,
+      ticketNumber: t.ticket_number ?? `#${ticketId}`,
+      subject: t.subject ?? 'Support request',
+      status: currentStatus,
+      priority: t.priority ?? 'medium',
+      category: t.category ?? 'general',
+      replyPreview,
+      idempotencyKey: `reply:${ticketId}:${message.id}`,
+    };
+    if (auth.isStaff) {
+      const customerEmail = await getEmailForUserId((ticket as { user_id: string }).user_id);
+      if (customerEmail) {
+        scheduleEmailEvent(EMAIL_EVENTS.TICKET_REPLY_CUSTOMER, { ...basePayload, recipientEmail: customerEmail });
+      }
+    } else {
+      const staffEmails = await getStaffNotificationEmails();
+      const customerEmail = await getEmailForUserId(auth.userId);
+      for (const email of staffEmails) {
+        if (email === customerEmail) continue;
+        scheduleEmailEvent(EMAIL_EVENTS.TICKET_REPLY_STAFF, { ...basePayload, recipientEmail: email });
+      }
+    }
+  }
 
   return NextResponse.json({ message: { id: message.id, created_at: message.created_at } });
 }

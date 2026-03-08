@@ -29,11 +29,13 @@ export async function POST(request: Request) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+    await admin.from('tracker_stock').update({ status: 'assigned', updated_at: new Date().toISOString() }).eq('imei', deviceId);
     return NextResponse.json({ ok: true, claimed: true, reassigned: true });
   }
   const { error } = await admin.from('devices').insert({ id: deviceId, user_id: userId });
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  await admin.from('tracker_stock').update({ status: 'assigned', updated_at: new Date().toISOString() }).eq('imei', deviceId);
   return NextResponse.json({ ok: true, claimed: true });
 }

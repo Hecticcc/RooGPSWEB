@@ -38,7 +38,7 @@ export async function GET(
     .maybeSingle();
   const tokenSim = (tokenRow as { sim_iccid?: string } | null)?.sim_iccid?.trim() ?? null;
   const deviceSim = (device as { sim_iccid?: string | null }).sim_iccid?.trim() ?? null;
-  const sim_iccid = tokenSim ?? deviceSim ?? null;
+  const sim_iccid = deviceSim ?? tokenSim ?? null;
 
   const limit = Math.min(100, Math.max(1, parseInt(new URL(request.url).searchParams.get('limit') ?? '20', 10) || 20));
   const page = Math.max(1, parseInt(new URL(request.url).searchParams.get('page') ?? '1', 10) || 1);

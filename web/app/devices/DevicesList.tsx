@@ -318,19 +318,38 @@ export default function DevicesList() {
     );
   }
 
-  function handleColorChange(deviceId: string, hex: string) {
-    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
-    setDevices((prev) =>
-      prev.map((d) => (d.id === deviceId ? { ...d, marker_color: hex } : d))
-    );
-    if (colorSaveTimeoutRef.current) {
-      clearTimeout(colorSaveTimeoutRef.current);
-      colorSaveTimeoutRef.current = null;
+  function handleColorChange(_deviceId: string, _hex: string) {
+    // No longer used for auto-save; Appearance panel uses pending state + Save button
+  }
+
+  async function handleSaveAppearance(deviceId: string, updates: { marker_icon?: string; marker_color?: string }) {
+    if (!updates.marker_icon && !updates.marker_color) return;
+    setColorSaveStatus({ deviceId, status: 'saving' });
+    const authHeaders = await getAuthHeaders(supabase);
+    const body: { marker_icon?: string; marker_color?: string } = {};
+    if (updates.marker_icon !== undefined) body.marker_icon = updates.marker_icon;
+    if (updates.marker_color !== undefined && /^#[0-9A-Fa-f]{6}$/.test(updates.marker_color)) body.marker_color = updates.marker_color;
+    if (Object.keys(body).length === 0) {
+      setColorSaveStatus(null);
+      return;
     }
-    colorSaveTimeoutRef.current = setTimeout(() => {
-      colorSaveTimeoutRef.current = null;
-      handleSettingsChange(deviceId, { marker_color: hex });
-    }, 500);
+    const res = await fetch(`/api/devices/${deviceId}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      setColorSaveStatus({ deviceId, status: 'error' });
+      setTimeout(() => setColorSaveStatus(null), 3000);
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    setDevices((prev) =>
+      prev.map((d) => (d.id === deviceId ? { ...d, ...body, ...(data.watchdog_armed_at !== undefined && { watchdog_armed_at: data.watchdog_armed_at }) } : d))
+    );
+    setColorSaveStatus({ deviceId, status: 'saved' });
+    setTimeout(() => setColorSaveStatus(null), 2000);
   }
 
   const onlineCount = devices.filter((d) => isOnline(d)).length;
@@ -352,6 +371,7 @@ export default function DevicesList() {
       onAdd={handleAdd}
       onToggleAddForm={() => setAddFormOpen((v) => !v)}
       onColorChange={handleColorChange}
+      onSaveAppearance={handleSaveAppearance}
       onSettingsChange={handleSettingsChange}
       onWatchdogToggle={handleWatchdogToggle}
       onNightGuardToggle={handleNightGuardToggle}

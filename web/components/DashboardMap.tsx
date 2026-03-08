@@ -54,13 +54,13 @@ export type MapMarker = {
   backupBatteryPercent?: number | null;
 };
 
-const MARKER_ICON_TYPES = ['car', 'car_alt', 'caravan', 'trailer', 'truck', 'misc'] as const;
+const MARKER_ICON_TYPES = ['car', 'car_alt', 'caravan', 'trailer', 'truck', 'misc', 'toolbox', 'motorbike', 'scooter'] as const;
 
 type MarkerBadge = 'none' | 'sleep' | 'offline' | 'suspended';
 
 function createMarkerElement(hexColor: string, badge: MarkerBadge, iconType?: string | null, emergencyMode?: boolean): HTMLDivElement {
   const icon = (iconType && (MARKER_ICON_TYPES as readonly string[]).includes(iconType)) ? iconType : 'car';
-  const { viewBox, path, fillRule } = getMarkerSvgPath(icon);
+  const result = getMarkerSvgPath(icon);
   const el = document.createElement('div');
   el.className = 'dashboard-map-car-marker' +
     (badge === 'offline' ? ' dashboard-map-car-marker--offline' : '') +
@@ -75,8 +75,14 @@ function createMarkerElement(hexColor: string, badge: MarkerBadge, iconType?: st
   el.style.justifyContent = 'center';
   el.style.position = 'relative';
   const safeColor = hexColor.replace(/[^#0-9A-Fa-f]/g, '');
-  const pathAttrs = fillRule ? `d="${path}" fill-rule="${fillRule}"` : `d="${path}"`;
-  const svg = `<svg class="dashboard-map-car-svg" width="32" height="32" viewBox="${viewBox}" fill="${safeColor}" xmlns="http://www.w3.org/2000/svg" style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.5));"><path ${pathAttrs}/></svg>`;
+  const isStroke = 'stroke' in result && result.stroke && result.paths;
+  const pathEls = isStroke
+    ? result.paths!.map((d) => `<path d="${d.replace(/"/g, '&quot;')}" fill="none" stroke="${safeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`).join('')
+    : (() => {
+        const pathAttrs = result.fillRule ? `d="${result.path!.replace(/"/g, '&quot;')}" fill-rule="${result.fillRule}"` : `d="${result.path!.replace(/"/g, '&quot;')}"`;
+        return `<path ${pathAttrs}/>`;
+      })();
+  const svg = `<svg class="dashboard-map-car-svg" width="32" height="32" viewBox="${result.viewBox}" ${isStroke ? '' : `fill="${safeColor}"`} xmlns="http://www.w3.org/2000/svg" style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.5));">${pathEls}</svg>`;
   let alertBadge = '';
   if (badge === 'offline') {
     alertBadge = `<span class="dashboard-map-offline-badge" title="Offline – last known location" aria-label="Offline, last known location">

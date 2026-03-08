@@ -20,11 +20,17 @@ type TrackerRow = {
   id: string;
   imei: string;
   status: string;
+  product_sku?: string;
   created_at: string;
   updated_at?: string;
   order_number?: string | null;
   email?: string | null;
 };
+
+const TRACKER_TYPE_OPTIONS = [
+  { value: 'gps_tracker', label: 'Wireless' },
+  { value: 'gps_tracker_wired', label: 'Wired' },
+] as const;
 
 export default function AdminStockPage() {
   const { getAuthHeaders } = useAdminAuth();
@@ -32,9 +38,11 @@ export default function AdminStockPage() {
   const [trackersLoading, setTrackersLoading] = useState(true);
   const [trackersError, setTrackersError] = useState<string | null>(null);
   const [addImei, setAddImei] = useState('');
+  const [addProductSku, setAddProductSku] = useState<'gps_tracker' | 'gps_tracker_wired'>('gps_tracker');
   const [addStatus, setAddStatus] = useState('in_stock');
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [trackersFilter, setTrackersFilter] = useState<'all' | 'gps_tracker' | 'gps_tracker_wired'>('all');
 
   const [simcards, setSimcards] = useState<Record<string, unknown>[]>([]);
   const [simcardsLoading, setSimcardsLoading] = useState(false);
@@ -44,6 +52,8 @@ export default function AdminStockPage() {
   const [activeTab, setActiveTab] = useState<'trackers' | 'simcards'>('trackers');
   const [trackersPage, setTrackersPage] = useState(1);
   const [simcardsPage, setSimcardsPage] = useState(1);
+  const [trackerStatusUpdating, setTrackerStatusUpdating] = useState<string | null>(null);
+  const [trackerStatusError, setTrackerStatusError] = useState<string | null>(null);
   const simcardsPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const SIM_AUTO_REFRESH_MS = 2 * 60 * 1000; // 2 minutes
@@ -57,7 +67,10 @@ export default function AdminStockPage() {
   function loadTrackers() {
     setTrackersLoading(true);
     setTrackersError(null);
-    fetch('/api/admin/stock/trackers', { credentials: 'include', cache: 'no-store', headers: getAuthHeaders() })
+    const url = trackersFilter === 'all'
+      ? '/api/admin/stock/trackers'
+      : `/api/admin/stock/trackers?product_sku=${encodeURIComponent(trackersFilter)}`;
+    fetch(url, { credentials: 'include', cache: 'no-store', headers: getAuthHeaders() })
       .then((r) => {
         if (!r.ok) throw new Error(r.status === 403 ? 'Forbidden' : 'Failed to load');
         return r.json();
@@ -69,7 +82,7 @@ export default function AdminStockPage() {
 
   useEffect(() => {
     loadTrackers();
-  }, [getAuthHeaders]);
+  }, [getAuthHeaders, trackersFilter]);
 
   useEffect(() => {
     if (trackersPage > trackersTotalPages && trackersTotalPages >= 1) setTrackersPage(trackersTotalPages);
@@ -120,7 +133,7 @@ export default function AdminStockPage() {
       method: 'POST',
       credentials: 'include',
       headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imei, status: addStatus }),
+      body: JSON.stringify({ imei, status: addStatus, product_sku: addProductSku }),
     })
       .then(async (r) => {
         const body = await r.json().catch(() => ({}));
@@ -162,6 +175,28 @@ export default function AdminStockPage() {
     if (s === 'returned') return { label: 'Returned', className: base + 'admin-badge--warn' };
     if (s === 'faulty') return { label: 'Faulty', className: base + 'admin-badge--error' };
     return { label: status || '—', className: base };
+  }
+
+  async function updateTrackerStatus(trackerId: string, newStatus: string) {
+    setTrackerStatusError(null);
+    setTrackerStatusUpdating(trackerId);
+    try {
+      const res = await fetch(`/api/admin/stock/trackers/${encodeURIComponent(trackerId)}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setTrackers((prev) =>
+        prev.map((tr) => (tr.id === trackerId ? { ...tr, status: newStatus } : tr))
+      );
+    } catch (e) {
+      setTrackerStatusError(e instanceof Error ? e.message : 'Failed to update status');
+    } finally {
+      setTrackerStatusUpdating(null);
+    }
   }
 
   async function updateSimState(iccid: string, newState: 'enabled' | 'disabled', currentTags: string[] = []) {
@@ -222,7 +257,7 @@ export default function AdminStockPage() {
         <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 1rem' }}>
           <Package size={20} /> GPS tracker stock
         </h3>
-        <p className="admin-time" style={{ marginBottom: '1rem' }}>
+        <p className="admin-time" style={{ marginBottom: '0.5rem' }}>
           Total: <strong>{trackers.length}</strong> unit{trackers.length !== 1 ? 's' : ''}
           {trackers.length > PAGE_SIZE && (
             <span style={{ marginLeft: '1rem' }}>
@@ -230,6 +265,18 @@ export default function AdminStockPage() {
             </span>
           )}
         </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', marginBottom: '1rem' }}>
+          <label style={{ marginRight: 4 }}>Show:</label>
+          <select
+            value={trackersFilter}
+            onChange={(e) => setTrackersFilter(e.target.value as 'all' | 'gps_tracker' | 'gps_tracker_wired')}
+            style={{ minWidth: '120px' }}
+          >
+            <option value="all">All</option>
+            <option value="gps_tracker">Wireless</option>
+            <option value="gps_tracker_wired">Wired</option>
+          </select>
+        </div>
         <form onSubmit={handleAddTracker} style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end', marginBottom: '1rem' }}>
           <div className="admin-form-row" style={{ marginBottom: 0 }}>
             <label>IMEI</label>
@@ -242,6 +289,19 @@ export default function AdminStockPage() {
               style={{ minWidth: '180px' }}
               disabled={adding}
             />
+          </div>
+          <div className="admin-form-row" style={{ marginBottom: 0 }}>
+            <label>Type</label>
+            <select
+              value={addProductSku}
+              onChange={(e) => setAddProductSku(e.target.value as 'gps_tracker' | 'gps_tracker_wired')}
+              style={{ minWidth: '120px' }}
+              disabled={adding}
+            >
+              {TRACKER_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
           </div>
           <div className="admin-form-row" style={{ marginBottom: 0 }}>
             <label>Status</label>
@@ -263,6 +323,7 @@ export default function AdminStockPage() {
           </button>
         </form>
         {addError && <p style={{ color: 'var(--error)', marginBottom: '0.5rem' }}>{addError}</p>}
+        {trackerStatusError && <p style={{ color: 'var(--error)', marginBottom: '0.5rem' }}>{trackerStatusError}</p>}
         {trackersError && <p style={{ color: 'var(--error)' }}>{trackersError}</p>}
         {trackersLoading ? (
           <p className="admin-time">Loading…</p>
@@ -272,6 +333,7 @@ export default function AdminStockPage() {
               <thead>
                 <tr>
                   <th>IMEI</th>
+                  <th>Type</th>
                   <th>Status</th>
                   <th>Order number</th>
                   <th>Email</th>
@@ -280,14 +342,31 @@ export default function AdminStockPage() {
               </thead>
               <tbody>
                 {trackers.length === 0 ? (
-                  <tr><td colSpan={5} className="admin-time">No trackers in stock. Add one above.</td></tr>
+                  <tr><td colSpan={6} className="admin-time">No trackers. Add one above or change filter.</td></tr>
                 ) : (
                   trackersPaged.map((t) => {
-                    const statusDisplay = getTrackerStatusDisplay(t.status);
+                    const isUpdating = trackerStatusUpdating === t.id;
+                    const typeLabel = t.product_sku === 'gps_tracker_wired' ? 'Wired' : 'Wireless';
                     return (
                       <tr key={t.id}>
                         <td className="admin-mono">{t.imei}</td>
-                        <td><span className={statusDisplay.className}>{statusDisplay.label}</span></td>
+                        <td>{typeLabel}</td>
+                        <td>
+                          <select
+                            value={t.status}
+                            onChange={(e) => updateTrackerStatus(t.id, e.target.value)}
+                            disabled={isUpdating}
+                            style={{ minWidth: '110px', cursor: isUpdating ? 'wait' : 'pointer' }}
+                            title="Change status"
+                          >
+                            <option value="in_stock">In stock</option>
+                            <option value="assigned">Assigned</option>
+                            <option value="sold">Sold</option>
+                            <option value="returned">Returned</option>
+                            <option value="faulty">Faulty</option>
+                          </select>
+                          {isUpdating && <span className="admin-time" style={{ marginLeft: 6 }}>Updating…</span>}
+                        </td>
                         <td>{t.order_number ?? '—'}</td>
                         <td>{t.email ?? '—'}</td>
                         <td className="admin-time">{formatDate(t.created_at)}</td>

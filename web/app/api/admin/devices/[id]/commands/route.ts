@@ -78,13 +78,14 @@ export async function POST(
 
   const { data: device, error: devErr } = await admin
     .from('devices')
-    .select('id, sim_phone')
+    .select('id, sim_phone, sim_iccid')
     .eq('id', deviceId)
     .single();
   if (devErr || !device) {
     return NextResponse.json({ error: 'Device not found' }, { status: 404 });
   }
   const simPhone = (device as { sim_phone?: string | null }).sim_phone?.trim() ?? '';
+  const deviceIccid = (device as { sim_iccid?: string | null }).sim_iccid?.trim() ?? null;
   const { data: tokenRow } = await admin
     .from('activation_tokens')
     .select('sim_iccid')
@@ -92,11 +93,12 @@ export async function POST(
     .not('sim_iccid', 'is', null)
     .limit(1)
     .maybeSingle();
-  const simIccid = (tokenRow as { sim_iccid?: string } | null)?.sim_iccid?.trim() ?? null;
+  const tokenIccid = (tokenRow as { sim_iccid?: string } | null)?.sim_iccid?.trim() ?? null;
+  const simIccid = deviceIccid ?? tokenIccid;
   const useSimbase = !!simIccid;
   if (!useSimbase && !simPhone) {
     return NextResponse.json(
-      { error: 'Device has no SIM (no ICCID from activation token and no sim_phone). Configure SIM or use an activated device.' },
+      { error: 'Device has no SIM (no ICCID on device and no sim_phone). Configure SIM or use an activated device.' },
       { status: 400 }
     );
   }

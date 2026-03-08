@@ -236,7 +236,7 @@ export async function PATCH(
     }
     if (body.assignee_ids !== undefined && Array.isArray(body.assignee_ids)) {
       const newIds = (body.assignee_ids as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0);
-      const uniq = [...new Set(newIds)];
+      const uniq = Array.from(new Set(newIds));
       const { data: oldRows } = await admin.from('support_ticket_assignments').select('user_id').eq('ticket_id', id);
       let oldIds = (oldRows ?? []).map((r: { user_id: string }) => r.user_id);
       if (oldIds.length === 0 && (existing as { assigned_to: string | null }).assigned_to) oldIds = [(existing as { assigned_to: string }).assigned_to];

@@ -14,6 +14,8 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@react-email/components": "^1.0.8",
+    "@react-email/render": "^2.0.4",
     "@supabase/ssr": "^0.1.0",
     "@supabase/supabase-js": "^2.39.0",
     "lucide-react": "^0.575.0",
@@ -23,6 +25,7 @@
     "react-dom": "^18.2.0",
     "react-icons": "^5.5.0",
     "react-markdown": "^10.1.0",
+    "resend": "^6.9.3",
     "stripe": "^20.4.0",
     "zod": "^3.25.76"
   },

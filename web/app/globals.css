@@ -1973,10 +1973,10 @@ body {
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 6px rgba(239, 68, 68, 0.4));
 }
 
-/* Map marker popup – glass style; slightly smaller, centered above icon */
+/* Map marker popup – glass style; compact size */
 .map-popup {
-  min-width: 460px;
-  max-width: min(560px, 88vw);
+  min-width: 360px;
+  max-width: min(500px, 96vw);
   color: var(--text);
   font-size: 13px;
   line-height: 1.4;
@@ -2125,14 +2125,14 @@ body {
 }
 
 .mapboxgl-popup-content {
-  min-width: 280px !important;
-  max-width: min(560px, 92vw) !important;
+  min-width: 360px !important;
+  max-width: min(500px, 96vw) !important;
   background: rgba(28, 28, 32, 0.78) !important;
   backdrop-filter: blur(14px) !important;
   -webkit-backdrop-filter: blur(14px) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-radius: 12px !important;
-  padding: 8px 14px 10px !important;
+  padding: 12px 16px 14px !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
   box-sizing: border-box !important;
   overflow: hidden !important;
@@ -2536,7 +2536,7 @@ body {
 
 @media (min-width: 600px) {
   .mapboxgl-popup-content {
-    min-width: 460px !important;
+    min-width: 360px !important;
   }
 
   .trackers-section-header {
@@ -3051,8 +3051,8 @@ body {
 
 .tracker-settings-modal {
   width: 100%;
-  max-width: min(560px, calc(100vw - 24px));
-  max-height: min(92vh, 720px);
+  max-width: min(1120px, calc(100vw - 48px));
+  max-height: min(92vh, 1200px);
   overflow: visible;
   display: flex;
   flex-direction: column;
@@ -3191,9 +3191,11 @@ body {
 
 .tracker-settings-modal-tabs {
   display: flex;
+  align-items: center;
   gap: 2px;
-  padding: 0 24px 14px;
+  padding: 14px 24px 14px;
   border-bottom: 1px solid var(--border);
+  min-height: 52px;
 }
 
 .tracker-settings-modal-tab {
@@ -3223,10 +3225,12 @@ body {
 
 .tracker-settings-modal-body {
   padding: 20px 32px 28px;
+  min-width: 0;
 }
 
 .tracker-settings-modal-panel {
   min-height: 120px;
+  min-width: 0;
 }
 
 /* Tracker Toolkit modal */
@@ -3950,8 +3954,107 @@ body {
   color: var(--text);
 }
 
+.tracker-settings-interval-dropdown {
+  position: relative;
+  display: inline-block;
+  max-width: 220px;
+  width: 100%;
+}
+
+.tracker-settings-interval-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  text-align: left;
+}
+
+.tracker-settings-interval-dropdown-trigger:hover:not(:disabled) {
+  border-color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tracker-settings-interval-dropdown-trigger:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.tracker-settings-interval-dropdown-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 4px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.tracker-settings-interval-dropdown-option {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s ease;
+}
+
+.tracker-settings-interval-dropdown-option:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tracker-settings-interval-dropdown-option--selected {
+  color: var(--accent);
+  font-weight: 500;
+  background: rgba(249, 115, 22, 0.1);
+}
+
+.tracker-settings-interval-apply-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent, #f97316);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.tracker-settings-interval-apply-btn:hover:not(:disabled) {
+  background: var(--accent-hover, #ea580c);
+}
+.tracker-settings-interval-apply-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.tracker-settings-interval-apply-btn:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
 .tracker-settings-modal-section {
   margin-bottom: 28px;
+  min-width: 0; /* allow colour row etc. to shrink and wrap */
 }
 
 .tracker-settings-modal-section:last-child {
@@ -4270,12 +4373,39 @@ body {
   color: var(--muted);
 }
 
-/* Colour row: preset chips + custom picker */
+/* Colour section: ensure width is constrained so wrapper can scroll */
+.tracker-settings-modal-section--colour {
+  min-width: 0;
+}
+
+/* Wrapper: horizontal scroll so all colour chips are visible, never clipped */
+.tracker-settings-colour-row-wrap {
+  overflow-x: auto;
+  overflow-y: visible;
+  max-width: 100%;
+  padding: 16px 16px 20px 16px;
+  margin: 0 -16px 0 0; /* slight negative margin so scrollbar doesn’t clip last chip */
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  min-height: 72px;
+  box-sizing: border-box;
+}
+.tracker-settings-colour-row-wrap::-webkit-scrollbar {
+  height: 8px;
+}
+.tracker-settings-colour-row-wrap::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+/* Colour row: single row, natural width – scroll inside wrapper if needed */
 .tracker-settings-colour-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 14px;
+  width: max-content;
+  min-width: 0;
 }
 
 .tracker-settings-colour-chip {
@@ -4340,9 +4470,29 @@ body {
 .tracker-settings-modal-colour-footer {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   margin-top: 12px;
   flex-wrap: wrap;
+}
+
+.tracker-settings-appearance-save-btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-left: auto;
+}
+.tracker-settings-appearance-save-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.tracker-settings-appearance-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .tracker-settings-modal-colour-hex {
@@ -4358,7 +4508,6 @@ body {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  margin-left: auto;
 }
 
 .tracker-settings-modal-body .tracker-card-settings-row {

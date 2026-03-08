@@ -9,21 +9,36 @@ type Props = {
   className?: string;
 };
 
+const strokeProps = {
+  fill: 'none' as const,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+  strokeWidth: 2,
+};
+
 export default function TrackerIconPreview({ iconType, color, size = 28, className = '' }: Props) {
-  const { viewBox, path, fillRule } = getMarkerSvgPath(iconType);
+  const result = getMarkerSvgPath(iconType);
   const safeColor = color.replace(/[^#0-9A-Fa-f]/g, '') || '#f97316';
+  const isStroke = 'stroke' in result && result.stroke && result.paths;
   return (
     <svg
       width={size}
       height={size}
-      viewBox={viewBox}
-      fill={safeColor}
+      viewBox={result.viewBox}
+      fill={isStroke ? undefined : safeColor}
+      stroke={isStroke ? safeColor : undefined}
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       style={{ display: 'block', flexShrink: 0 }}
       aria-hidden
     >
-      <path d={path} fillRule={fillRule} />
+      {isStroke
+        ? result.paths!.map((d, i) => (
+            <path key={i} d={d} stroke={safeColor} {...strokeProps} />
+          ))
+        : (
+            <path d={result.path!} fillRule={result.fillRule} />
+          )}
     </svg>
   );
 }

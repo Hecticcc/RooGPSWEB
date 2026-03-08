@@ -483,7 +483,7 @@ export default function DeviceDetail() {
             <span>Dashboard</span>
           </Link>
           <div className="device-view-title-row">
-            <h1 className="device-view-title">{device.name || device.id}{device.model_name ? <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.85em' }}> · {device.model_name}</span> : null}</h1>
+            <h1 className="device-view-title">{device.name || device.id}{device.model_name ? <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.78em' }}> · {device.model_name}</span> : null}</h1>
             <button
               type="button"
               onClick={handleRefresh}

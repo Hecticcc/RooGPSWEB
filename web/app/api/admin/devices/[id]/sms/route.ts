@@ -25,11 +25,11 @@ export async function GET(
     return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
   }
 
-  const { data: device } = await admin.from('devices').select('id').eq('id', deviceId).single();
+  const { data: device } = await admin.from('devices').select('id, sim_iccid').eq('id', deviceId).single();
   if (!device) {
     return NextResponse.json({ error: 'Device not found' }, { status: 404 });
   }
-
+  const deviceIccid = (device as { sim_iccid?: string | null }).sim_iccid?.trim() ?? null;
   const { data: token } = await admin
     .from('activation_tokens')
     .select('sim_iccid')
@@ -37,14 +37,15 @@ export async function GET(
     .not('sim_iccid', 'is', null)
     .limit(1)
     .maybeSingle();
-  const iccid = (token as { sim_iccid?: string } | null)?.sim_iccid?.trim();
+  const tokenIccid = (token as { sim_iccid?: string } | null)?.sim_iccid?.trim() ?? null;
+  const iccid = deviceIccid ?? tokenIccid ?? null;
   if (!iccid) {
     return NextResponse.json({
       sms: [],
       cursor: null,
       has_more: false,
       count: 0,
-      message: 'No SIM ICCID for this device (activation_tokens).',
+      message: 'No SIM ICCID for this device.',
     });
   }
 

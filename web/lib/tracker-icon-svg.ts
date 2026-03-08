@@ -2,11 +2,42 @@
  * Shared SVG path data for tracker map markers and icon picker.
  * Each icon matches the type used on the map (car, truck, caravan, etc.).
  */
-export const TRACKER_ICON_IDS = ['car', 'car_alt', 'caravan', 'trailer', 'truck', 'misc'] as const;
+export const TRACKER_ICON_IDS = ['car', 'car_alt', 'caravan', 'trailer', 'truck', 'misc', 'toolbox', 'motorbike', 'scooter'] as const;
 export type TrackerIconId = (typeof TRACKER_ICON_IDS)[number];
 
-export function getMarkerSvgPath(iconType: string): { viewBox: string; path: string; fillRule?: 'evenodd' } {
+export type MarkerSvgResult =
+  | { viewBox: string; path: string; fillRule?: 'evenodd'; paths?: never; stroke?: never }
+  | { viewBox: string; paths: string[]; stroke: true; path?: never; fillRule?: never };
+
+export function getMarkerSvgPath(iconType: string): MarkerSvgResult {
   switch (iconType) {
+    case 'toolbox':
+      // Font Awesome solid toolbox (viewBox 0 0 512 512)
+      return {
+        viewBox: '0 0 512 512',
+        path: 'M176 56v40h160V88c0-4.4-3.6-8-8-8H184c-4.4 0-8 3.6-8 8zm-48 40V88c0-30.9 25.1-56 56-56h144c30.9 0 56 25.1 56 56v40h28.1c12.7 0 24.9 5.1 33.9 14.1l51.9 51.9c9 9 14.1 21.2 14.1 33.9V304H384V288c0-17.7-14.3-32-32-32s-32 14.3-32 32v16H192V288c0-17.7-14.3-32-32-32s-32 14.3-32 32v16H0V227.9c0-12.7 5.1-24.9 14.1-33.9l51.9-51.9c9-9 21.2-14.1 33.9-14.1H128zM0 416V336h136v16c0 17.7 14.3 32 32 32s32-14.3 32-32v-16h144v16c0 17.7 14.3 32 32 32s32-14.3 32-32v-16h136v80c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64z',
+        fillRule: 'evenodd',
+      };
+    case 'motorbike':
+      // Lucide motorbike (stroke icon, viewBox 0 0 24 24) – path + two circles as paths
+      return {
+        viewBox: '0 0 24 24',
+        stroke: true,
+        paths: [
+          'm18 14-1-3',
+          'm3 9 6 2a2 2 0 0 1 2-2h2a2 2 0 0 1 1.99 1.81',
+          'M8 17h3a1 1 0 0 0 1-1 6 6 0 0 1 6-6 1 1 0 0 0 1-1v-.75A5 5 0 0 0 17 5',
+          'M19 14a 3 3 0 1 0 0 6a 3 3 0 1 0 0-6z',
+          'M5 14a 3 3 0 1 0 0 6a 3 3 0 1 0 0-6z',
+        ],
+      };
+    case 'scooter':
+      // Remix Icon e-bike-2-fill (scooter / e-bike, viewBox 0 0 24 24)
+      return {
+        viewBox: '0 0 24 24',
+        path: 'M16 1C16.5523 1 17 1.44772 17 2V3H22V9H19.981L22.7271 16.5448C22.9033 16.9958 23 17.4866 23 18C23 20.2091 21.2091 22 19 22C17.1362 22 15.5701 20.7252 15.126 19H10.874C10.4299 20.7252 8.86384 22 7 22C5.05551 22 3.43508 20.6125 3.07474 18.7736C2.43596 18.4396 2 17.7707 2 17V7C2 6.44772 2.44772 6 3 6H10C10.5523 6 11 6.44772 11 7V12C11 12.5523 11.4477 13 12 13H14C14.5523 13 15 12.5523 15 12V3H12V1H16ZM19 16C17.8954 16 17 16.8954 17 18C17 19.1046 17.8954 20 19 20C20.1046 20 21 19.1046 21 18C21 17.7597 20.9576 17.5292 20.8799 17.3158L20.8635 17.2724C20.5725 16.5276 19.8479 16 19 16ZM7 16C5.89543 16 5 16.8954 5 18C5 19.1046 5.89543 20 7 20C8.10457 20 9 19.1046 9 18C9 16.8954 8.10457 16 7 16ZM9 8H4V10H9V8ZM20 5H17V7H20V5Z',
+        fillRule: 'evenodd',
+      };
     case 'car_alt':
       return {
         viewBox: '0 0 24 24',

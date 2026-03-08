@@ -3,6 +3,9 @@ import { getSupportAuth, getServiceRoleClient } from '../auth';
 import { SUPPORT_TICKET_LIST_PAGE_SIZE, SUPPORT_TICKET_SUBJECT_MAX_LENGTH, SUPPORT_TICKET_DESCRIPTION_MAX_LENGTH } from '@/lib/support/constants';
 import type { SupportTicketStatus, SupportTicketPriority, SupportCategory } from '@/lib/support/types';
 import { SUPPORT_TICKET_STATUSES, SUPPORT_TICKET_PRIORITIES } from '@/lib/support/types';
+import { scheduleEmailEvent } from '@/lib/email/emailDispatcher';
+import { EMAIL_EVENTS } from '@/lib/email/emailEvents';
+import { getEmailForUserId, getStaffNotificationEmails } from '@/lib/email/getRecipients';
 
 const PAGE_SIZE = SUPPORT_TICKET_LIST_PAGE_SIZE;
 
@@ -79,7 +82,7 @@ export async function GET(request: Request) {
         if (!assignmentsByTicket[row.ticket_id]) assignmentsByTicket[row.ticket_id] = [];
         assignmentsByTicket[row.ticket_id].push(row.user_id);
       }
-      const assignedIds = [...new Set((assignments ?? []).map((a: { user_id: string }) => a.user_id))];
+      const assignedIds = Array.from(new Set((assignments ?? []).map((a: { user_id: string }) => a.user_id)));
       if (assignedIds.length > 0) {
         const { data: profiles } = await admin
           .from('profiles')
@@ -93,10 +96,9 @@ export async function GET(request: Request) {
       }
     }
     enrichedTickets = enrichedTickets.map((t) => {
-      const tid = t as { id: string; assigned_to_name?: string };
-      const userIds = assignmentsByTicket[tid.id] ?? [];
+      const userIds = assignmentsByTicket[(t as { id: string }).id] ?? [];
       const names = userIds.map((uid) => nameByUserId[uid] ?? 'Staff').filter(Boolean);
-      return { ...tid, assigned_to_name: names.length > 0 ? names.join(', ') : null };
+      return { ...t, assigned_to_name: names.length > 0 ? names.join(', ') : null };
     });
   }
 
@@ -196,6 +198,33 @@ export async function POST(request: Request) {
     actor_user_id: auth.userId,
     new_value: subject,
   });
+
+  // Transactional emails (fire-and-forget)
+  const customerEmail = await getEmailForUserId(auth.userId);
+  const replyPreview = description.length > 200 ? description.slice(0, 197) + '...' : description;
+  const basePayload = {
+    ticketId: String(ticket.id),
+    ticketNumber: ticket.ticket_number ?? `#${ticket.id}`,
+    subject,
+    status: 'open',
+    priority,
+    category,
+    replyPreview,
+  };
+  if (customerEmail) {
+    scheduleEmailEvent(EMAIL_EVENTS.TICKET_CREATED_CUSTOMER, {
+      ...basePayload,
+      recipientEmail: customerEmail,
+    });
+  }
+  const staffEmails = await getStaffNotificationEmails();
+  for (const email of staffEmails) {
+    if (email === customerEmail) continue;
+    scheduleEmailEvent(EMAIL_EVENTS.TICKET_CREATED_STAFF, {
+      ...basePayload,
+      recipientEmail: email,
+    });
+  }
 
   return NextResponse.json({ ticket: { id: ticket.id, ticket_number: ticket.ticket_number, created_at: ticket.created_at } });
 }

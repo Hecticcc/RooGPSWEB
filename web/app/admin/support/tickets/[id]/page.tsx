@@ -39,9 +39,9 @@ type Attachment = { id: string; file_name: string; mime_type: string | null; fil
 type Context = {
   profile: { first_name: string | null; last_name: string | null; mobile: string | null } | null;
   email: string | null;
-  device: { id: string; name: string | null; last_seen_at: string | null } | null;
+  device: { id: string; name: string | null; last_seen_at: string | null; model_name?: string | null } | null;
   order: { id: string; status: string; created_at: string } | null;
-  devices: { id: string; name: string | null; last_seen_at: string | null }[];
+  devices: { id: string; name: string | null; last_seen_at: string | null; model_name?: string | null }[];
   subscriptions: { id: string; order_number: string | null; status: string; billing_state_normalized: string | null; stripe_subscription_id: string | null }[];
 };
 type StaffMember = { id: string; first_name: string | null; last_name: string | null };

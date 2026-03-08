@@ -43,7 +43,7 @@ SELECT count(*) AS would_delete
 
 -- 3) Delete duplicates (keep trip with latest ended_at per device/start-window; ties broken by id)
 -- Uncomment the block below to run the actual delete.
-/*
+*
 DELETE FROM public.trips t
 WHERE EXISTS (
   SELECT 1 FROM public.trips o

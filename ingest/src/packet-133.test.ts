@@ -8,8 +8,12 @@ import {
   decodePacket133,
   parsePacket133Line,
   parseAnalogBlock,
+  parseVoltageBlock,
+  parseIstartekHeader,
   decodeStatusFlags,
+  decodeSystemStatus,
   interpretTelemetryByModel,
+  normalizeRgWf1Telemetry,
   estimateBackupBatteryPercent,
 } from './packet-133';
 
@@ -20,6 +24,8 @@ function ok(cond: boolean, msg: string) {
 // Fixtures from requirements
 const FIXTURE_NORMAL =
   '&&:133,868373079971794,000,0,,260308035512,A,-38.058221,145.254826,24,0.6,0,4,37,5,505|2|D070|014BD032,24,003D,00,00,052B|0163|0000|0000,1,F9';
+const FIXTURE_EQUALS =
+  '&&=133,868373079971794,000,0,,260308065927,A,-38.058156,145.254798,24,0.7,0,4,41,9,505|2|D070|014BD032,22,003D,00,00,052E|0192|0000|0000,1,1B';
 const FIXTURE_C =
   '&&C133,868373079971794,000,0,,260308055126,A,-38.058156,145.254798,24,0.7,0,4,41,9,505|2|D070|014BD032,22,003D,00,00,052B|0179|0000|0000,1,19';
 const FIXTURE_B =
@@ -27,31 +33,58 @@ const FIXTURE_B =
 const FIXTURE_A =
   '&&A133,868373079971794,000,0,,260308055106,A,-38.058156,145.254798,24,0.7,0,4,41,9,505|2|D070|014BD032,22,003D,00,00,052B|0179|0000|0000,1,15';
 
+// Exact samples from protocol (speed=0, satellites=24, voltage block 052B|0194 etc.)
+const FIXTURE_V =
+  '&&V133,868373079971794,000,0,,260308070337,A,-38.058156,145.254798,24,0.7,0,4,41,9,505|2|D070|014BD032,21,003D,00,00,052B|0194|0000|0000,1,29';
+const FIXTURE_U =
+  '&&U133,868373079971794,000,0,,260308070327,A,-38.058156,145.254798,24,0.7,0,4,41,9,505|2|D070|014BD032,20,003D,00,00,052E|0194|0000|0000,1,29';
+const FIXTURE_T =
+  '&&T133,868373079971794,000,0,,260308070317,A,-38.058156,145.254798,24,0.7,0,4,41,9,505|2|D070|014BD032,20,003D,00,00,0529|0194|0000|0000,1,1B';
+const FIXTURE_S =
+  '&&S133,868373079971794,000,0,,260308070307,A,-38.058156,145.254798,24,0.7,0,4,41,9,505|2|D070|014BD032,22,003D,00,00,052E|0194|0000|0000,1,27';
+
+// --- Header: packNo + packetLength (per iStartek protocol) ---
+const h = parseIstartekHeader('&&V133,868373079971794,000,0,,260308070337,A,-38.058156,145.254798,24,0.7,0,4,41,9,505|2|D070|014BD032,21,003D,00,00,052B|0194|0000|0000,1,29');
+ok(h != null && h.packetNo === 'V' && h.packetLength === 133 && h.packetHeader === '&&V133', 'parseIstartekHeader &&V133');
+ok(parseIstartekHeader('&&:122,xxx') === null, 'header 122 returns null (only 133 accepted)');
+
 // --- Prefix / priority ---
 const dNormal = decodePacket133(FIXTURE_NORMAL);
 ok(dNormal != null, 'decodePacket133 normal');
 ok(dNormal!.packetType === '133', 'packetType 133');
+ok(dNormal!.packetHeader === '&&:133', 'packetHeader');
+ok(dNormal!.packetNo === ':', 'packetNo colon');
+ok(dNormal!.packetLength === 133, 'packetLength 133');
+ok(dNormal!.commandCode === '000', 'commandCode 000');
 ok(dNormal!.packetPriority === 'normal', 'priority normal');
 
-const dC = decodePacket133(FIXTURE_C);
-ok(dC != null && dC.packetPriority === 'C', 'priority C');
-const dB = decodePacket133(FIXTURE_B);
-ok(dB != null && dB.packetPriority === 'B', 'priority B');
-const dA = decodePacket133(FIXTURE_A);
-ok(dA != null && dA.packetPriority === 'A', 'priority A');
+const dEquals = decodePacket133(FIXTURE_EQUALS);
+ok(dEquals != null, 'decodePacket133 &&=133');
+ok(dEquals!.packetNo === '=', 'packetNo equals');
+ok(dEquals!.packetPriority === 'normal', '&&=133 maps to priority normal');
+ok(dEquals!.rawAnalogBlock === '052E|0192|0000|0000', '&&=133 analog block');
 
-// --- Base fields ---
+const dC = decodePacket133(FIXTURE_C);
+ok(dC != null && dC.packetNo === 'C' && dC.packetPriority === 'C', 'priority C');
+const dB = decodePacket133(FIXTURE_B);
+ok(dB != null && dB.packetNo === 'B' && dB.packetPriority === 'B', 'priority B');
+const dA = decodePacket133(FIXTURE_A);
+ok(dA != null && dA.packetNo === 'A' && dA.packetPriority === 'A', 'priority A');
+
+// --- Base fields (correct iStartek order: satQuantity=8, hdop=9, speed=10, course=11, altitude=12, ...) ---
 ok(dNormal!.imei === '868373079971794', 'imei');
 ok(dNormal!.timestamp != null && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(dNormal!.timestamp), 'timestamp ISO');
 ok(dNormal!.gpsValid === true, 'gpsValid A');
 ok(dNormal!.latitude === -38.058221, 'latitude');
 ok(dNormal!.longitude === 145.254826, 'longitude');
-ok(dNormal!.speedKph === 24, 'speedKph');
-ok(dNormal!.satellites === 4, 'satellites');
-ok(dNormal!.gsmSignalRaw === 37, 'gsmSignalRaw');
+ok(dNormal!.satQuantity === 24, 'satQuantity 24 (not speed)');
+ok(dNormal!.hdop === 0.6, 'hdop 0.6');
+ok(dNormal!.speedKph === 0, 'speedKph 0 (was wrongly 24)');
+ok(dNormal!.courseDeg === 4, 'courseDeg 4');
+ok(dNormal!.csq === 24, 'csq 24');
 ok(dNormal!.rawStatusFlags === '003D', 'rawStatusFlags');
 ok(dNormal!.rawAnalogBlock === '052B|0163|0000|0000', 'rawAnalogBlock');
-ok(dNormal!.rawAlarmCode === '1', 'rawAlarmCode');
+ok(dNormal!.rawAlarmCode === '0', 'rawAlarmCode alarm code field');
 ok(dNormal!.checksum === 'F9', 'checksum');
 
 // --- Malformed ---
@@ -60,12 +93,51 @@ ok(decodePacket133('&&:122,xxx') === null, 'non-133 null');
 ok(decodePacket133('&&:133,short') === null, 'too few tokens null');
 ok(decodePacket133('&&:133,not_an_imei_12_digits,000,0,,260308035512,A,-38,145,24,0.6,0,4,37,5,cell,24,003D,00,00,052B|0163|0000|0000,1,F9') === null, 'invalid imei null');
 
-// --- Status flags ---
+// --- V/U/T/S packet assertions (per protocol) ---
+for (const [name, fixture, expectedPackNo] of [
+  ['V', FIXTURE_V, 'V'],
+  ['U', FIXTURE_U, 'U'],
+  ['T', FIXTURE_T, 'T'],
+  ['S', FIXTURE_S, 'S'],
+] as const) {
+  const d = decodePacket133(fixture);
+  ok(d != null, `decode ${name}`);
+  ok(d!.packetNo === expectedPackNo, `${name} packetNo`);
+  ok(d!.packetLength === 133, `${name} packetLength 133`);
+  ok(d!.commandCode === '000', `${name} commandCode 000`);
+  ok(d!.speedKph === 0, `${name} speedKph 0`);
+  ok(d!.satQuantity === 24, `${name} satellites 24`);
+  ok(d!.hdop === 0.7, `${name} hdop 0.7`);
+  const norm = d && normalizeRgWf1Telemetry(d);
+  ok(norm != null, `${name} normalizeRgWf1Telemetry`);
+  ok(norm!.externalPowerVoltage != null && norm!.externalPowerVoltage > 10, `${name} externalPowerVoltage`);
+  ok(norm!.backupBatteryVoltage != null && norm!.backupBatteryVoltage > 3, `${name} backupBatteryVoltage`);
+  ok(norm!.externalPowerConnected === true, `${name} externalPowerConnected from 003D`);
+  ok(norm!.stopped === true, `${name} stopped from 003D`);
+}
+
+// --- System status decode (003D = 61: bits 0,1,2,3,4,5 set => stopped, external power, gps valid, etc.) ---
+const sysSta = decodeSystemStatus('003D');
+ok(sysSta != null, 'decodeSystemStatus');
+ok(sysSta!.raw === '003D' && sysSta!.numeric === 61, '003D numeric 61');
+ok(sysSta!.externalPowerConnected === true, '003D bit3 external power');
+ok(sysSta!.gpsValidBit === true, '003D bit2 GPS valid');
+ok(sysSta!.stopped === true, '003D bit5 stopped');
+
+// --- Status flags (legacy) ---
 const status = decodeStatusFlags('003D', 'RG_WF1');
 ok(status != null, 'decodeStatusFlags');
 ok(status!.raw === '003D', 'status raw');
 ok(status!.decimal === 61, '003D decimal 61');
 ok(status!.binary.length <= 16, 'status binary');
+
+// --- Voltage block (hex/100) ---
+const vb = parseVoltageBlock('052B|0194|0000|0000');
+ok(vb != null, 'parseVoltageBlock');
+ok(vb!.externalPowerRaw === '052B' && vb!.backupBatteryRaw === '0194', 'voltage block raw');
+ok(vb!.externalPowerVoltage === 13.23, '052B => 13.23V');
+ok(vb!.backupBatteryVoltage === 4.04, '0194 => 4.04V');
+ok(parseVoltageBlock('') === null, 'voltage block empty null');
 
 // --- Analog block ---
 const analog = parseAnalogBlock('052B|0163|0000|0000');

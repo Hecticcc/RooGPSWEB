@@ -1,36 +1,59 @@
 /**
- * Dedicated decoder for iStartek/VT-style packet type 133 (RG-WF1 and similar).
- * Prefixes: &&:133, &&A133, &&B133, &&C133 — normalized to packetType "133" and packetPriority.
- * Decoding is isolated here so bit mappings and formulas can be adjusted after real-device validation.
+ * iStartek protocol decoder for packet length 133 (RG-WF1 wired tracker and similar).
  *
- * CONFIRMED: Prefix regex and priority mapping; comma-split field order; analog block format (4 pipe-separated hex values);
- *   hex-to-voltage assumption V*100 for external/backup; Li-ion 1S voltage-to-percent curve for backup.
- * PROVISIONAL: Status flag bit mapping (STATUS_BIT_MAPS.RG_WF1) — TODO validate with real RG-WF1 packets.
- * PROVISIONAL: Field indices (e.g. which index is heading vs hdop) — TODO align with protocol doc.
- * TODO: Confirm ACC/ignition bit index; confirm external power bit index; calibrate backup percent if needed.
+ * Header: &&<pack-no><pack-len>, e.g. &&V133, &&:133, &&=133, &&A133 — the character after && is
+ * packet sequence number (packNo), the digits are packet length (133). The actual report type is
+ * in the cmd field (000 = ordinary positioning, 010 = with ack, 020 = compressed, 030 = heartbeat).
+ *
+ * Field order after header: deviceId, commandCode, alarmCode, alarmData, date-time, fix_flag,
+ * latitude, longitude, satQuantity, hdop, speed, course, altitude, odometer, cellBlock, csq,
+ * system-sta, in-sta, out-sta, voltageBlock, pro-code, [fuel], [temp], checksum.
+ *
+ * Voltage block: 4 hex values pipe-separated; voltage = hex / 100 (e.g. 052B => 13.23V).
+ * System status: hex bitmask; bits 0–8 per protocol (GPRS IP1/IP2, GPS valid, external power, etc.).
+ *
+ * PROVISIONAL: Backup battery percent from voltage uses a Li-ion 1S curve; may need tuning for device.
  */
 
 import { DateTime } from 'luxon';
 
 const DEVICE_TIMEZONE = process.env.DEVICE_TIMEZONE ?? 'Australia/Melbourne';
 
-// --- Prefix normalization (confirmed) ---
+// --- Header: pack-no (single char) + pack-len (digits). Only packet length 133 is decoded here. ---
 
+export type IstartekHeader = {
+  packetHeader: string;
+  packetNo: string;
+  packetLength: number;
+  body: string;
+};
+
+const HEADER_REGEX = /^&&(.)(\d+),/;
+
+/**
+ * Parse iStartek packet header. Character after && is packet sequence (packNo), digits are length.
+ * Returns null if not &&<char><digits>, or if packetLength !== 133 (this decoder only handles 133).
+ */
+export function parseIstartekHeader(rawPacket: string): IstartekHeader | null {
+  const trimmed = rawPacket.trim();
+  const match = trimmed.match(HEADER_REGEX);
+  if (!match) return null;
+  const packetNo = match[1];
+  const packetLength = parseInt(match[2], 10);
+  if (packetLength !== 133) return null;
+  const packetHeader = match[0].replace(/,$/, '');
+  const body = trimmed.slice(match[0].length);
+  return { packetHeader, packetNo, packetLength, body };
+}
+
+/** Backward compatibility: map packetNo to legacy priority label for existing consumers. */
 export type PacketPriority = 'normal' | 'A' | 'B' | 'C';
 
-const PREFIX_REGEX = /^&&(:|A|B|C)?133,/;
-
-function normalizePrefix(raw: string): { priority: PacketPriority; body: string } | null {
-  const trimmed = raw.trim();
-  const match = trimmed.match(PREFIX_REGEX);
-  if (!match) return null;
-  const priorityChar = match[1];
-  const priority: PacketPriority =
-    priorityChar === undefined || priorityChar === ':'
-      ? 'normal'
-      : (priorityChar as 'A' | 'B' | 'C');
-  const body = trimmed.slice(match[0].length);
-  return { priority, body };
+function packetNoToPriority(packetNo: string): PacketPriority {
+  if (packetNo === 'A') return 'A';
+  if (packetNo === 'B') return 'B';
+  if (packetNo === 'C') return 'C';
+  return 'normal';
 }
 
 // --- GPS time: 12-digit DDMMYYHHMMSS as UTC -> ISO (reuse same convention as parser) ---
@@ -49,61 +72,75 @@ function parseGpsTimeUtc(token: string): string | null {
   return d.toISOString();
 }
 
-// --- Field indices for 133 (approximate; adjust if protocol doc differs) ---
-// Order: imei, protocol, msgIndex, blank, timestamp, gpsValid, lat, lon, speed, hdopOrQuality, altitude, satellites, gsmSignal, ?, cellBlock, ?, statusFlags, io1, io2, analogBlock, alarmCode, checksum
+// --- Field indices per iStartek protocol (after header) ---
+// deviceId, commandCode, alarmCode, alarmData, date-time, fix_flag, lat, lon, satQuantity, hdop, speed, course, altitude, odometer, cellBlock, csq, system-sta, in-sta, out-sta, voltageBlock, pro-code, [fuel], [temp], checksum
 
-const IDX_IMEI = 0;
-const IDX_PROTOCOL = 1;
-const IDX_MSG_INDEX = 2;
-const IDX_BLANK = 3;
+const IDX_DEVICE_ID = 0;
+const IDX_CMD = 1;
+const IDX_ALARM_CODE = 2;
+const IDX_ALARM_DATA = 3;
 const IDX_TIMESTAMP = 4;
-const IDX_GPS_VALID = 5;
+const IDX_FIX_FLAG = 5;
 const IDX_LAT = 6;
 const IDX_LON = 7;
-const IDX_SPEED = 8;
+const IDX_SAT_QUANTITY = 8;
 const IDX_HDOP = 9;
-const IDX_ALTITUDE = 10;
-const IDX_SATELLITES = 11;
-const IDX_GSM = 12;
+const IDX_SPEED = 10;
+const IDX_COURSE = 11;
+const IDX_ALTITUDE = 12;
+const IDX_ODOMETER = 13;
 const IDX_CELL_BLOCK = 14;
-const IDX_STATUS_FLAGS = 16;
-const IDX_IO1 = 17;
-const IDX_IO2 = 18;
-const IDX_ANALOG_BLOCK = 19;
-const IDX_ALARM_CODE = 20;
+const IDX_CSQ = 15;
+const IDX_SYSTEM_STA = 16;
+const IDX_IN_STA = 17;
+const IDX_OUT_STA = 18;
+const IDX_VOLTAGE_BLOCK = 19;
+const IDX_PRO_CODE = 20;
 const IDX_CHECKSUM = 21;
 
-const MIN_TOKENS_133 = 20;
+const MIN_TOKENS_133 = 22;
 
-// --- Decoded base packet (confirmed parsing) ---
+// --- Decoded base packet (iStartek 133 field order) ---
 
 export type DecodedPacket133 = {
   rawPacket: string;
   packetType: '133';
+  packetHeader: string;
+  packetNo: string;
+  packetLength: number;
+  /** Legacy: same as packetNo mapped to normal/A/B/C for backward compat. */
   packetPriority: PacketPriority;
+  commandCode: string;
   imei: string;
+  alarmCode: string | null;
+  alarmData: string | null;
   timestamp: string | null;
   gpsValid: boolean | null;
   latitude: number | null;
   longitude: number | null;
+  satQuantity: number | null;
+  hdop: number | null;
   speedKph: number | null;
-  headingDeg: number | null;
+  courseDeg: number | null;
   altitudeMeters: number | null;
-  satellites: number | null;
-  gpsQualityRaw: number | null;
-  gsmSignalRaw: number | null;
+  odometerMeters: number | null;
   cellInfo: {
     mcc: string | null;
     mnc: string | null;
     lac: string | null;
     cellId: string | null;
   };
+  csq: number | null;
+  rawSystemStatus: string | null;
+  rawInputStatus: string | null;
+  rawOutputStatus: string | null;
+  rawAnalogBlock: string | null;
+  analogValues: string[];
+  protocolVersion: string | null;
   rawBatteryField: string | null;
   rawStatusFlags: string | null;
   rawIo1: string | null;
   rawIo2: string | null;
-  rawAnalogBlock: string | null;
-  analogValues: string[];
   rawAlarmCode: string | null;
   checksum: string | null;
 };
@@ -126,35 +163,47 @@ function clampLatLon(lat: number, lon: number): { lat: number; lon: number } | n
 }
 
 /**
+ * Parse comma-separated body into field map. Used by decodePacket133.
+ */
+export function parseIstartekFields(body: string): string[] {
+  return body.split(',').map((s) => s.trim());
+}
+
+/**
  * Decode base 133 packet into normalized structure. Returns null if not 133 or malformed.
+ * Uses correct iStartek field order: satQuantity at 8, hdop at 9, speed at 10, course at 11, etc.
  */
 export function decodePacket133(rawLine: string): DecodedPacket133 | null {
-  const norm = normalizePrefix(rawLine);
-  if (!norm) return null;
-  const { priority, body } = norm;
-  const tokens = body.split(',').map((s) => s.trim());
+  const header = parseIstartekHeader(rawLine);
+  if (!header) return null;
+  const { packetHeader, packetNo, packetLength, body } = header;
+  const tokens = parseIstartekFields(body);
   if (tokens.length < MIN_TOKENS_133) return null;
 
-  const imei = tokens[IDX_IMEI] ?? '';
+  const imei = tokens[IDX_DEVICE_ID] ?? '';
   if (!/^\d{12,20}$/.test(imei)) return null;
 
+  const commandCode = tokens[IDX_CMD] ?? '';
   const tsToken = tokens[IDX_TIMESTAMP];
   const timestamp = tsToken ? parseGpsTimeUtc(tsToken) : null;
-  const gpsValidToken = tokens[IDX_GPS_VALID];
-  const gpsValid = gpsValidToken === 'A' ? true : gpsValidToken === 'V' ? false : null;
+  const fixFlag = tokens[IDX_FIX_FLAG];
+  const gpsValid = fixFlag === 'A' ? true : fixFlag === 'V' ? false : null;
   const lat = safeFloat(tokens[IDX_LAT]);
   const lon = safeFloat(tokens[IDX_LON]);
   const latLon = lat != null && lon != null ? clampLatLon(lat, lon) : null;
-  const speed = safeFloat(tokens[IDX_SPEED]);
+  const satQuantity = safeInt(tokens[IDX_SAT_QUANTITY]);
   const hdop = safeFloat(tokens[IDX_HDOP]);
-  const headingRaw = safeFloat(tokens[IDX_HDOP]);
-  const headingDeg = headingRaw != null && headingRaw >= 1 && headingRaw <= 360 ? headingRaw : null;
+  const speed = safeFloat(tokens[IDX_SPEED]);
+  const courseDeg = safeFloat(tokens[IDX_COURSE]);
   const altitude = safeFloat(tokens[IDX_ALTITUDE]);
-  const sats = safeInt(tokens[IDX_SATELLITES]);
-  const gsm = safeInt(tokens[IDX_GSM]);
-  const rawStatusFlags = tokens[IDX_STATUS_FLAGS] ?? null;
-  const rawAnalogBlock = tokens[IDX_ANALOG_BLOCK] ?? null;
+  const odometer = safeFloat(tokens[IDX_ODOMETER]);
+  const csq = safeInt(tokens[IDX_CSQ]);
+  const rawSystemStatus = tokens[IDX_SYSTEM_STA] ?? null;
+  const rawInputStatus = tokens[IDX_IN_STA] ?? null;
+  const rawOutputStatus = tokens[IDX_OUT_STA] ?? null;
+  const rawAnalogBlock = tokens[IDX_VOLTAGE_BLOCK] ?? null;
   const analogParsed = rawAnalogBlock ? parseAnalogBlock(rawAnalogBlock) : null;
+  const protocolVersion = tokens[IDX_PRO_CODE] ?? null;
 
   const cellBlock = tokens[IDX_CELL_BLOCK] ?? '';
   const cellInfo = parseCellBlock(cellBlock);
@@ -162,31 +211,91 @@ export function decodePacket133(rawLine: string): DecodedPacket133 | null {
   return {
     rawPacket: rawLine.trim(),
     packetType: '133',
-    packetPriority: priority,
+    packetHeader,
+    packetNo,
+    packetLength,
+    packetPriority: packetNoToPriority(packetNo),
+    commandCode,
     imei,
+    alarmCode: tokens[IDX_ALARM_CODE] ?? null,
+    alarmData: tokens[IDX_ALARM_DATA] ?? null,
     timestamp,
     gpsValid,
     latitude: latLon?.lat ?? null,
     longitude: latLon?.lon ?? null,
+    satQuantity: satQuantity != null && satQuantity >= 0 ? satQuantity : null,
+    hdop: hdop != null && hdop >= 0 ? hdop : null,
     speedKph: speed != null && speed >= 0 && speed <= 500 ? speed : null,
-    headingDeg: headingDeg != null && headingDeg >= 0 && headingDeg <= 360 ? headingDeg : null,
+    courseDeg: courseDeg != null && courseDeg >= 0 && courseDeg <= 360 ? courseDeg : null,
     altitudeMeters: altitude,
-    satellites: sats != null && sats >= 0 ? sats : null,
-    gpsQualityRaw: hdop,
-    gsmSignalRaw: gsm != null && gsm >= 0 ? gsm : null,
+    odometerMeters: odometer,
     cellInfo,
-    rawBatteryField: rawAnalogBlock,
-    rawStatusFlags,
-    rawIo1: tokens[IDX_IO1] ?? null,
-    rawIo2: tokens[IDX_IO2] ?? null,
+    csq: csq != null && csq >= 0 ? csq : null,
+    rawSystemStatus,
+    rawInputStatus,
+    rawOutputStatus,
     rawAnalogBlock,
     analogValues: analogParsed?.values ?? [],
+    protocolVersion,
+    rawBatteryField: rawAnalogBlock,
+    rawStatusFlags: rawSystemStatus,
+    rawIo1: rawInputStatus,
+    rawIo2: rawOutputStatus,
     rawAlarmCode: tokens[IDX_ALARM_CODE] ?? null,
     checksum: tokens[IDX_CHECKSUM] ?? null,
   };
 }
 
-// --- Analog block (provisional: hex values may be V*100 or other encoding) ---
+// --- Voltage block: 4 pipe-separated hex values; voltage = hex / 100 (per protocol) ---
+
+export type ParsedVoltageBlock = {
+  raw: string;
+  externalPowerRaw: string;
+  backupBatteryRaw: string;
+  ad1Raw: string;
+  ad2Raw: string;
+  externalPowerVoltage: number | null;
+  backupBatteryVoltage: number | null;
+  ad1Voltage: number | null;
+  ad2Voltage: number | null;
+};
+
+function hexToInt(hex: string): number | null {
+  const n = parseInt(hex, 16);
+  return Number.isNaN(n) ? null : n;
+}
+
+/** Voltage = hex value / 100. E.g. 052B => 1323 => 13.23V (per iStartek protocol). */
+export function hexToVoltage(hex: string): number | null {
+  const n = hexToInt(hex);
+  if (n == null) return null;
+  return Math.round((n / 100) * 100) / 100;
+}
+
+/**
+ * Parse voltage block "052B|0194|0000|0000" into raw hex strings and voltages (hex/100).
+ */
+export function parseVoltageBlock(raw: string): ParsedVoltageBlock | null {
+  const parts = raw.split('|').map((s) => s.trim());
+  if (parts.length < 4) return null;
+  const externalPowerRaw = parts[0] ?? '0000';
+  const backupBatteryRaw = parts[1] ?? '0000';
+  const ad1Raw = parts[2] ?? '0000';
+  const ad2Raw = parts[3] ?? '0000';
+  return {
+    raw,
+    externalPowerRaw,
+    backupBatteryRaw,
+    ad1Raw,
+    ad2Raw,
+    externalPowerVoltage: hexToVoltage(externalPowerRaw),
+    backupBatteryVoltage: hexToVoltage(backupBatteryRaw),
+    ad1Voltage: hexToVoltage(ad1Raw),
+    ad2Voltage: hexToVoltage(ad2Raw),
+  };
+}
+
+// --- Analog block (alias for backward compat; same as voltage block) ---
 
 export type ParsedAnalogBlock = {
   raw: string;
@@ -200,25 +309,18 @@ export type ParsedAnalogBlock = {
 };
 
 export function parseAnalogBlock(raw: string): ParsedAnalogBlock | null {
-  const parts = raw.split('|').map((s) => s.trim());
-  if (parts.length < 4) return null;
+  const v = parseVoltageBlock(raw);
+  if (!v) return null;
   return {
-    raw,
-    values: parts,
+    raw: v.raw,
+    values: [v.externalPowerRaw, v.backupBatteryRaw, v.ad1Raw, v.ad2Raw],
     parsed: {
-      externalPowerRaw: parts[0] ?? '0000',
-      backupBatteryRaw: parts[1] ?? '0000',
-      input3Raw: parts[2] ?? '0000',
-      input4Raw: parts[3] ?? '0000',
+      externalPowerRaw: v.externalPowerRaw,
+      backupBatteryRaw: v.backupBatteryRaw,
+      input3Raw: v.ad1Raw,
+      input4Raw: v.ad2Raw,
     },
   };
-}
-
-/** Hex (e.g. 052B) to voltage: provisional assumption V*100 in hex. 0x052B = 1323 => 13.23V. */
-function hexToVoltage(hex: string): number | null {
-  const n = parseInt(hex, 16);
-  if (Number.isNaN(n)) return null;
-  return Math.round((n / 100) * 100) / 100;
 }
 
 /** Same as parser.ts Li-ion 1S curve for backup battery percent. */
@@ -261,8 +363,51 @@ export function estimateBackupBatteryPercent(
   return Math.max(0, Math.min(100, pct));
 }
 
-// --- Status flags: reusable decoder with named bits (provisional mapping) ---
+// --- System status: hex bitmask per iStartek protocol ---
 
+export type SystemStatusDecoded = {
+  raw: string;
+  numeric: number;
+  binary: string;
+  ip1Connected: boolean;
+  ip2Connected: boolean;
+  gpsValidBit: boolean;
+  externalPowerConnected: boolean;
+  gpsAntennaConnected: boolean;
+  stopped: boolean;
+  armed: boolean;
+  rfidLoggedIn: boolean;
+  shedding: boolean;
+};
+
+/**
+ * Decode system-sta hex field. Bits per protocol:
+ * bit0: GPRS connection status of IP1, bit1: GPRS IP2, bit2: GPS valid, bit3: external power connected,
+ * bit4: GPS antenna connected, bit5: stop status (1=stop, 0=move), bit6: armed, bit7: RFID/iButton login, bit8: shedding.
+ */
+export function decodeSystemStatus(rawSystemStatus: string | null): SystemStatusDecoded | null {
+  if (!rawSystemStatus || !/^[0-9A-Fa-f]{2,4}$/.test(rawSystemStatus)) return null;
+  const numeric = parseInt(rawSystemStatus, 16);
+  if (Number.isNaN(numeric)) return null;
+  const bits = Math.min(16, rawSystemStatus.length * 4);
+  const binary = numeric.toString(2).padStart(bits, '0');
+  return {
+    raw: rawSystemStatus,
+    numeric,
+    binary,
+    ip1Connected: ((numeric >> 0) & 1) === 1,
+    ip2Connected: ((numeric >> 1) & 1) === 1,
+    gpsValidBit: ((numeric >> 2) & 1) === 1,
+    externalPowerConnected: ((numeric >> 3) & 1) === 1,
+    gpsAntennaConnected: ((numeric >> 4) & 1) === 1,
+    stopped: ((numeric >> 5) & 1) === 1,
+    armed: ((numeric >> 6) & 1) === 1,
+    rfidLoggedIn: ((numeric >> 7) & 1) === 1,
+    shedding: ((numeric >> 8) & 1) === 1,
+  };
+}
+
+/** Legacy alias for backward compat; uses same bit mapping as decodeSystemStatus for RG-WF1. */
 export type StatusFlagsDecoded = {
   raw: string;
   decimal: number;
@@ -276,40 +421,24 @@ export type StatusFlagsDecoded = {
   };
 };
 
-/** Bit index -> name for RG-WF1. TODO: Confirm with real device / protocol doc. */
-const STATUS_BIT_MAPS: Record<string, { bitIndex: number; flag: keyof StatusFlagsDecoded['flags'] }[]> = {
-  RG_WF1: [
-    { bitIndex: 0, flag: 'accOn' },
-    { bitIndex: 1, flag: 'externalPowerConnected' },
-    { bitIndex: 2, flag: 'charging' },
-    { bitIndex: 3, flag: 'gpsActive' },
-    { bitIndex: 4, flag: 'vibration' },
-  ],
-};
-
 export function decodeStatusFlags(
   rawStatusFlags: string | null,
-  modelCode: string
+  _modelCode: string
 ): StatusFlagsDecoded | null {
-  if (!rawStatusFlags || !/^[0-9A-Fa-f]{2,4}$/.test(rawStatusFlags)) return null;
-  const decimal = parseInt(rawStatusFlags, 16);
-  if (Number.isNaN(decimal)) return null;
-  const bits = Math.min(16, rawStatusFlags.length * 4);
-  const binary = decimal.toString(2).padStart(bits, '0');
-
-  const map = STATUS_BIT_MAPS[modelCode] ?? STATUS_BIT_MAPS.RG_WF1;
-  const flags: StatusFlagsDecoded['flags'] = {
-    accOn: null,
-    externalPowerConnected: null,
-    charging: null,
-    gpsActive: null,
-    vibration: null,
+  const s = decodeSystemStatus(rawStatusFlags);
+  if (!s) return null;
+  return {
+    raw: s.raw,
+    decimal: s.numeric,
+    binary: s.binary,
+    flags: {
+      accOn: null,
+      externalPowerConnected: s.externalPowerConnected,
+      charging: null,
+      gpsActive: s.gpsValidBit,
+      vibration: null,
+    },
   };
-  for (const { bitIndex, flag } of map) {
-    const bit = (decimal >> bitIndex) & 1;
-    (flags as Record<string, boolean | null>)[flag] = bit === 1;
-  }
-  return { raw: rawStatusFlags, decimal, binary, flags };
 }
 
 // --- Cell block: minimal parse (MCC|MNC|LAC|CellId or similar) ---
@@ -332,44 +461,44 @@ export type RgWf1Telemetry = {
   hasBackupBattery: true;
   hasAcc: true;
   accStatus: 'on' | 'off' | 'unknown';
+  packetNo: string;
+  packetLength: number;
+  commandCode: string;
+  gpsValid: boolean | null;
+  latitude: number | null;
+  longitude: number | null;
+  satellites: number | null;
+  hdop: number | null;
+  speedKph: number | null;
+  courseDeg: number | null;
+  altitudeMeters: number | null;
+  csq: number | null;
   externalPowerConnected: boolean | null;
+  stopped: boolean | null;
   externalPowerVoltage: number | null;
-  powerSource: 'external' | 'backup_battery' | 'unknown';
   backupBatteryVoltage: number | null;
   backupBatteryPercent: number | null;
+  powerSource: 'external' | 'backup_battery' | 'unknown';
   packetPriority: PacketPriority;
 };
 
-export function interpretTelemetryByModel(
-  modelCode: string,
-  decoded: DecodedPacket133
-): RgWf1Telemetry | null {
-  if (modelCode !== 'RG-WF1') return null;
+/**
+ * Normalize decoded 133 packet for RG-WF1: expose packetNo, packetLength, commandCode,
+ * gpsValid, speedKph, satellites, hdop, stopped, voltages, backup percent, etc.
+ */
+export function normalizeRgWf1Telemetry(decoded: DecodedPacket133): RgWf1Telemetry {
+  const statusDecoded = decodeSystemStatus(decoded.rawSystemStatus);
+  const voltageBlock = decoded.rawAnalogBlock ? parseVoltageBlock(decoded.rawAnalogBlock) : null;
 
-  const statusDecoded = decodeStatusFlags(decoded.rawStatusFlags, 'RG_WF1');
-  const analog = decoded.rawAnalogBlock ? parseAnalogBlock(decoded.rawAnalogBlock) : null;
-
-  const externalPowerConnectedFromFlags =
-    statusDecoded?.flags.externalPowerConnected ?? null;
-  const accOn = statusDecoded?.flags.accOn ?? null;
-  const accStatus: 'on' | 'off' | 'unknown' =
-    accOn === true ? 'on' : accOn === false ? 'off' : 'unknown';
-
-  const externalPowerRaw = analog?.parsed.externalPowerRaw ?? '0000';
-  const backupBatteryRaw = analog?.parsed.backupBatteryRaw ?? '0000';
-  const externalPowerVoltage = hexToVoltage(externalPowerRaw);
-  const backupBatteryVoltage = hexToVoltage(backupBatteryRaw);
+  const externalPowerConnected = statusDecoded?.externalPowerConnected ?? null;
+  const stopped = statusDecoded?.stopped ?? null;
+  const externalPowerVoltage = voltageBlock?.externalPowerVoltage ?? null;
+  const backupBatteryVoltage = voltageBlock?.backupBatteryVoltage ?? null;
   const backupBatteryPercent = estimateBackupBatteryPercent(
     backupBatteryVoltage,
-    backupBatteryRaw,
+    voltageBlock?.backupBatteryRaw ?? null,
     'RG-WF1'
   );
-
-  // External power: prefer status bit; if unknown, infer from voltage (e.g. > 5V => connected).
-  let externalPowerConnected = externalPowerConnectedFromFlags;
-  if (externalPowerConnected === null && externalPowerVoltage != null) {
-    externalPowerConnected = externalPowerVoltage > 5;
-  }
 
   let powerSource: 'external' | 'backup_battery' | 'unknown' = 'unknown';
   if (externalPowerConnected === true) powerSource = 'external';
@@ -381,14 +510,35 @@ export function interpretTelemetryByModel(
     isWired: true,
     hasBackupBattery: true,
     hasAcc: true,
-    accStatus,
+    accStatus: 'unknown',
+    packetNo: decoded.packetNo,
+    packetLength: decoded.packetLength,
+    commandCode: decoded.commandCode,
+    gpsValid: decoded.gpsValid,
+    latitude: decoded.latitude,
+    longitude: decoded.longitude,
+    satellites: decoded.satQuantity,
+    hdop: decoded.hdop,
+    speedKph: decoded.speedKph,
+    courseDeg: decoded.courseDeg,
+    altitudeMeters: decoded.altitudeMeters,
+    csq: decoded.csq,
     externalPowerConnected,
+    stopped,
     externalPowerVoltage,
-    powerSource,
     backupBatteryVoltage,
     backupBatteryPercent,
+    powerSource,
     packetPriority: decoded.packetPriority,
   };
+}
+
+export function interpretTelemetryByModel(
+  modelCode: string,
+  decoded: DecodedPacket133
+): RgWf1Telemetry | null {
+  if (modelCode !== 'RG-WF1') return null;
+  return normalizeRgWf1Telemetry(decoded);
 }
 
 // --- Integration: DecodedPacket133 + RgWf1Telemetry -> location row shape (same as parser.ParsedLocation) ---
@@ -413,8 +563,14 @@ export function packet133ToParsedLocation(
   const extra: Record<string, unknown> = {
     packet_type_133: true,
     packet_priority: decoded.packetPriority,
+    packet_no: decoded.packetNo,
+    packet_length: decoded.packetLength,
+    command_code: decoded.commandCode,
     packet_133: {
       packetType: decoded.packetType,
+      packetNo: decoded.packetNo,
+      packetLength: decoded.packetLength,
+      commandCode: decoded.commandCode,
       packetPriority: decoded.packetPriority,
       rawStatusFlags: decoded.rawStatusFlags,
       rawAnalogBlock: decoded.rawAnalogBlock,
@@ -428,26 +584,30 @@ export function packet133ToParsedLocation(
     extra.time = { gps_time_local: local.toISO(), timezone: DEVICE_TIMEZONE };
   }
 
-  const csq = decoded.gsmSignalRaw ?? 99;
+  const csq = decoded.csq ?? 99;
   const gsmQuality = csq <= 5 ? 'none' : csq <= 10 ? 'poor' : csq <= 15 ? 'ok' : csq <= 22 ? 'good' : csq <= 31 ? 'great' : 'unknown';
   extra.signal = {
     gps: {
       valid: decoded.gpsValid ?? false,
       fix_flag: decoded.gpsValid === true ? 'A' : 'V',
-      sats: decoded.satellites ?? 0,
-      hdop: decoded.gpsQualityRaw ?? 0,
+      sats: decoded.satQuantity ?? 0,
+      hdop: decoded.hdop ?? 0,
       speed_kmh: decoded.speedKph ?? 0,
-      course_deg: decoded.headingDeg ?? 0,
-      has_signal: (decoded.gpsValid === true && (decoded.satellites ?? 0) >= 3),
+      course_deg: decoded.courseDeg ?? 0,
+      has_signal: (decoded.gpsValid === true && (decoded.satQuantity ?? 0) >= 3),
     },
     gsm: {
       csq,
-      percent: decoded.gsmSignalRaw != null && decoded.gsmSignalRaw <= 31 ? Math.round((decoded.gsmSignalRaw / 31) * 100) : null,
+      percent: decoded.csq != null && decoded.csq <= 31 ? Math.round((decoded.csq / 31) * 100) : null,
       quality: gsmQuality,
     },
   };
   extra.gps_lock = decoded.gpsValid === true;
 
+  const systemStatus = decodeSystemStatus(decoded.rawSystemStatus);
+  if (systemStatus) {
+    extra.system_status_133 = systemStatus;
+  }
   const statusDecoded = decodeStatusFlags(decoded.rawStatusFlags, 'RG_WF1');
   if (statusDecoded) {
     extra.status_flags_133 = statusDecoded;
@@ -470,7 +630,7 @@ export function packet133ToParsedLocation(
 
   extra.pt60_state = {
     ext_power_connected: interpreted?.externalPowerConnected ?? null,
-    is_stopped: null,
+    is_stopped: interpreted?.stopped ?? null,
     gps_status_bit: decoded.gpsValid === true ? 1 : 0,
   };
 
@@ -492,7 +652,7 @@ export function packet133ToParsedLocation(
     latitude: decoded.latitude,
     longitude: decoded.longitude,
     speed_kph: decoded.speedKph,
-    course_deg: decoded.headingDeg,
+    course_deg: decoded.courseDeg,
     event_code: decoded.rawAlarmCode,
     raw_payload: decoded.rawPacket,
     extra,

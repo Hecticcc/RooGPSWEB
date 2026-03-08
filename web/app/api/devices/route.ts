@@ -68,21 +68,43 @@ export async function GET(request: Request) {
   }
   const withLocation = await Promise.all(
     devicesWithOpt.map(async (d) => {
-      const { data: loc } = await supabase
+      const caps = getDeviceCapabilities((d as { model_name?: string | null }).model_name);
+      const limit = caps.isWired ? 8 : 1;
+      const { data: locs } = await supabase
         .from('locations')
         .select('latitude, longitude, received_at, extra')
         .eq('device_id', d.id)
         .order('received_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(limit);
+      const list = (locs ?? []) as { latitude: number | null; longitude: number | null; received_at: string; extra: Record<string, unknown> | null }[];
+      const loc = list[0] ?? null;
       const extra = (loc?.extra as Record<string, unknown> | null) ?? null;
+      const hasBatteryData = (e: Record<string, unknown> | null) => {
+        if (!e) return false;
+        if (e.wired_power != null) return true;
+        const bat = e.battery as { percent?: number; voltage_v?: number } | undefined;
+        const pow = e.power as { battery_voltage_v?: number } | undefined;
+        return bat?.percent != null || bat?.voltage_v != null || pow?.battery_voltage_v != null;
+      };
+      const hasSignal = (e: Record<string, unknown> | null) => e?.signal != null;
+      const locForBattery = caps.isWired && list.length > 1 && !hasBatteryData(extra)
+        ? list.find((l) => hasBatteryData(l.extra as Record<string, unknown> | null)) ?? loc
+        : loc;
+      const locForSignal = caps.isWired && list.length > 1 && !hasSignal(extra)
+        ? list.find((l) => hasSignal(l.extra as Record<string, unknown> | null)) ?? loc
+        : loc;
+      const extraForBattery = (locForBattery?.extra as Record<string, unknown> | null) ?? null;
+      const extraForSignal = (locForSignal?.extra as Record<string, unknown> | null) ?? null;
+      const extraTelemetry = extraForBattery;
       const connError = latestErrorByDevice[d.id] ?? null;
       const batt = extra?.battery as { voltage_v?: number } | undefined;
       const pwr = extra?.power as { battery_voltage_v?: number } | undefined;
       const internalV = (extra as { internal_battery_voltage_v?: number })?.internal_battery_voltage_v;
       const lastBatteryV = batt?.voltage_v ?? pwr?.battery_voltage_v ?? (typeof internalV === 'number' ? internalV : null);
       const lastIsStopped = (extra?.pt60_state as { is_stopped?: boolean })?.is_stopped ?? null;
-      const gpsLockLast = (extra?.gps_lock as boolean) ?? (extra?.signal as { gps?: { valid?: boolean } })?.gps?.valid ?? null;
+      const gpsLockFromExtra = (e: Record<string, unknown> | null) =>
+        (e?.gps_lock as boolean) ?? (e?.signal as { gps?: { valid?: boolean } })?.gps?.valid ?? null;
+      const gpsLockLast = caps.isWired && locForSignal ? gpsLockFromExtra(extraForSignal) : gpsLockFromExtra(extra);
       const lastSeenAt = loc?.received_at ?? d.last_seen_at;
       const stateResult = computeDeviceState({
         last_seen_at: lastSeenAt,
@@ -91,15 +113,14 @@ export async function GET(request: Request) {
         last_known_is_stopped: lastIsStopped,
         last_known_battery_voltage: lastBatteryV,
       });
-      const caps = getDeviceCapabilities((d as { model_name?: string | null }).model_name);
-      const wiredPower = getWiredPowerFromExtra(extra);
+      const wiredPower = getWiredPowerFromExtra(caps.isWired ? extraForBattery : extra);
       return {
         ...d,
         latest_lat: loc?.latitude ?? null,
         latest_lng: loc?.longitude ?? null,
-        latest_battery_percent: (extra?.battery as { percent?: number })?.percent ?? null,
-        latest_battery_voltage_v: (extra?.battery as { voltage_v?: number })?.voltage_v ?? null,
-        latest_signal: extra?.signal ?? null,
+        latest_battery_percent: (extraForBattery?.battery as { percent?: number })?.percent ?? null,
+        latest_battery_voltage_v: (extraForBattery?.battery as { voltage_v?: number })?.voltage_v ?? null,
+        latest_signal: extraForSignal?.signal ?? extraTelemetry?.signal ?? null,
         marker_color: d.marker_color ?? '#f97316',
         connection_error: connError,
         device_state: stateResult.device_state,

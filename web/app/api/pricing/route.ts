@@ -10,17 +10,19 @@ export async function GET() {
 
   const { data, error } = await admin
     .from('product_pricing')
-    .select('sku, label, price_cents, sale_price_cents, period')
+    .select('sku, label, price_cents, sale_price_cents, period, device_model_name')
     .order('sku');
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const pricing: Record<string, { label: string; price_cents: number; sale_price_cents: number | null; period: string }> = {};
+  const pricing: Record<string, { label: string; price_cents: number; sale_price_cents: number | null; period: string; device_model_name?: string | null }> = {};
   for (const row of data ?? []) {
+    const r = row as { device_model_name?: string | null };
     pricing[row.sku] = {
       label: row.label,
       price_cents: row.price_cents,
       sale_price_cents: row.sale_price_cents ?? null,
       period: row.period,
+      device_model_name: r.device_model_name ?? null,
     };
   }
   return NextResponse.json(

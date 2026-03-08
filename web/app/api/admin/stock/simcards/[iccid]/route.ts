@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/admin-auth';
+import { setSimbaseSimState, updateSimbaseSimTags, tagsForSimState } from '@/lib/simbase';
 
-const SIMBASE_API_BASE = process.env.SIMBASE_API_URL ?? 'https://api.simbase.com/v2';
 const SIMBASE_API_KEY = process.env.SIMBASE_API_KEY ?? '';
 
 /**
- * PATCH /api/admin/stock/simcards/[iccid] – update SIM state via Simbase API.
- * Body: { state: "enabled" | "disabled" }
- * Simbase: POST /simcards/{iccid}/state with body { state: "enabled" | "disabled" }, returns 202 Accepted.
+ * PATCH /api/admin/stock/simcards/[iccid] – update SIM state (and optionally tags) via Simbase API.
+ * Body: { state: "enabled" | "disabled", tags?: string[] }
+ * When tags are provided, tag is synced: disabled → "Suspended", enabled → "Assigned".
  */
 export async function PATCH(
   request: Request,
@@ -25,7 +25,7 @@ export async function PATCH(
   if (!iccid) {
     return NextResponse.json({ error: 'ICCID required' }, { status: 400 });
   }
-  let body: { state?: string };
+  let body: { state?: string; tags?: string[] };
   try {
     body = await request.json();
   } catch {
@@ -35,36 +35,26 @@ export async function PATCH(
   if (!state) {
     return NextResponse.json({ error: 'state must be "enabled" or "disabled"' }, { status: 400 });
   }
-  const base = SIMBASE_API_BASE.replace(/\/$/, '');
-  const url = `${base}/simcards/${encodeURIComponent(iccid)}/state`;
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${SIMBASE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ state }),
-      signal: AbortSignal.timeout(15000),
-    });
-    const text = await res.text();
-    if (!res.ok) {
+    const stateResult = await setSimbaseSimState(iccid, state);
+    if (!stateResult.ok) {
       return NextResponse.json(
-        { error: `Simbase API error: ${res.status}`, detail: text.slice(0, 500) },
+        { error: stateResult.error ?? 'Failed to update SIM state' },
         { status: 502 }
       );
     }
-    let data: unknown = null;
-    if (text) {
-      try {
-        data = JSON.parse(text);
-      } catch {
-        // empty or non-JSON success response
-      }
+    const currentTags = Array.isArray(body.tags) ? body.tags : [];
+    const newTags = tagsForSimState(currentTags, state);
+    const tagResult = await updateSimbaseSimTags(iccid, newTags);
+    if (!tagResult.ok) {
+      return NextResponse.json(
+        { ok: true, state, tagError: tagResult.error, message: 'State updated; tag sync failed.' },
+        { status: 200 }
+      );
     }
-    return NextResponse.json({ ok: true, state, sim: data });
+    return NextResponse.json({ ok: true, state, tags: newTags });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: `Failed to update SIM state: ${message}` }, { status: 502 });
+    return NextResponse.json({ error: `Failed to update SIM: ${message}` }, { status: 502 });
   }
 }

@@ -33,13 +33,16 @@ export async function POST(request: Request) {
 
   const now = new Date().toISOString();
 
-  const { data: orders } = await admin
+  const { data: ordersRaw } = await admin
     .from('orders')
-    .select('id, user_id, order_number, subscription_next_billing_date, status')
+    .select('id, user_id, order_number, subscription_next_billing_date, status, billing_state_normalized')
     .lt('subscription_next_billing_date', now)
     .in('status', ACTIVE_STATUSES);
 
-  if (!orders?.length) {
+  const orders = (ordersRaw ?? []).filter(
+    (o) => (o as { billing_state_normalized?: string | null }).billing_state_normalized !== 'trialing'
+  );
+  if (!orders.length) {
     return NextResponse.json({ suspended_count: 0, order_ids: [] });
   }
 
@@ -62,7 +65,11 @@ export async function POST(request: Request) {
   for (const order of overdueOrders) {
     const { error: updateErr } = await admin
       .from('orders')
-      .update({ status: 'suspended', updated_at: new Date().toISOString() })
+      .update({
+        status: 'suspended',
+        billing_state_normalized: 'past_due',
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', order.id);
     if (updateErr) {
       errors.push({ order_id: order.id, error: updateErr.message });

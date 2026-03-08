@@ -149,6 +149,7 @@ export default function AdminStockPage() {
     const t = tag.toLowerCase();
     if (t === 'assigned') return 'admin-badge admin-badge--warn';
     if (t === 'pending') return 'admin-badge admin-badge--muted';
+    if (t === 'suspended') return 'admin-badge admin-badge--error';
     return 'admin-badge';
   }
 
@@ -163,7 +164,7 @@ export default function AdminStockPage() {
     return { label: status || '—', className: base };
   }
 
-  async function updateSimState(iccid: string, newState: 'enabled' | 'disabled') {
+  async function updateSimState(iccid: string, newState: 'enabled' | 'disabled', currentTags: string[] = []) {
     setSimStateError(null);
     setSimStateUpdating(iccid);
     try {
@@ -171,15 +172,18 @@ export default function AdminStockPage() {
         method: 'PATCH',
         credentials: 'include',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: newState }),
+        body: JSON.stringify({ state: newState, tags: currentTags }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      const updatedTags = Array.isArray(data.tags) ? data.tags : undefined;
       setSimcards((prev) =>
         prev.map((sim) => {
-          const s = sim as { iccid?: string; id?: string; state?: string };
+          const s = sim as { iccid?: string; id?: string; state?: string; tags?: string[] };
           const id = s.iccid ?? s.id;
-          if (String(id) === String(iccid)) return { ...sim, state: newState };
+          if (String(id) === String(iccid)) {
+            return { ...sim, state: newState, tags: updatedTags ?? s.tags };
+          }
           return sim;
         })
       );
@@ -378,7 +382,7 @@ export default function AdminStockPage() {
                           <>
                             <select
                               value={stateLower}
-                              onChange={(e) => updateSimState(String(iccid), e.target.value as 'enabled' | 'disabled')}
+                              onChange={(e) => updateSimState(String(iccid), e.target.value as 'enabled' | 'disabled', tags)}
                               disabled={isUpdating}
                               className={`admin-select admin-select--state-${stateLower === 'enabled' ? 'enabled' : 'disabled'}`}
                               style={{ minWidth: '100px', padding: '4px 8px', fontSize: '0.875rem' }}

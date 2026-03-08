@@ -469,6 +469,18 @@ export function parseIStartekLine(rawLine: string): IStartekParsed {
         curve: 'pt60_curve_v1',
       };
     }
+
+    // Normalized wired/power fields for UI and APIs (RG-WF1 and other wired trackers).
+    // external_power_connected: from pt60 system_sta bit 3, or inferred from ext voltage when present.
+    // acc_status: can be set when packet exposes ACC/ignition (e.g. system_sta bit or dedicated token); leave null until mapped.
+    const pt60State = empty.extra.pt60_state as { ext_power_connected?: boolean } | undefined;
+    const extFromBit = pt60State?.ext_power_connected === true || pt60State?.ext_power_connected === false;
+    empty.extra.wired_power = {
+      external_power_connected: extFromBit ? pt60State!.ext_power_connected : (extVoltageV != null && extVoltageV > 5 ? true : null),
+      acc_status: null as 'on' | 'off' | null,
+      backup_battery_voltage_v: batteryVoltageV ?? null,
+      backup_battery_percent: empty.batteryPercent ?? null,
+    };
   } catch (e) {
     empty.extra.parseError = String(e);
   }

@@ -11,6 +11,7 @@ type PricingRow = {
   price_cents: number;
   sale_price_cents: number | null;
   period: string;
+  device_model_name?: string | null;
   updated_at?: string;
 };
 
@@ -125,6 +126,7 @@ export default function AdminPricingPage() {
       price_cents: r.price_cents,
       sale_price_cents: r.sale_price_cents,
       period: r.period,
+      device_model_name: r.device_model_name ?? null,
     }));
     try {
       const res = await fetch('/api/admin/pricing', {
@@ -172,20 +174,33 @@ export default function AdminPricingPage() {
           {rows.map((r) => (
             <div key={r.sku} className="admin-pricing-card admin-pricing-card--row">
               <div className="admin-pricing-card__cell admin-pricing-card__cell--sku">
-                <span className="admin-pricing-card__sku-label">SKU</span>
+                <span className="admin-pricing-card__sku-label">SKU code</span>
                 <span className="admin-pricing-card__sku">{r.sku}</span>
               </div>
               <div className="admin-pricing-card__cell admin-pricing-card__cell--label">
-                <label className="admin-pricing-card__label-label">Label</label>
+                <label className="admin-pricing-card__label-label">Product name (SKU name)</label>
                 <input
                   type="text"
                   className="admin-pricing-card__input admin-pricing-card__input--text admin-pricing-card__input--label"
                   value={r.label}
                   onChange={(e) => updateRow(r.sku, 'label', e.target.value)}
-                  placeholder="Product label"
-                  aria-label="Product label"
+                  placeholder="e.g. GPS Tracker, GPS Tracker Pro"
+                  aria-label="Product name shown on checkout and marketing"
                 />
               </div>
+              {r.period === 'one-time' && (
+                <div className="admin-pricing-card__cell admin-pricing-card__cell--model">
+                  <label className="admin-pricing-card__label-label">Device model name</label>
+                  <input
+                    type="text"
+                    className="admin-pricing-card__input admin-pricing-card__input--text"
+                    value={r.device_model_name ?? ''}
+                    onChange={(e) => updateRow(r.sku, 'device_model_name', e.target.value.trim() || null)}
+                    placeholder="e.g. Standard, Pro"
+                    aria-label="Model name shown on device everywhere"
+                  />
+                </div>
+              )}
               <div className="admin-pricing-card__cell admin-pricing-card__cell--period">
                 <label className="admin-pricing-card__label-label">Period</label>
                 <select

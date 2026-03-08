@@ -11,6 +11,7 @@ const LABELS: Record<string, string> = {
   activated: 'Activated',
   cancelled: 'Cancelled',
   suspended: 'Suspended',
+  past_due: 'Overdue',
 };
 
 export function getStatusLabel(status: string): string {

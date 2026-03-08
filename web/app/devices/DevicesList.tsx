@@ -36,6 +36,7 @@ type Device = {
   last_battery_voltage?: number | null;
   emergency_enabled?: boolean;
   emergency_status?: string | null;
+  subscription_suspended?: boolean;
 };
 
 const POLL_INTERVAL_MS = 30 * 1000; // refresh trackers and map every 30s
@@ -56,6 +57,7 @@ export default function DevicesList() {
   const [colorSaveStatus, setColorSaveStatus] = useState<{ deviceId: string; status: 'saving' | 'saved' | 'error' } | null>(null);
   const [highlightedTrackerId, setHighlightedTrackerId] = useState<string | null>(null);
   const [canShowMap, setCanShowMap] = useState<boolean | null>(null);
+  const [isStaffOrAdmin, setIsStaffOrAdmin] = useState(false);
   const router = useRouter();
   const supabase = createClient();
   const colorSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,6 +102,7 @@ export default function DevicesList() {
       setError(null);
 
       const role: UserRole = meRes.ok ? ((await meRes.json())?.role ?? 'customer') : 'customer';
+      setIsStaffOrAdmin(role === 'staff' || role === 'staff_plus' || role === 'administrator');
       const isCustomerOnly = role === 'customer';
       if (subRes.ok) {
         const subData = await subRes.json();
@@ -364,6 +367,7 @@ export default function DevicesList() {
         setLoading(true);
         load();
       }}
+      isStaffOrAdmin={isStaffOrAdmin}
     />
   );
 }

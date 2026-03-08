@@ -20,6 +20,7 @@ function usePagination<T>(items: T[], page: number) {
 type Subscription = {
   order_id: string;
   order_number: string | null;
+  model_name: string | null;
   status: string;
   created_at: string;
   total_cents: number | null;
@@ -27,6 +28,13 @@ type Subscription = {
   period: 'month' | 'year';
   next_due_estimate: string;
   days_until_due?: number;
+  trial_enabled_at_signup?: boolean;
+  trial_months_applied?: number | null;
+  trial_started_at?: string | null;
+  trial_ends_at?: string | null;
+  stripe_subscription_status?: string | null;
+  billing_state_normalized?: string | null;
+  trial_ends_soon?: boolean;
 };
 
 type SimTrackerLink = {
@@ -110,12 +118,13 @@ export default function SubscriptionPage() {
   if (error) return <p style={{ color: 'var(--error)' }}>{error}</p>;
   if (!data) return null;
 
-  const activeSubs = data.subscriptions.filter((s) =>
-    ['paid', 'fulfilled', 'processing', 'shipped', 'activated'].includes(s.status)
-  );
+  const isActive = (s: Subscription) =>
+    ['paid', 'fulfilled', 'processing', 'shipped', 'activated'].includes(s.status) || s.billing_state_normalized === 'trialing';
+  const activeSubs = data.subscriptions.filter((s) => isActive(s));
   const suspendedSubs = data.subscriptions.filter((s) => s.status === 'suspended');
+  const trialingSubs = data.subscriptions.filter((s) => s.billing_state_normalized === 'trialing' || s.stripe_subscription_status === 'trialing');
   const showPayButton = data.subscriptions.some(
-    (s) => s.status === 'suspended' || (['paid', 'fulfilled', 'processing', 'shipped', 'activated'].includes(s.status) && (s.days_until_due ?? 999) <= 14)
+    (s) => s.status === 'suspended' || (isActive(s) && (s.days_until_due ?? 999) <= 14 && s.billing_state_normalized !== 'trialing')
   );
   const planPagination = usePagination(data.subscriptions, planPage);
   const paymentsPagination = usePagination(data.subscriptions, paymentsPage);
@@ -215,16 +224,44 @@ export default function SubscriptionPage() {
       </div>
 
       <div className="subscription-sections">
+        {trialingSubs.length > 0 && (
+          <div className="subscription-trial-banner" style={{ background: 'var(--success)', color: 'var(--bg)', padding: '1rem 1.25rem', borderRadius: 8, marginBottom: '1rem' }}>
+            <p style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Free trial active</p>
+            <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+              {trialingSubs[0].trial_ends_at
+                ? `Ends on ${formatDate(trialingSubs[0].trial_ends_at)}. You'll be charged automatically on that date unless you cancel before then.`
+                : "You'll be charged automatically when the trial ends unless you cancel before then."}
+            </p>
+            {trialingSubs[0].trial_ends_soon && (
+              <p style={{ fontSize: '0.85rem', marginBottom: '0.5rem', opacity: 0.95 }}>
+                Your free trial ends soon. Update your payment method in billing if needed.
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="admin-btn"
+                style={{ background: 'rgba(0,0,0,0.15)', border: 'none' }}
+                onClick={openBillingPortal}
+                disabled={billingPortalLoading}
+              >
+                {billingPortalLoading ? 'Opening…' : 'Manage billing'}
+              </button>
+            </div>
+          </div>
+        )}
         {suspendedSubs.length > 0 && (
           <div className="subscription-overdue-banner" role="alert">
-            <p className="subscription-overdue-banner__title">Overdue on payment – SIM suspended</p>
-            <p className="subscription-overdue-banner__detail">
-              Order{suspendedSubs.length > 1 ? 's' : ''}: {suspendedSubs.map((s) => s.order_number ?? s.order_id.slice(0, 8)).join(', ')}.
-              Pay now to restore your SIM.
-            </p>
+            <div className="subscription-overdue-banner__content">
+              <p className="subscription-overdue-banner__title">Overdue on payment – SIM suspended</p>
+              <p className="subscription-overdue-banner__detail">
+                Order{suspendedSubs.length > 1 ? 's' : ''}: {suspendedSubs.map((s) => s.order_number ?? s.order_id.slice(0, 8)).join(', ')}.
+                Pay now to restore your SIM.
+              </p>
+            </div>
             <button
               type="button"
-              className="admin-btn admin-btn--primary"
+              className="subscription-overdue-banner__btn"
               onClick={openBillingPortal}
               disabled={billingPortalLoading}
             >
@@ -232,7 +269,7 @@ export default function SubscriptionPage() {
             </button>
           </div>
         )}
-        {showPayButton && suspendedSubs.length === 0 && (
+        {showPayButton && suspendedSubs.length === 0 && trialingSubs.length === 0 && (
           <div className="subscription-pay-reminder">
             <div className="subscription-pay-reminder__content">
               <Info size={20} className="subscription-pay-reminder__icon" aria-hidden />
@@ -271,6 +308,7 @@ export default function SubscriptionPage() {
                     <tr>
                       <th>Plan</th>
                       <th>Order</th>
+                      <th>Model</th>
                       <th>Status</th>
                       <th>SIM status</th>
                       <th>Next due (estimated)</th>
@@ -286,14 +324,30 @@ export default function SubscriptionPage() {
                             {s.order_number ?? s.order_id.slice(0, 8)}
                           </Link>
                         </td>
+                        <td>{s.model_name ?? '—'}</td>
                         <td>
-                          <span className={`subscription-badge subscription-badge--status-${s.status}`}>
-                            {getStatusLabel(s.status)}
-                          </span>
-                          {s.status === 'suspended' && (
-                            <p className="subscription-row-note" style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--error)' }}>
-                              Overdue on payment – Order #{s.order_number ?? s.order_id.slice(0, 8)}
-                            </p>
+                          {s.billing_state_normalized === 'trialing' ? (
+                            <>
+                              <span className="subscription-badge subscription-badge--status-activated">
+                                Free trial
+                              </span>
+                              {s.trial_ends_at && (
+                                <p className="subscription-row-note" style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                                  Ends {formatDate(s.trial_ends_at)} · You'll be charged automatically unless you cancel
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <span className={`subscription-badge subscription-badge--status-${s.status}`}>
+                                {getStatusLabel(s.status)}
+                              </span>
+                              {s.status === 'suspended' && (
+                                <p className="subscription-row-note" style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--error)' }}>
+                                  Overdue on payment – Order #{s.order_number ?? s.order_id.slice(0, 8)}
+                                </p>
+                              )}
+                            </>
                           )}
                         </td>
                         <td>
@@ -303,18 +357,32 @@ export default function SubscriptionPage() {
                               return <span className="subscription-badge subscription-badge--enabled">{label}</span>;
                             }
                             if (variant === 'disabled') {
-                              return <span className="subscription-badge subscription-badge--disabled">{s.status === 'suspended' ? 'Suspended' : label}</span>;
+                              return <span className="subscription-badge subscription-badge--disabled">Disabled</span>;
                             }
                             return <span className="subscription-badge subscription-badge--unknown">{label}</span>;
                           })()}
                         </td>
-                        <td>{formatDate(s.next_due_estimate)}</td>
+                        <td>
+                          {s.billing_state_normalized === 'trialing' && s.trial_ends_at
+                            ? formatDate(s.trial_ends_at)
+                            : formatDate(s.next_due_estimate)}
+                        </td>
                         <td>
                           <div className="subscription-plan-actions">
                             <Link href={`/account/orders/${s.order_id}`} className="subscription-link">
                               View order
                             </Link>
-                            {(s.status === 'suspended' || ((s.days_until_due ?? 999) <= 14 && s.status !== 'suspended')) ? (
+                            {s.billing_state_normalized === 'trialing' && (
+                              <button
+                                type="button"
+                                className="subscription-btn-pay"
+                                onClick={openBillingPortal}
+                                disabled={billingPortalLoading}
+                              >
+                                {billingPortalLoading ? 'Opening…' : 'Manage billing'}
+                              </button>
+                            )}
+                            {(s.status === 'suspended' || ((s.days_until_due ?? 999) <= 14 && s.status !== 'suspended' && s.billing_state_normalized !== 'trialing')) ? (
                               <button
                                 type="button"
                                 className="subscription-btn-pay"

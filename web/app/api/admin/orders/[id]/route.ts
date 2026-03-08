@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireRole, createServiceRoleClient } from '@/lib/admin-auth';
 import { hasMinRole } from '@/lib/roles';
 import { getStripeServer } from '@/lib/stripe';
+import { setSimbaseSimState } from '@/lib/simbase';
 import { randomBytes } from 'crypto';
 
 const SIMBASE_API_BASE = process.env.SIMBASE_API_URL ?? 'https://api.simbase.com/v2';
@@ -114,6 +115,7 @@ export async function PATCH(
     total_cents?: number;
     subscription_next_billing_date?: string | null;
     stripe_subscription_id?: string;
+    status?: string;
   };
   try {
     body = await request.json();
@@ -402,8 +404,21 @@ export async function PATCH(
       typeof body.stripe_subscription_id === 'string' && body.stripe_subscription_id.trim()
         ? body.stripe_subscription_id.trim()
         : undefined;
-    if (totalCents === undefined && nextBilling === undefined && stripeSubscriptionIdInput === undefined) {
-      return NextResponse.json({ error: 'Provide total_cents, subscription_next_billing_date, and/or stripe_subscription_id' }, { status: 400 });
+    const statusInput =
+      typeof body.status === 'string' && body.status.trim()
+        ? (body.status.trim().toLowerCase() as string)
+        : undefined;
+    const allowedStatuses = ['activated', 'suspended', 'paid', 'fulfilled', 'processing', 'shipped', 'cancelled'];
+    if (statusInput !== undefined && !allowedStatuses.includes(statusInput)) {
+      return NextResponse.json({ error: 'Invalid status for subscription order' }, { status: 400 });
+    }
+    if (
+      totalCents === undefined &&
+      nextBilling === undefined &&
+      stripeSubscriptionIdInput === undefined &&
+      statusInput === undefined
+    ) {
+      return NextResponse.json({ error: 'Provide total_cents, subscription_next_billing_date, stripe_subscription_id, and/or status' }, { status: 400 });
     }
     const { data: orderRow } = await admin
       .from('orders')
@@ -421,13 +436,34 @@ export async function PATCH(
       if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
       stripeSubId = normalized;
     }
-    const updates: { total_cents?: number; subscription_next_billing_date?: string | null; updated_at: string } = {
+    const updates: {
+      total_cents?: number;
+      subscription_next_billing_date?: string | null;
+      status?: string;
+      updated_at: string;
+    } = {
       updated_at: new Date().toISOString(),
     };
     if (totalCents !== undefined) updates.total_cents = totalCents;
     if (nextBilling !== undefined) updates.subscription_next_billing_date = nextBilling;
+    if (statusInput !== undefined) updates.status = statusInput;
     const { error: updateErr } = await admin.from('orders').update(updates).eq('id', orderId);
     if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+
+    // Sync SIM state in Simbase when order status changes: activated → enable, suspended → disable.
+    if (statusInput === 'activated' || statusInput === 'suspended') {
+      const { data: tokens } = await admin
+        .from('activation_tokens')
+        .select('sim_iccid')
+        .eq('order_id', orderId)
+        .not('sim_iccid', 'is', null);
+      const iccids = Array.from(new Set((tokens ?? []).map((t) => t.sim_iccid).filter(Boolean))) as string[];
+      const simState = statusInput === 'activated' ? 'enabled' : 'disabled';
+      for (const iccid of iccids) {
+        await setSimbaseSimState(iccid.trim(), simState);
+      }
+    }
+
     let stripeNextBilling: string | null = null;
     const orderHadNoStripeId = !(orderRow as { stripe_subscription_id?: string | null }).stripe_subscription_id;
     if (nextBilling && stripeSubId) {
@@ -520,10 +556,11 @@ export async function PATCH(
               proration_behavior: 'create_prorations',
             });
           }
-          const updated = await stripe.subscriptions.retrieve(stripeSubId, {
+          const updatedRaw = await stripe.subscriptions.retrieve(stripeSubId, {
             expand: ['schedule'],
           });
-          const updatedTrialEnd = (updated as { trial_end?: number | null }).trial_end ?? null;
+          const updated = updatedRaw as { trial_end?: number | null; current_period_end?: number | null };
+          const updatedTrialEnd = updated.trial_end ?? null;
           const nextTs = updatedTrialEnd ?? updated.current_period_end ?? null;
           const nextBillingIso = nextTs ? safeTsToIso(nextTs) : null;
           if (nextBillingIso) {

@@ -20,9 +20,11 @@ import {
   Battery,
   Droplets,
   Package,
+  Link2,
+  AlertTriangle,
 } from 'lucide-react';
 
-type PricingMap = Record<string, { label: string; price_cents: number; sale_price_cents: number | null; period: string }>;
+type PricingMap = Record<string, { label: string; price_cents: number; sale_price_cents: number | null; period: string; device_model_name?: string | null }>;
 type SimPlan = 'monthly' | 'yearly';
 
 function formatPrice(cents: number, period?: 'one-time' | 'month' | 'year') {
@@ -49,10 +51,24 @@ export default function OrderPage() {
   const [voucherError, setVoucherError] = useState<string | null>(null);
   const [appliedVoucher, setAppliedVoucher] = useState<{ voucher_id: string; discount_cents: number; message: string } | null>(null);
   const [usableTrackers, setUsableTrackers] = useState<number | null>(null);
+  const [trialOffer, setTrialOffer] = useState<{ trial_enabled: boolean; trial_months: number | null } | null>(null);
+  const [selectedTrackerSku, setSelectedTrackerSku] = useState<string>('gps_tracker');
 
   const LOW_STOCK_THRESHOLD = 3;
   const stockStatus = usableTrackers === null ? null : usableTrackers === 0 ? 'out' : usableTrackers <= LOW_STOCK_THRESHOLD ? 'low' : 'in';
   const outOfStock = stockStatus === 'out';
+
+  const trackerOptions = pricing
+    ? Object.entries(pricing).filter(([, p]) => p.period === 'one-time').map(([sku, p]) => ({ sku, ...p }))
+    : [];
+  const defaultTrackerSku = trackerOptions.length > 0 ? trackerOptions[0].sku : 'gps_tracker';
+  const effectiveTrackerSku = selectedTrackerSku && pricing?.[selectedTrackerSku] ? selectedTrackerSku : defaultTrackerSku;
+
+  useEffect(() => {
+    if (!pricing || pricing[selectedTrackerSku]) return;
+    const first = Object.entries(pricing).find(([, p]) => p.period === 'one-time');
+    if (first) setSelectedTrackerSku(first[0]);
+  }, [pricing, selectedTrackerSku]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -76,7 +92,14 @@ export default function OrderPage() {
       .catch(() => setUsableTrackers(null));
   }, []);
 
-  const gps = pricing?.gps_tracker;
+  useEffect(() => {
+    fetch('/api/trial-offer', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setTrialOffer(data ?? null))
+      .catch(() => setTrialOffer(null));
+  }, []);
+
+  const gps = pricing?.[effectiveTrackerSku];
   const simMonthly = pricing?.sim_monthly;
   const simYearly = pricing?.sim_yearly;
   const gpsCents = gps ? effectiveCents(gps) : 4900;
@@ -88,6 +111,8 @@ export default function OrderPage() {
   const simLabel = simPlan === 'monthly' ? (simMonthly?.label ?? 'SIM plan (monthly)') : (simYearly?.label ?? 'SIM plan (yearly)');
   const gpsPeriod = (gps?.period ?? 'one-time') as 'one-time' | 'month' | 'year';
   const simPeriod = simPlan === 'monthly' ? 'month' : 'year';
+  const showTrial = trialOffer?.trial_enabled && (trialOffer?.trial_months ?? 0) > 0;
+  const trialMonths = trialOffer?.trial_months ?? 0;
 
   const subtotalCents = gpsCents + simCents;
   const discountCents = appliedVoucher?.discount_cents ?? 0;
@@ -100,7 +125,7 @@ export default function OrderPage() {
     setVoucherApplying(true);
     try {
       const items = [
-        { product_sku: 'gps_tracker', quantity: 1, unit_price_cents: gpsCents },
+        { product_sku: effectiveTrackerSku, quantity: 1, unit_price_cents: gpsCents },
         { product_sku: simPlan === 'monthly' ? 'sim_monthly' : 'sim_yearly', quantity: 1, unit_price_cents: simCents },
       ];
       const res = await fetch('/api/vouchers/validate', {
@@ -146,7 +171,7 @@ export default function OrderPage() {
     if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
 
     const items = [
-      { product_sku: 'gps_tracker', quantity: 1 },
+      { product_sku: effectiveTrackerSku, quantity: 1 },
       { product_sku: simPlan === 'monthly' ? 'sim_monthly' : 'sim_yearly', quantity: 1 },
     ];
 
@@ -197,6 +222,16 @@ export default function OrderPage() {
           <Link href="/track" className="checkout-back-link">← Back to dashboard</Link>
         </div>
         <p className="checkout-subtitle">Choose your hardware and SIM plan. Pay securely with Stripe; one upfront payment, then SIM renews monthly or yearly.</p>
+        {showTrial && (
+          <div className="checkout-trial-promo" role="region" aria-label="Free trial offer">
+            <span className="checkout-trial-promo-badge">
+              {trialMonths === 1 ? '1 month' : `${trialMonths} months`} free trial on SIM
+            </span>
+            <p className="checkout-trial-promo-desc">
+              Your SIM subscription includes a free trial. You’ll be charged after the trial unless you cancel.
+            </p>
+          </div>
+        )}
       </header>
 
       <div className="checkout-grid">
@@ -204,6 +239,24 @@ export default function OrderPage() {
           <div className="checkout-card checkout-card--order">
             <h2 className="checkout-card-heading">Your order</h2>
             <p className="checkout-card-desc">Hardware and connectivity in one place.</p>
+            {trackerOptions.length > 1 && (
+              <div className="checkout-tracker-options" style={{ marginBottom: '1rem' }}>
+                <span className="checkout-product-detail" style={{ display: 'block', marginBottom: '0.5rem' }}>Choose model</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {trackerOptions.map((opt) => (
+                    <button
+                      key={opt.sku}
+                      type="button"
+                      className={`admin-btn ${effectiveTrackerSku === opt.sku ? 'admin-btn--primary' : ''}`}
+                      style={{ padding: '0.5rem 1rem' }}
+                      onClick={() => setSelectedTrackerSku(opt.sku)}
+                    >
+                      {opt.label} — {formatPrice(effectiveCents(opt), 'one-time')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="checkout-product">
               <div className="checkout-product-info">
                 <span className="checkout-product-name">{gpsLabel}</span>
@@ -266,7 +319,7 @@ export default function OrderPage() {
             )}
             <button
               type="button"
-              className="admin-btn admin-btn--primary checkout-btn"
+              className={`admin-btn checkout-btn ${outOfStock ? 'checkout-btn--out-of-stock' : 'admin-btn--primary'}`}
               onClick={handleProceed}
               disabled={creating || outOfStock}
             >
@@ -296,6 +349,8 @@ export default function OrderPage() {
                 <li><span className="checkout-features-icon"><Shield size={18} strokeWidth={2} aria-hidden /></span>WatchDog mode – alert if tracker moves (speed or distance)</li>
                 <li><span className="checkout-features-icon"><Moon size={18} strokeWidth={2} aria-hidden /></span>Night Guard – alert if tracker moves outside zone at night</li>
                 <li><span className="checkout-features-icon"><Bell size={18} strokeWidth={2} aria-hidden /></span>Battery & SMS notifications</li>
+                <li><span className="checkout-features-icon"><Link2 size={18} strokeWidth={2} aria-hidden /></span>Shareable links – share live location with family or others</li>
+                <li><span className="checkout-features-icon"><AlertTriangle size={18} strokeWidth={2} aria-hidden /></span>Emergency mode – one-tap live tracking when you need it</li>
                 <li><span className="checkout-features-icon"><Server size={18} strokeWidth={2} aria-hidden /></span>Australian servers & local support</li>
                 <li><span className="checkout-features-icon"><Wifi size={18} strokeWidth={2} aria-hidden /></span>Unlimited data, multi-carrier SIM</li>
               </ul>
@@ -317,6 +372,11 @@ export default function OrderPage() {
 
         <aside className="checkout-sidebar">
           <div className="checkout-sim-card">
+            {showTrial && (
+              <div className="checkout-sim-trial-badge">
+                {trialMonths === 1 ? '1 month' : `${trialMonths} months`} free trial
+              </div>
+            )}
             <h3 className="checkout-sim-heading">SIM plan</h3>
             <div className="checkout-sim-toggle-wrap">
               <button

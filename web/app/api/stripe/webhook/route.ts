@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { getStripeServer, STRIPE_WEBHOOK_SECRET, STRIPE_PRODUCT_SIM } from '@/lib/stripe';
 import { createServiceRoleClient } from '@/lib/admin-auth';
 import { setSimbaseSimState } from '@/lib/simbase';
+import { trialEndUnixFromMonths } from '@/lib/trial';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,14 @@ function logEvent(admin: ReturnType<typeof createServiceRoleClient>, orderId: st
     payload,
   });
   void Promise.resolve(p).then(() => {}, () => {});
+}
+
+const BILLING_STATES = ['trialing', 'active', 'past_due', 'unpaid', 'cancelled', 'incomplete', 'incomplete_expired'] as const;
+function normalizeBillingState(stripeStatus: string): (typeof BILLING_STATES)[number] {
+  const s = (stripeStatus ?? '').toLowerCase();
+  if (BILLING_STATES.includes(s as (typeof BILLING_STATES)[number])) return s as (typeof BILLING_STATES)[number];
+  if (s === 'canceled') return 'cancelled';
+  return 'active';
 }
 
 /**
@@ -105,9 +114,27 @@ export async function POST(request: Request) {
 
       if (STRIPE_PRODUCT_SIM && session.customer && unitAmount >= 50) {
         const customerId = typeof session.customer === 'string' ? session.customer : session.customer.id;
-        const anchor = new Date();
-        if (simPlan === 'yearly') anchor.setFullYear(anchor.getFullYear() + 1);
-        else anchor.setMonth(anchor.getMonth() + 1);
+        const now = new Date();
+        let trialEndUnix: number | undefined;
+        let trialMonthsApplied: number | null = null;
+        const { data: sysSettings } = await admin
+          .from('system_settings')
+          .select('stripe_trial_enabled, stripe_trial_default_months')
+          .eq('id', 'default')
+          .single();
+        const trialEnabled = (sysSettings as { stripe_trial_enabled?: boolean } | null)?.stripe_trial_enabled === true;
+        const trialDefaultMonths = (sysSettings as { stripe_trial_default_months?: number | null } | null)?.stripe_trial_default_months;
+        if (trialEnabled && typeof trialDefaultMonths === 'number' && trialDefaultMonths > 0) {
+          trialEndUnix = trialEndUnixFromMonths(now, trialDefaultMonths);
+          trialMonthsApplied = trialDefaultMonths;
+        }
+        const anchor = new Date(now);
+        if (trialEndUnix != null) {
+          anchor.setTime(trialEndUnix * 1000);
+        } else {
+          if (simPlan === 'yearly') anchor.setFullYear(anchor.getFullYear() + 1);
+          else anchor.setMonth(anchor.getMonth() + 1);
+        }
 
         try {
           const price = await stripe.prices.create({
@@ -117,23 +144,46 @@ export async function POST(request: Request) {
             recurring: { interval: simPlan === 'yearly' ? 'year' : 'month' },
           });
 
-          const subscription = await stripe.subscriptions.create({
+          const subscriptionParams: {
+            customer: string;
+            items: Stripe.SubscriptionCreateParams.Item[];
+            billing_cycle_anchor?: number;
+            trial_end?: number;
+            proration_behavior: 'none' | 'create_prorations';
+            metadata: Record<string, string>;
+          } = {
             customer: customerId,
             items: [{ price: price.id }],
-            billing_cycle_anchor: Math.floor(anchor.getTime() / 1000),
             proration_behavior: 'none',
             metadata: { order_id: orderId, sim_plan: simPlan },
-          });
-          const sub = subscription as Stripe.Subscription & { current_period_end?: number };
+          };
+          if (trialEndUnix != null) {
+            subscriptionParams.trial_end = trialEndUnix;
+          } else {
+            subscriptionParams.billing_cycle_anchor = Math.floor(anchor.getTime() / 1000);
+          }
+
+          const subscription = await stripe.subscriptions.create(subscriptionParams);
+          const sub = subscription as Stripe.Subscription & { current_period_end?: number; trial_end?: number | null };
           const periodEnd = sub.current_period_end
             ? new Date(sub.current_period_end * 1000).toISOString()
             : anchor.toISOString();
+          const trialEndsAt = sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null;
 
-          await admin.from('orders').update({
+          const orderUpdates: Record<string, unknown> = {
             stripe_subscription_id: sub.id,
+            stripe_subscription_status: sub.status,
+            billing_state_normalized: sub.status === 'trialing' ? 'trialing' : (sub.status === 'active' ? 'active' : sub.status),
             subscription_next_billing_date: periodEnd,
             updated_at: new Date().toISOString(),
-          }).eq('id', orderId);
+          };
+          if (trialMonthsApplied != null && sub.status === 'trialing') {
+            (orderUpdates as Record<string, unknown>).trial_enabled_at_signup = true;
+            (orderUpdates as Record<string, unknown>).trial_months_applied = trialMonthsApplied;
+            (orderUpdates as Record<string, unknown>).trial_started_at = now.toISOString();
+            (orderUpdates as Record<string, unknown>).trial_ends_at = trialEndsAt;
+          }
+          await admin.from('orders').update(orderUpdates).eq('id', orderId);
 
           logEvent(admin, orderId, 'subscription.created', event.id, sub.id, {
             subscription_id: sub.id,
@@ -141,6 +191,8 @@ export async function POST(request: Request) {
             price_id: price.id,
             unit_amount: unitAmount,
             current_period_end: periodEnd,
+            trial_end: trialEndUnix ?? null,
+            trial_months_applied: trialMonthsApplied,
           });
         } catch (subErr) {
           const errMsg = subErr instanceof Error ? subErr.message : String(subErr);
@@ -150,9 +202,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true });
     }
 
-    // When a subscription is created (e.g. by Stripe Checkout subscription mode or Dashboard) with our order_id in metadata, link it to the order so we can manage it and track due dates.
+    // When a subscription is created (e.g. by Stripe Checkout subscription mode or Dashboard) with our order_id in metadata, link it and sync trial/billing state.
     if (event.type === 'customer.subscription.created') {
-      const subscription = event.data.object as Stripe.Subscription;
+      const subscription = event.data.object as Stripe.Subscription & { current_period_end?: number; trial_end?: number | null };
       const orderId = subscription.metadata?.order_id ?? null;
       if (!orderId || !subscription.id) return NextResponse.json({ received: true });
       const { data: orderRow } = await admin
@@ -161,18 +213,113 @@ export async function POST(request: Request) {
         .eq('id', orderId)
         .maybeSingle();
       if (!orderRow || (orderRow as { stripe_subscription_id?: string | null }).stripe_subscription_id) return NextResponse.json({ received: true });
-      const periodEnd = subscription.current_period_end
-        ? new Date(subscription.current_period_end * 1000).toISOString()
-        : null;
-      await admin.from('orders').update({
+      const periodEndTs = subscription.current_period_end;
+      const periodEnd = periodEndTs ? new Date(periodEndTs * 1000).toISOString() : null;
+      const normalized = normalizeBillingState(subscription.status);
+      const updates: Record<string, unknown> = {
         stripe_subscription_id: subscription.id,
-        ...(periodEnd && { subscription_next_billing_date: periodEnd }),
+        stripe_subscription_status: subscription.status,
+        billing_state_normalized: normalized,
         updated_at: new Date().toISOString(),
-      }).eq('id', orderId);
+      };
+      if (periodEnd) (updates as Record<string, unknown>).subscription_next_billing_date = periodEnd;
+      if (subscription.status === 'trialing' && subscription.trial_end) {
+        (updates as Record<string, unknown>).trial_started_at = subscription.trial_start ? new Date(subscription.trial_start * 1000).toISOString() : new Date().toISOString();
+        (updates as Record<string, unknown>).trial_ends_at = new Date(subscription.trial_end * 1000).toISOString();
+      }
+      await admin.from('orders').update(updates).eq('id', orderId);
       logEvent(admin, orderId, 'subscription.linked', event.id, subscription.id, {
         subscription_id: subscription.id,
         current_period_end: periodEnd,
+        status: subscription.status,
       });
+      return NextResponse.json({ received: true });
+    }
+
+    if (event.type === 'customer.subscription.updated') {
+      const subscription = event.data.object as Stripe.Subscription & { current_period_end?: number; trial_end?: number | null };
+      const orderId = subscription.metadata?.order_id ?? null;
+      if (!orderId) return NextResponse.json({ received: true });
+      const normalized = normalizeBillingState(subscription.status);
+      const periodEndTs = subscription.current_period_end;
+      const periodEnd = periodEndTs ? new Date(periodEndTs * 1000).toISOString() : null;
+      const updates: Record<string, unknown> = {
+        stripe_subscription_status: subscription.status,
+        billing_state_normalized: normalized,
+        updated_at: new Date().toISOString(),
+      };
+      if (periodEnd) (updates as Record<string, unknown>).subscription_next_billing_date = periodEnd;
+      await admin.from('orders').update(updates).eq('id', orderId).eq('stripe_subscription_id', subscription.id);
+      logEvent(admin, orderId, 'customer.subscription.updated', event.id, subscription.id, {
+        status: subscription.status,
+        billing_state_normalized: normalized,
+      });
+      return NextResponse.json({ received: true });
+    }
+
+    if (event.type === 'customer.subscription.trial_will_end') {
+      const subscription = event.data.object as Stripe.Subscription & { trial_end?: number | null };
+      const orderId = subscription.metadata?.order_id ?? null;
+      if (!orderId) return NextResponse.json({ received: true });
+      const { data: orderRow } = await admin
+        .from('orders')
+        .select('id, user_id')
+        .eq('stripe_subscription_id', subscription.id)
+        .maybeSingle();
+      const uid = orderRow ? (orderRow as { user_id?: string }).user_id : null;
+      logEvent(admin, orderId, event.type, event.id, subscription.id, {
+        trial_end: subscription.trial_end,
+        user_id: uid,
+        email_sent: false,
+      });
+      // TODO: send trial ending email and in-app notification (integrate with email provider and notifications table)
+      return NextResponse.json({ received: true });
+    }
+
+    if (event.type === 'invoice.payment_failed') {
+      const invoice = event.data.object as Stripe.Invoice & { subscription?: string | { id: string } };
+      const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id;
+      if (!subscriptionId) return NextResponse.json({ received: true });
+      const { data: orderRow } = await admin
+        .from('orders')
+        .select('id')
+        .eq('stripe_subscription_id', subscriptionId)
+        .maybeSingle();
+      const orderId = orderRow?.id ?? null;
+      if (orderId) {
+        await admin.from('orders').update({
+          status: 'suspended',
+          billing_state_normalized: 'past_due',
+          updated_at: new Date().toISOString(),
+        }).eq('id', orderId);
+        const { data: tokens } = await admin
+          .from('activation_tokens')
+          .select('sim_iccid')
+          .eq('order_id', orderId)
+          .not('sim_iccid', 'is', null);
+        const iccids = Array.from(new Set((tokens ?? []).map((t) => t.sim_iccid).filter(Boolean))) as string[];
+        for (const iccid of iccids) {
+          await setSimbaseSimState(iccid, 'disabled');
+        }
+        logEvent(admin, orderId, event.type, event.id, invoice.id, {
+          subscription_id: subscriptionId,
+          suspended: true,
+          sims_disabled: iccids.length,
+        });
+      }
+      return NextResponse.json({ received: true });
+    }
+
+    if (event.type === 'customer.subscription.deleted') {
+      const subscription = event.data.object as Stripe.Subscription;
+      const orderId = subscription.metadata?.order_id ?? null;
+      if (!orderId) return NextResponse.json({ received: true });
+      await admin.from('orders').update({
+        stripe_subscription_status: subscription.status,
+        billing_state_normalized: 'cancelled',
+        updated_at: new Date().toISOString(),
+      }).eq('id', orderId).eq('stripe_subscription_id', subscription.id);
+      logEvent(admin, orderId, event.type, event.id, subscription.id, { status: subscription.status });
       return NextResponse.json({ received: true });
     }
 
@@ -194,7 +341,7 @@ export async function POST(request: Request) {
         await admin.from('orders').update({
           subscription_next_billing_date: periodEnd,
           updated_at: new Date().toISOString(),
-          ...(wasSuspended ? { status: 'paid' } : {}),
+          ...(wasSuspended ? { status: 'paid', billing_state_normalized: 'active' } : {}),
         }).eq('id', orderId);
       }
 

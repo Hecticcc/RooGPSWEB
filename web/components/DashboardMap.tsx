@@ -47,11 +47,16 @@ export type MapMarker = {
   offline?: boolean;
   device_state?: 'ONLINE' | 'SLEEPING' | 'OFFLINE';
   emergencyMode?: boolean;
+  suspended?: boolean;
+  /** When true, popup shows External Power + Backup Battery instead of single Battery. */
+  isWired?: boolean;
+  externalPowerConnected?: boolean | null;
+  backupBatteryPercent?: number | null;
 };
 
 const MARKER_ICON_TYPES = ['car', 'car_alt', 'caravan', 'trailer', 'truck', 'misc'] as const;
 
-type MarkerBadge = 'none' | 'sleep' | 'offline';
+type MarkerBadge = 'none' | 'sleep' | 'offline' | 'suspended';
 
 function createMarkerElement(hexColor: string, badge: MarkerBadge, iconType?: string | null, emergencyMode?: boolean): HTMLDivElement {
   const icon = (iconType && (MARKER_ICON_TYPES as readonly string[]).includes(iconType)) ? iconType : 'car';
@@ -60,6 +65,7 @@ function createMarkerElement(hexColor: string, badge: MarkerBadge, iconType?: st
   el.className = 'dashboard-map-car-marker' +
     (badge === 'offline' ? ' dashboard-map-car-marker--offline' : '') +
     (badge === 'sleep' ? ' dashboard-map-car-marker--sleep' : '') +
+    (badge === 'suspended' ? ' dashboard-map-car-marker--suspended' : '') +
     (emergencyMode ? ' dashboard-map-car-marker--emergency' : '');
   el.style.width = '36px';
   el.style.height = '36px';
@@ -81,7 +87,11 @@ function createMarkerElement(hexColor: string, badge: MarkerBadge, iconType?: st
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
        </span>`;
   }
-  el.innerHTML = svg + alertBadge;
+  /* suspended: no sleep/offline badge; slash overlay is added via CSS ::after */
+  const slashOverlay = badge === 'suspended'
+    ? '<span class="dashboard-map-suspended-slash" aria-hidden></span>'
+    : '';
+  el.innerHTML = svg + slashOverlay + alertBadge;
   return el;
 }
 
@@ -95,7 +105,7 @@ type Props = {
 
 function buildPopupHtml(
   name: string,
-  batteryRowContent: string,
+  powerRowsHtml: string,
   lastCheck: string,
   statusLine: string,
   address: string | null
@@ -112,10 +122,7 @@ function buildPopupHtml(
         <span class="map-popup__label">Address</span>
         <span class="map-popup__value map-popup__address">${addressValue}</span>
       </div>
-      <div class="map-popup__row">
-        <span class="map-popup__label">Battery</span>
-        <span class="map-popup__value">${batteryRowContent}</span>
-      </div>
+      ${powerRowsHtml}
       <div class="map-popup__row map-popup__row--last-check">
         <span class="map-popup__label">Last check</span>
         <span class="map-popup__value">${escapeHtml(lastCheck)}</span>
@@ -168,7 +175,15 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
     const valid = markers.filter((m) => typeof m.lat === 'number' && typeof m.lng === 'number');
     valid.forEach((m) => {
       const color = m.color && /^#[0-9A-Fa-f]{6}$/.test(m.color) ? m.color : '#f97316';
-      const badge: MarkerBadge = m.device_state === 'OFFLINE' ? 'offline' : m.device_state === 'SLEEPING' ? 'sleep' : m.offline ? 'offline' : 'none';
+      const badge: MarkerBadge = m.suspended
+        ? 'suspended'
+        : m.device_state === 'OFFLINE'
+          ? 'offline'
+          : m.device_state === 'SLEEPING'
+            ? 'sleep'
+            : m.offline
+              ? 'offline'
+              : 'none';
       const el = createMarkerElement(color, badge, m.icon, m.emergencyMode);
       const marker = new mapboxgl.Marker({ element: el })
         .setLngLat([m.lng, m.lat])
@@ -185,23 +200,25 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
             currentPopup = null;
           }
           const name = m.name || m.id;
-          const batteryRowContent =
-            m.batteryPercent != null
-              ? `${escapeHtml(String(m.batteryPercent))}%${showVoltage && m.batteryVoltageV != null ? ` <span class="map-popup__voltage">(${escapeHtml(String(m.batteryVoltageV))} V)</span>` : ''}`
-              : '—';
+          const powerRowsHtml = m.isWired
+            ? `<div class="map-popup__row"><span class="map-popup__label">External Power</span><span class="map-popup__value">${m.externalPowerConnected === true ? 'Connected' : m.externalPowerConnected === false ? 'Lost' : '—'}</span></div>
+      <div class="map-popup__row"><span class="map-popup__label">Backup Battery</span><span class="map-popup__value">${m.backupBatteryPercent != null ? escapeHtml(String(m.backupBatteryPercent)) + '%' : '—'}</span></div>`
+            : `<div class="map-popup__row"><span class="map-popup__label">Battery</span><span class="map-popup__value">${m.batteryPercent != null ? escapeHtml(String(m.batteryPercent)) + '%' + (showVoltage && m.batteryVoltageV != null ? ' <span class="map-popup__voltage">(' + escapeHtml(String(m.batteryVoltageV)) + ' V)</span>' : '') : '—'}</span></div>`;
           const lastCheck = m.lastSeen
             ? new Date(m.lastSeen).toLocaleString()
             : 'Never';
-          const statusLine = m.emergencyMode
-            ? `<div class="map-popup__status map-popup__status--emergency">Emergency Mode · 30s updates</div>`
-            : m.device_state === 'OFFLINE'
-              ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
-              : m.device_state === 'SLEEPING'
-                ? `<div class="map-popup__status map-popup__status--sleep">Sleep · Last known location</div>`
-                : m.offline
-                  ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
-                  : '';
-          const popupContent = buildPopupHtml(name, batteryRowContent, lastCheck, statusLine, null);
+          const statusLine = m.suspended
+            ? `<div class="map-popup__status map-popup__status--suspended">Suspended · Overdue on payment</div>`
+            : m.emergencyMode
+              ? `<div class="map-popup__status map-popup__status--emergency">Emergency Mode · 30s updates</div>`
+              : m.device_state === 'OFFLINE'
+                ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
+                : m.device_state === 'SLEEPING'
+                  ? `<div class="map-popup__status map-popup__status--sleep">Sleep · Last known location</div>`
+                  : m.offline
+                    ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
+                    : '';
+          const popupContent = buildPopupHtml(name, powerRowsHtml, lastCheck, statusLine, null);
           const popup = new mapboxgl.Popup({ anchor: 'bottom', offset: [-8, -24], closeButton: true })
             .setLngLat([m.lng, m.lat])
             .setHTML(popupContent)
@@ -213,7 +230,7 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
           });
           reverseGeocode(m.lng, m.lat).then((address) => {
             if (currentPopup !== popup) return;
-            const updated = buildPopupHtml(name, batteryRowContent, lastCheck, statusLine, address ?? '—');
+            const updated = buildPopupHtml(name, powerRowsHtml, lastCheck, statusLine, address ?? '—');
             popup.setHTML(updated);
           });
         });

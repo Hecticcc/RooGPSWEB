@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import Logo from '@/components/Logo';
 import MarketingHeader from '@/components/MarketingHeader';
 import MarketingPricing from '@/components/MarketingPricing';
+import { getTrialOffer } from '@/lib/get-trial-offer';
 import {
   Car,
   Bike,
@@ -35,6 +36,9 @@ export default async function HomePage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) redirect('/track');
   }
+  const trialOffer = await getTrialOffer();
+  const showTrial = trialOffer.trial_enabled && (trialOffer.trial_months ?? 0) > 0;
+  const trialMonths = trialOffer.trial_months ?? 0;
 
   return (
     <main className="marketing-page">
@@ -95,6 +99,15 @@ export default async function HomePage() {
             <a href="#pricing" className="marketing-btn marketing-btn-primary marketing-hero-cta">
               View Pricing
             </a>
+            {showTrial && (
+              <div className="marketing-hero-promo" role="region" aria-label="Free trial offer">
+                <span className="marketing-hero-promo-tag">Offer</span>
+                <span className="marketing-hero-promo-main">
+                  {trialMonths === 1 ? '1 month' : `${trialMonths} months`} free
+                </span>
+                <span className="marketing-hero-promo-sub">on SIM subscription · then standard rate</span>
+              </div>
+            )}
           </div>
           <div className="marketing-hero-visual marketing-animate-in marketing-animate-in--delay">
             {/* Plain img so the asset is served directly from public; avoids Next/Image optimization issues on deploy */}

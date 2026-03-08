@@ -100,6 +100,16 @@ export default function SettingsPage() {
   const [extendBy, setExtendBy] = useState<string>('24h');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [revokeConfirmLink, setRevokeConfirmLink] = useState<ShareLinkRow | null>(null);
+
+  useEffect(() => {
+    if (!revokeConfirmLink) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setRevokeConfirmLink(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [revokeConfirmLink]);
 
   const getAuthHeaders = useCallback(async (): Promise<HeadersInit> => {
     const headers: HeadersInit = { 'Cache-Control': 'no-cache' };
@@ -230,8 +240,8 @@ export default function SettingsPage() {
   }
 
   async function handleDelete(linkId: string) {
-    if (!confirm('Revoke this share link? It will stop working immediately.')) return;
     setDeletingId(linkId);
+    setRevokeConfirmLink(null);
     const headers = await getAuthHeaders();
     const res = await fetch(`/api/account/share-links/${linkId}`, {
       method: 'DELETE',
@@ -699,7 +709,7 @@ export default function SettingsPage() {
                           <td className="dashboard-settings-share-link-cell dashboard-settings-share-link-cell--revoke">
                             <button
                               type="button"
-                              onClick={() => handleDelete(link.id)}
+                              onClick={() => setRevokeConfirmLink(link)}
                               disabled={deletingId === link.id}
                               className="dashboard-settings-share-link-btn dashboard-settings-share-link-btn--danger"
                               title="Revoke link"
@@ -719,6 +729,42 @@ export default function SettingsPage() {
           </section>
         </div>
       </div>
+
+      {revokeConfirmLink && (
+        <div
+          className="dashboard-settings-revoke-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="revoke-modal-title"
+          aria-describedby="revoke-modal-desc"
+          onClick={(e) => e.target === e.currentTarget && setRevokeConfirmLink(null)}
+        >
+          <div className="dashboard-settings-revoke-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 id="revoke-modal-title" className="dashboard-settings-revoke-modal-title">
+              Revoke share link?
+            </h2>
+            <p id="revoke-modal-desc" className="dashboard-settings-revoke-modal-body">
+              It will stop working immediately. Anyone with the link will no longer be able to view this tracker.
+            </p>
+            <div className="dashboard-settings-revoke-modal-actions">
+              <button
+                type="button"
+                onClick={() => setRevokeConfirmLink(null)}
+                className="dashboard-settings-share-link-btn dashboard-settings-share-link-btn--secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(revokeConfirmLink.id)}
+                className="dashboard-settings-share-link-btn dashboard-settings-share-link-btn--danger"
+              >
+                Revoke
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

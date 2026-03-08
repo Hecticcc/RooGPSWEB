@@ -16,6 +16,9 @@ import {
   CardSim,
   Server,
   MessageSquare,
+  Headphones,
+  MessageCircle,
+  Inbox,
 } from 'lucide-react';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { useAdminAuth } from '../AdminAuthContext';
@@ -55,6 +58,13 @@ type StockSummary = {
   used: { trackers: number; simcards: number | null };
 };
 
+type SupportStats = {
+  open: number;
+  answered: number;
+  pending: number;
+  resolved: number;
+};
+
 export default function AdminDashboardPage() {
   const { getAuthHeaders } = useAdminAuth();
   const [stats, setStats] = useState<Stats | null>(null);
@@ -62,6 +72,7 @@ export default function AdminDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [stockSummary, setStockSummary] = useState<StockSummary | null>(null);
   const [stockSummaryLoading, setStockSummaryLoading] = useState(true);
+  const [supportStats, setSupportStats] = useState<SupportStats | null>(null);
 
   const DASHBOARD_REFRESH_MS = 60 * 1000; // 1 minute
 
@@ -103,6 +114,20 @@ export default function AdminDashboardPage() {
     return () => clearInterval(interval);
   }, [getAuthHeaders]);
 
+  useEffect(() => {
+    function loadSupportStats() {
+      fetch('/api/support/stats', { credentials: 'include', cache: 'no-store', headers: getAuthHeaders() })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && typeof data.open === 'number') setSupportStats(data as SupportStats);
+        })
+        .catch(() => setSupportStats(null));
+    }
+    if (!loading && stats) loadSupportStats();
+    const interval = setInterval(loadSupportStats, DASHBOARD_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [getAuthHeaders, loading, stats]);
+
   if (loading) return <div className="app-loading"><AppLoadingIcon /></div>;
   if (error) return <p className="admin-time" style={{ color: 'var(--error)' }}>{error}</p>;
   if (!stats) return null;
@@ -118,8 +143,10 @@ export default function AdminDashboardPage() {
 
       <div className="admin-dashboard-body">
         <div className="admin-dashboard-main">
-          <section className="admin-dashboard-section">
-            <div className="admin-metric-grid" style={{ marginBottom: '1.5rem' }}>
+          <section className="admin-dashboard-section admin-dashboard-section--key">
+            <h2 className="admin-dashboard-section-title">Orders & revenue</h2>
+            <p className="admin-dashboard-section-desc">Sales and order activity</p>
+            <div className="admin-metric-grid admin-metric-grid--orders">
               <Link href="/admin/orders" className="admin-card admin-card--with-icon admin-card--clickable">
                 <span className="admin-card__icon" aria-hidden><ShoppingCart size={20} /></span>
                 <h3>New Orders (24h)</h3>
@@ -145,12 +172,37 @@ export default function AdminDashboardPage() {
                 </p>
               </div>
             </div>
+
+            <h2 className="admin-dashboard-section-title admin-dashboard-section-title--sub">Support</h2>
+            <p className="admin-dashboard-section-desc">Ticket activity</p>
+            <div className="admin-metric-grid admin-metric-grid--support">
+              <Link href="/admin/support?status=open" className="admin-card admin-card--with-icon admin-card--clickable admin-card--support-open">
+                <span className="admin-card__icon admin-card__icon--success" aria-hidden><Inbox size={20} /></span>
+                <h3>Current active tickets</h3>
+                <p className="admin-metric-value">{supportStats?.open ?? '—'}</p>
+                <p className="admin-metric-desc">Open status</p>
+              </Link>
+              <Link href="/admin/support?status=answered" className="admin-card admin-card--with-icon admin-card--clickable admin-card--support-answered">
+                <span className="admin-card__icon admin-card__icon--support-answered" aria-hidden><MessageCircle size={20} /></span>
+                <h3>Answered tickets</h3>
+                <p className="admin-metric-value">{supportStats?.answered ?? '—'}</p>
+              </Link>
+              <Link href="/admin/support" className="admin-card admin-card--with-icon admin-card--clickable">
+                <span className="admin-card__icon" aria-hidden><Headphones size={20} /></span>
+                <h3>Total tickets</h3>
+                <p className="admin-metric-value">
+                  {supportStats != null
+                    ? (supportStats.open + supportStats.answered + supportStats.pending + supportStats.resolved)
+                    : '—'}
+                </p>
+              </Link>
+            </div>
           </section>
 
           <section className="admin-dashboard-section">
             <h2 className="admin-dashboard-section-title">Overview</h2>
             <p className="admin-dashboard-section-desc">Users, devices and location activity</p>
-            <div className="admin-metric-grid" style={{ marginTop: '0.5rem' }}>
+            <div className="admin-metric-grid">
               <Link href="/admin/users" className="admin-card admin-card--with-icon admin-card--clickable">
                 <span className="admin-card__icon" aria-hidden><Users size={20} /></span>
                 <h3>Total users</h3>
@@ -202,7 +254,7 @@ export default function AdminDashboardPage() {
               </div>
             ) : stockSummary ? (
               <>
-                <div className="admin-metric-grid" style={{ marginTop: '0.5rem' }}>
+                <div className="admin-metric-grid">
                   <Link href="/admin/stock" className="admin-card admin-card--stock-usable admin-card--with-icon admin-card--clickable">
                     <span className="admin-card__icon admin-card__icon--success" aria-hidden><Package size={20} /></span>
                     <h3>Usable GPS trackers</h3>
@@ -246,7 +298,7 @@ export default function AdminDashboardPage() {
           <section className="admin-dashboard-section">
             <h2 className="admin-dashboard-section-title">Ingest service</h2>
             <p className="admin-dashboard-section-desc">Data pipeline health</p>
-            <div className="admin-card admin-ingest-card admin-card--with-icon" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
+            <div className="admin-card admin-ingest-card admin-card--with-icon">
               <span className="admin-card__icon" aria-hidden><Server size={20} /></span>
               {stats.ingest_error ? (
                 <p style={{ color: 'var(--error)', margin: 0 }}>{stats.ingest_error}</p>

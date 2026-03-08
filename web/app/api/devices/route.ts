@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { computeDeviceState } from '@/lib/device-state';
+import { getDeviceCapabilities, getWiredPowerFromExtra } from '@/lib/device-capabilities';
 
 const SIMBASE_API_BASE = process.env.SIMBASE_API_URL ?? 'https://api.simbase.com/v2';
 const SIMBASE_API_KEY = process.env.SIMBASE_API_KEY ?? '';
@@ -40,7 +41,7 @@ export async function GET(request: Request) {
   // Base columns only so the query works even if heartbeat/moving_interval migration hasn't been run
   const { data: devices, error: devErr } = await supabase
     .from('devices')
-    .select('id, name, created_at, last_seen_at, marker_color, marker_icon, watchdog_armed, watchdog_armed_at, emergency_enabled, emergency_status, heartbeat_minutes, moving_interval_seconds')
+    .select('id, name, model_name, created_at, last_seen_at, marker_color, marker_icon, watchdog_armed, watchdog_armed_at, emergency_enabled, emergency_status, heartbeat_minutes, moving_interval_seconds')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   if (devErr) {
@@ -74,18 +75,14 @@ export async function GET(request: Request) {
         .order('received_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      const extra = (loc?.extra as {
-        battery?: { percent?: number; voltage_v?: number };
-        signal?: { gps?: { valid?: boolean; fix_flag?: string; sats?: number; hdop?: number; has_signal?: boolean }; gsm?: { csq?: number; percent?: number | null; quality?: string } };
-        pt60_state?: { is_stopped?: boolean };
-        gps_lock?: boolean;
-        power?: { battery_voltage_v?: number };
-        internal_battery_voltage_v?: number;
-      } | null) ?? null;
+      const extra = (loc?.extra as Record<string, unknown> | null) ?? null;
       const connError = latestErrorByDevice[d.id] ?? null;
-      const lastBatteryV = extra?.battery?.voltage_v ?? extra?.power?.battery_voltage_v ?? extra?.internal_battery_voltage_v ?? null;
-      const lastIsStopped = extra?.pt60_state?.is_stopped ?? null;
-      const gpsLockLast = extra?.gps_lock ?? extra?.signal?.gps?.valid ?? null;
+      const batt = extra?.battery as { voltage_v?: number } | undefined;
+      const pwr = extra?.power as { battery_voltage_v?: number } | undefined;
+      const internalV = (extra as { internal_battery_voltage_v?: number })?.internal_battery_voltage_v;
+      const lastBatteryV = batt?.voltage_v ?? pwr?.battery_voltage_v ?? (typeof internalV === 'number' ? internalV : null);
+      const lastIsStopped = (extra?.pt60_state as { is_stopped?: boolean })?.is_stopped ?? null;
+      const gpsLockLast = (extra?.gps_lock as boolean) ?? (extra?.signal as { gps?: { valid?: boolean } })?.gps?.valid ?? null;
       const lastSeenAt = loc?.received_at ?? d.last_seen_at;
       const stateResult = computeDeviceState({
         last_seen_at: lastSeenAt,
@@ -94,12 +91,14 @@ export async function GET(request: Request) {
         last_known_is_stopped: lastIsStopped,
         last_known_battery_voltage: lastBatteryV,
       });
+      const caps = getDeviceCapabilities((d as { model_name?: string | null }).model_name);
+      const wiredPower = getWiredPowerFromExtra(extra);
       return {
         ...d,
         latest_lat: loc?.latitude ?? null,
         latest_lng: loc?.longitude ?? null,
-        latest_battery_percent: extra?.battery?.percent ?? null,
-        latest_battery_voltage_v: extra?.battery?.voltage_v ?? null,
+        latest_battery_percent: (extra?.battery as { percent?: number })?.percent ?? null,
+        latest_battery_voltage_v: (extra?.battery as { voltage_v?: number })?.voltage_v ?? null,
         latest_signal: extra?.signal ?? null,
         marker_color: d.marker_color ?? '#f97316',
         connection_error: connError,
@@ -107,19 +106,38 @@ export async function GET(request: Request) {
         offline_reason: stateResult.offline_reason,
         gps_lock_last: gpsLockLast,
         last_battery_voltage: lastBatteryV,
+        capabilities: caps,
+        latest_external_power_connected: caps.isWired ? wiredPower.external_power_connected : undefined,
+        latest_backup_battery_percent: caps.isWired ? wiredPower.backup_battery_percent : undefined,
+        latest_acc_status: caps.isWired ? wiredPower.acc_status : undefined,
+        latest_power_source: caps.isWired ? wiredPower.power_source : undefined,
       };
     })
   );
 
   const { data: tokens } = await supabase
     .from('activation_tokens')
-    .select('device_id, sim_iccid')
+    .select('device_id, sim_iccid, order_id')
     .eq('user_id', user.id)
     .not('device_id', 'is', null)
     .in('device_id', deviceIds);
   const iccidByDevice: Record<string, string> = {};
+  const orderIdByDevice: Record<string, string> = {};
   for (const t of tokens ?? []) {
     if (t.sim_iccid) iccidByDevice[t.device_id] = t.sim_iccid;
+    if (t.order_id) orderIdByDevice[t.device_id] = t.order_id;
+  }
+  const suspendedDeviceIds = new Set<string>();
+  const orderIdsFromTokens = Array.from(new Set(Object.values(orderIdByDevice)));
+  if (orderIdsFromTokens.length > 0) {
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('id, status')
+      .in('id', orderIdsFromTokens);
+    const suspendedOrderIds = new Set((orders ?? []).filter((o) => o.status === 'suspended').map((o) => o.id));
+    for (const [deviceId, orderId] of Object.entries(orderIdByDevice)) {
+      if (suspendedOrderIds.has(orderId)) suspendedDeviceIds.add(deviceId);
+    }
   }
   const uniqueIccids = Array.from(new Set(Object.values(iccidByDevice)));
   const carrierByIccid: Record<string, string | null> = {};
@@ -156,7 +174,8 @@ export async function GET(request: Request) {
     const night_guard_radius_m = ng?.radius_m ?? null;
     const night_guard_home_lat = ng?.home_lat ?? null;
     const night_guard_home_lon = ng?.home_lon ?? null;
-    return { ...d, sim_carrier, night_guard_enabled, night_guard_start_time_local, night_guard_end_time_local, night_guard_timezone, night_guard_radius_m, night_guard_home_lat, night_guard_home_lon };
+    const subscription_suspended = suspendedDeviceIds.has(d.id);
+    return { ...d, sim_carrier, night_guard_enabled, night_guard_start_time_local, night_guard_end_time_local, night_guard_timezone, night_guard_radius_m, night_guard_home_lat, night_guard_home_lon, subscription_suspended };
   });
 
   return NextResponse.json(withCarrier);

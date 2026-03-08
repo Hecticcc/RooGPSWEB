@@ -7,7 +7,7 @@ import { Inter } from 'next/font/google';
 import AppHeader from '@/components/AppHeader';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { createClient } from '@/lib/supabase';
-import { LayoutDashboard, Bell, Settings, Shield, LogOut, ShoppingBag, CreditCard } from 'lucide-react';
+import { LayoutDashboard, Bell, Settings, Shield, LogOut, ShoppingBag, CreditCard, Headphones } from 'lucide-react';
 import { isStaffOrAbove, roleLabel } from '@/lib/roles';
 import type { UserRole } from '@/lib/roles';
 
@@ -89,6 +89,7 @@ export default function DashboardShell({ children }: Props) {
     { href: '/track', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/account/orders', label: 'Orders', icon: ShoppingBag },
     { href: '/account/subscription', label: 'Subscription', icon: CreditCard },
+    { href: '/account/support', label: 'Support', icon: Headphones },
     { href: '/track/alerts', label: 'Alerts', icon: Bell },
     { href: '/track/settings', label: 'Settings', icon: Settings },
   ];
@@ -105,9 +106,11 @@ export default function DashboardShell({ children }: Props) {
               const isActive =
                 href === '/track'
                   ? pathname === '/track' || (pathname.startsWith('/track/') && !pathname.startsWith('/track/alerts') && !pathname.startsWith('/track/settings'))
-                  : href === '/account/subscription'
+                  :                 href === '/account/subscription'
                     ? pathname === '/account/subscription'
-                    : pathname.startsWith(href);
+                    : href === '/account/support'
+                      ? pathname.startsWith('/account/support')
+                      : pathname.startsWith(href);
               return (
                 <Link
                   key={href}

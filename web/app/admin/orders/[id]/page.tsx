@@ -500,8 +500,14 @@ export default function AdminOrderDetailPage() {
           <tbody>
             <tr><td>Stripe Payment ID</td><td className="admin-mono">{order.stripe_payment_id ?? '—'}</td></tr>
             <tr><td>Stripe Subscription ID</td><td className="admin-mono">{order.stripe_subscription_id ?? '—'}</td></tr>
+            <tr><td>Stripe subscription status</td><td>{(order as { stripe_subscription_status?: string | null }).stripe_subscription_status ?? '—'}</td></tr>
+            <tr><td>Billing state (normalized)</td><td>{(order as { billing_state_normalized?: string | null }).billing_state_normalized ?? '—'}</td></tr>
             <tr><td>SIM plan</td><td>{order.sim_plan ?? '—'}</td></tr>
             <tr><td>Next billing date</td><td>{order.subscription_next_billing_date ? new Date(order.subscription_next_billing_date).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'}</td></tr>
+            <tr><td>Trial at signup</td><td>{(order as { trial_enabled_at_signup?: boolean }).trial_enabled_at_signup ? 'Yes' : 'No'}</td></tr>
+            <tr><td>Trial months applied</td><td>{(order as { trial_months_applied?: number | null }).trial_months_applied ?? '—'}</td></tr>
+            <tr><td>Trial started</td><td>{(() => { const v = (order as { trial_started_at?: string | null }).trial_started_at; return v ? new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'; })()}</td></tr>
+            <tr><td>Trial ends</td><td>{(() => { const v = (order as { trial_ends_at?: string | null }).trial_ends_at; return v ? new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'; })()}</td></tr>
           </tbody>
         </table>
       </div>

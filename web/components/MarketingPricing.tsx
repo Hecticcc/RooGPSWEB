@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 type PricingMap = Record<string, { label: string; price_cents: number; sale_price_cents: number | null; period: string }>;
+type TrialOffer = { trial_enabled: boolean; trial_months: number | null };
 
 function effectiveCents(p: { price_cents: number; sale_price_cents: number | null }): number {
   return p.sale_price_cents != null && p.sale_price_cents <= p.price_cents ? p.sale_price_cents : p.price_cents;
@@ -16,12 +17,20 @@ const DEFAULTS = {
 
 export default function MarketingPricing() {
   const [pricing, setPricing] = useState<PricingMap | null>(null);
+  const [trialOffer, setTrialOffer] = useState<TrialOffer | null>(null);
 
   useEffect(() => {
     fetch('/api/pricing', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setPricing(data?.pricing ?? null))
       .catch(() => setPricing(null));
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/trial-offer', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setTrialOffer(data ?? null))
+      .catch(() => setTrialOffer(null));
   }, []);
 
   const gps = pricing?.gps_tracker;
@@ -40,9 +49,16 @@ export default function MarketingPricing() {
   const hardwareLabel = gps?.label?.trim() || 'Hardware';
   const monthlyLabel = simMonthly?.label?.trim() || 'Monthly';
   const yearlyLabel = simYearly?.label?.trim() || 'Yearly';
+  const showTrial = trialOffer?.trial_enabled && (trialOffer?.trial_months ?? 0) > 0;
+  const trialMonths = trialOffer?.trial_months ?? 0;
 
   return (
     <div className="marketing-pricing-tray">
+      {showTrial && (
+        <div className="marketing-pricing-trial-badge">
+          {trialMonths === 1 ? '1 month' : `${trialMonths} months`} free trial on SIM subscription
+        </div>
+      )}
       {/* GPS / hardware – main focus */}
       <div className="marketing-price-hardware-block">
         <div className="marketing-price-hardware-label">GPS Tracker</div>

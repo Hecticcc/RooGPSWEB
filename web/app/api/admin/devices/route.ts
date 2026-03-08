@@ -24,7 +24,7 @@ export async function GET(request: Request) {
 
   const { data: devices, error: devErr } = await admin
     .from('devices')
-    .select('id, user_id, name, created_at, last_seen_at, heartbeat_minutes, moving_interval_seconds')
+    .select('id, user_id, name, model_name, sim_iccid, created_at, last_seen_at, heartbeat_minutes, moving_interval_seconds')
     .order('created_at', { ascending: false });
   if (devErr) {
     return NextResponse.json({ error: devErr.message }, { status: 500 });
@@ -63,13 +63,60 @@ export async function GET(request: Request) {
 
   const { data: tokens } = await admin
     .from('activation_tokens')
-    .select('device_id, sim_iccid')
+    .select('device_id, sim_iccid, order_id')
     .in('device_id', deviceIds)
     .not('device_id', 'is', null);
   const simIccidByDevice: Record<string, string> = {};
+  const orderIdsFromTokens = new Set<string>();
   for (const t of tokens ?? []) {
     if (t.sim_iccid) simIccidByDevice[t.device_id] = t.sim_iccid;
+    if (t.order_id) orderIdsFromTokens.add(t.order_id);
   }
+  for (const d of deviceList) {
+    const deviceIccid = (d as { sim_iccid?: string | null }).sim_iccid?.trim();
+    if (deviceIccid && !simIccidByDevice[d.id]) simIccidByDevice[d.id] = deviceIccid;
+  }
+  const suspendedDeviceIds = new Set<string>();
+  const deviceIdToOrderId: Record<string, string> = {};
+  if (orderIdsFromTokens.size > 0) {
+    const { data: orders } = await admin
+      .from('orders')
+      .select('id, status')
+      .in('id', Array.from(orderIdsFromTokens));
+    const suspendedOrderIds = new Set((orders ?? []).filter((o) => o.status === 'suspended').map((o) => o.id));
+    for (const t of tokens ?? []) {
+      if (t.order_id && t.device_id && suspendedOrderIds.has(t.order_id)) suspendedDeviceIds.add(t.device_id);
+      if (t.order_id && t.device_id && !deviceIdToOrderId[t.device_id]) deviceIdToOrderId[t.device_id] = t.order_id;
+    }
+  }
+
+  const orderIds = Array.from(orderIdsFromTokens);
+  let orderIdToTrackerSku: Record<string, string> = {};
+  let productModelBySku: Record<string, string | null> = {};
+  if (orderIds.length > 0) {
+    const { data: orderItems } = await admin
+      .from('order_items')
+      .select('order_id, product_sku')
+      .in('order_id', orderIds);
+    for (const i of orderItems ?? []) {
+      const sku = (i.product_sku ?? '').trim();
+      if (sku && (sku === 'gps_tracker' || sku.includes('gps_tracker')) && !sku.includes('sim_')) {
+        if (!orderIdToTrackerSku[i.order_id]) orderIdToTrackerSku[i.order_id] = sku;
+      }
+    }
+    const trackerSkus = Array.from(new Set(Object.values(orderIdToTrackerSku)));
+    if (trackerSkus.length > 0) {
+      const { data: trackerPricing } = await admin
+        .from('product_pricing')
+        .select('sku, device_model_name')
+        .in('sku', trackerSkus);
+      for (const p of trackerPricing ?? []) {
+        const row = p as { sku: string; device_model_name?: string | null };
+        productModelBySku[row.sku] = row.device_model_name?.trim() ?? null;
+      }
+    }
+  }
+
   const allIccids = Array.from(new Set(Object.values(simIccidByDevice)));
   let simStateByIccid = new Map<string, string>();
   try {
@@ -94,8 +141,10 @@ export async function GET(request: Request) {
       heartbeat_minutes: deviceRow.heartbeat_minutes ?? null,
       last_known_is_stopped: lastIsStopped,
     });
-    const status: 'online' | 'sleep' | 'offline' =
+    const deviceStatus: 'online' | 'sleep' | 'offline' =
       stateResult.device_state === 'ONLINE' ? 'online' : stateResult.device_state === 'SLEEPING' ? 'sleep' : 'offline';
+    const status: 'online' | 'sleep' | 'offline' | 'suspended' =
+      suspendedDeviceIds.has(d.id) ? 'suspended' : deviceStatus;
     const sim_iccid = simIccidByDevice[d.id] ?? null;
     const rawSimState = sim_iccid ? simStateByIccid.get(normalizeIccid(sim_iccid)) ?? simStateByIccid.get(sim_iccid.replace(/^0+/, '')) : undefined;
     const sim_status = sim_iccid ? (rawSimState ?? 'unknown') : null;
@@ -105,6 +154,13 @@ export async function GET(request: Request) {
       user_email: d.user_id ? emailByUser.get(d.user_id) ?? null : null,
       user_role: d.user_id ? roleByUser.get(d.user_id) ?? null : null,
       name: d.name,
+      model_name: (() => {
+        const fromDevice = (d as { model_name?: string | null }).model_name?.trim();
+        if (fromDevice) return fromDevice;
+        const orderId = deviceIdToOrderId[d.id];
+        const sku = orderId ? orderIdToTrackerSku[orderId] : null;
+        return (sku ? productModelBySku[sku] : null) ?? null;
+      })(),
       status,
       device_state: stateResult.device_state,
       battery_percent: battery ?? null,
@@ -117,6 +173,7 @@ export async function GET(request: Request) {
 
   if (filter === 'online') list = list.filter((d) => d.status === 'online');
   else if (filter === 'offline') list = list.filter((d) => d.status === 'offline');
+  else if (filter === 'suspended') list = list.filter((d) => d.status === 'suspended');
   else if (filter === 'unassigned') list = list.filter((d) => !d.user_id);
   else if (filter === 'low_battery') list = list.filter((d) => d.battery_percent != null && d.battery_percent < 20);
 

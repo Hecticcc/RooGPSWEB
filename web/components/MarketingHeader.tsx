@@ -12,8 +12,22 @@ const NAV_LINKS = [
   { href: '#pricing', label: 'Pricing' },
 ];
 
+const LOGO_SIZE_DESKTOP = 40;
+const LOGO_SIZE_MOBILE = 28;
+const MOBILE_BREAKPOINT = 768;
+
 export default function MarketingHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [logoSize, setLogoSize] = useState(LOGO_SIZE_DESKTOP);
+
+  useEffect(() => {
+    const updateLogoSize = () => {
+      setLogoSize(window.innerWidth <= MOBILE_BREAKPOINT ? LOGO_SIZE_MOBILE : LOGO_SIZE_DESKTOP);
+    };
+    updateLogoSize();
+    window.addEventListener('resize', updateLogoSize);
+    return () => window.removeEventListener('resize', updateLogoSize);
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -37,7 +51,7 @@ export default function MarketingHeader() {
     <header className="marketing-header">
       <div className="marketing-header-inner">
         <Link href="/" className="marketing-logo" aria-label="RooGPS home">
-          <Logo size={40} wide />
+          <Logo size={logoSize} wide />
         </Link>
         <nav className="marketing-nav marketing-nav--desktop" aria-label="Main">
           {NAV_LINKS.map(({ href, label }) => (

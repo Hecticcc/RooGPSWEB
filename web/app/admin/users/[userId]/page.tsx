@@ -96,6 +96,11 @@ export default function AdminUserViewPage() {
   const [devicesPage, setDevicesPage] = useState(1);
   const [simsPage, setSimsPage] = useState(1);
   const [subscriptionsPage, setSubscriptionsPage] = useState(1);
+  const [manualOrderPreset, setManualOrderPreset] = useState('gps_tracker_sim_monthly');
+  const [manualOrderTotal, setManualOrderTotal] = useState('');
+  const [manualOrderStatus, setManualOrderStatus] = useState('paid');
+  const [manualOrderSubmitting, setManualOrderSubmitting] = useState(false);
+  const [manualOrderError, setManualOrderError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -117,6 +122,39 @@ export default function AdminUserViewPage() {
   }, [userId, getAuthHeaders]);
 
   const isAdmin = me?.role === 'administrator';
+  const canCreateManualOrder = me?.role === 'staff_plus' || isAdmin;
+
+  async function handleCreateManualOrder(e: React.FormEvent) {
+    e.preventDefault();
+    if (!data || !canCreateManualOrder) return;
+    setManualOrderError(null);
+    setManualOrderSubmitting(true);
+    try {
+      const totalCents = manualOrderTotal.trim() === '' ? undefined : Math.round(Number(manualOrderTotal) * 100);
+      const items = [{ product_sku: manualOrderPreset, quantity: 1 }];
+      const res = await fetch('/api/admin/orders/manual', {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          user_id: data.id,
+          status: manualOrderStatus,
+          items,
+          total_cents: totalCents,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setManualOrderError((json as { error?: string }).error ?? 'Failed to create order');
+        return;
+      }
+      const orderId = (json as { order_id?: string }).order_id;
+      if (orderId) window.location.href = `/admin/orders/${orderId}`;
+      else setManualOrderError('Order created but redirect failed.');
+    } finally {
+      setManualOrderSubmitting(false);
+    }
+  }
 
   async function handleSimToggle(iccid: string, currentStatus: string) {
     if (simTogglingIccid) return;
@@ -532,6 +570,67 @@ export default function AdminUserViewPage() {
           </div>
         )}
       </div>
+
+      {canCreateManualOrder && data && (
+        <div className="admin-card">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <CreditCard size={18} aria-hidden /> Create manual order
+          </h3>
+          <p className="admin-time" style={{ marginBottom: '1rem' }}>
+            Create an order for this user without Stripe. Then open the order to assign devices/SIMs and optionally link a Stripe subscription or invoice later.
+          </p>
+          <form onSubmit={handleCreateManualOrder}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+              <div>
+                <label htmlFor="manual-order-preset" className="admin-label">Product</label>
+                <select
+                  id="manual-order-preset"
+                  className="admin-input admin-select"
+                  value={manualOrderPreset}
+                  onChange={(e) => setManualOrderPreset(e.target.value)}
+                >
+                  <option value="gps_tracker_sim_monthly">GPS tracker + SIM (monthly)</option>
+                  <option value="gps_tracker_sim_yearly">GPS tracker + SIM (yearly)</option>
+                  <option value="sim_monthly">SIM only (monthly)</option>
+                  <option value="sim_yearly">SIM only (yearly)</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="manual-order-status" className="admin-label">Initial status</label>
+                <select
+                  id="manual-order-status"
+                  className="admin-input admin-select"
+                  value={manualOrderStatus}
+                  onChange={(e) => setManualOrderStatus(e.target.value)}
+                >
+                  <option value="paid">Paid</option>
+                  <option value="fulfilled">Fulfilled</option>
+                  <option value="shipped">Shipped</option>
+                  <option value="activated">Activated</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="manual-order-total" className="admin-label">Total (AUD, optional)</label>
+                <input
+                  id="manual-order-total"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="admin-input"
+                  value={manualOrderTotal}
+                  onChange={(e) => setManualOrderTotal(e.target.value)}
+                  placeholder="e.g. 125.99"
+                  style={{ width: 120 }}
+                />
+              </div>
+            </div>
+            {manualOrderError && <p className="admin-time" style={{ color: 'var(--error)', marginBottom: '0.75rem' }}>{manualOrderError}</p>}
+            <button type="submit" className="admin-btn" disabled={manualOrderSubmitting}>
+              {manualOrderSubmitting ? 'Creating…' : 'Create order'}
+            </button>
+          </form>
+        </div>
+      )}
 
       {isAdmin && (
         <div className="admin-card">

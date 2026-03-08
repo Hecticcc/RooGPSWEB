@@ -191,7 +191,7 @@ export default function ShareTrackingPage() {
               <span className="share-timer-text">{timeLeft}</span>
             </div>
           </div>
-          <h1 className="share-title">Shared tracking: {data.device.name}</h1>
+          <h1 className="share-title">Shared tracking: {data.device.name}{data.device.model_name ? ` · ${data.device.model_name}` : ''}</h1>
         </header>
 
         <div className="share-status-row">

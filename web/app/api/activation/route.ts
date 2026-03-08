@@ -36,16 +36,36 @@ export async function POST(request: Request) {
 
   const deviceId = tracker.imei;
 
+  let deviceModelName: string | null = null;
+  const { data: orderItem } = await admin
+    .from('order_items')
+    .select('product_sku')
+    .eq('activation_token_id', token.id)
+    .maybeSingle();
+  if (orderItem?.product_sku) {
+    const { data: pricing } = await admin
+      .from('product_pricing')
+      .select('device_model_name')
+      .eq('sku', orderItem.product_sku)
+      .maybeSingle();
+    const name = (pricing as { device_model_name?: string | null } | null)?.device_model_name?.trim();
+    if (name) deviceModelName = name;
+  }
+
   const { data: existing } = await admin.from('devices').select('id, user_id').eq('id', deviceId).maybeSingle();
   if (existing) {
     if (existing.user_id !== user.id) {
       return NextResponse.json({ error: 'This device is already linked to another account' }, { status: 409 });
+    }
+    if (deviceModelName != null) {
+      await admin.from('devices').update({ model_name: deviceModelName }).eq('id', deviceId);
     }
   } else {
     const { error: insertErr } = await admin.from('devices').insert({
       id: deviceId,
       user_id: user.id,
       name: null,
+      model_name: deviceModelName,
     });
     if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
   }

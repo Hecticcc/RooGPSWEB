@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
+import { KeyRound, Check } from 'lucide-react';
 
 export default function ActivatePage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const codeFromUrl = searchParams?.get('code') ?? '';
   const [code, setCode] = useState(codeFromUrl);
@@ -64,23 +64,37 @@ export default function ActivatePage() {
 
   if (!authChecked) {
     return (
-      <div className="app-loading">
-        <AppLoadingIcon />
+      <div className="activate-page">
+        <div className="activate-card" style={{ textAlign: 'center', padding: '3rem 2rem' }}>
+          <AppLoadingIcon />
+          <p style={{ margin: '1rem 0 0', color: 'var(--muted)', fontSize: 14 }}>Checking sign-in…</p>
+        </div>
       </div>
     );
   }
 
   if (!signedIn) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <div style={{ textAlign: 'center', maxWidth: 360 }}>
-          <h1 style={{ fontSize: 24, marginBottom: 8 }}>Activate your tracker</h1>
-          <p style={{ color: 'var(--muted)', marginBottom: 24 }}>Sign in to your account to activate your device with the code from your order.</p>
-          <Link href={`/login?redirect=${encodeURIComponent('/activate' + (codeFromUrl ? `?code=${encodeURIComponent(codeFromUrl)}` : ''))}`} className="admin-btn admin-btn--primary">
-            Sign in
-          </Link>
-          {' '}
-          <Link href="/register" className="admin-btn">Sign up</Link>
+      <div className="activate-page">
+        <div className="activate-card">
+          <div className="activate-icon-wrap">
+            <KeyRound size={28} strokeWidth={2} aria-hidden />
+          </div>
+          <h1 className="activate-title">Activate your tracker</h1>
+          <p className="activate-subtitle">
+            Sign in to your account to activate your device with the code from your order.
+          </p>
+          <div className="activate-actions">
+            <Link
+              href={`/login?redirect=${encodeURIComponent('/activate' + (codeFromUrl ? `?code=${encodeURIComponent(codeFromUrl)}` : ''))}`}
+              className="activate-btn activate-btn--primary"
+            >
+              Sign in
+            </Link>
+            <Link href="/register" className="activate-btn">
+              Sign up
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -88,37 +102,61 @@ export default function ActivatePage() {
 
   if (success) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <div style={{ textAlign: 'center', maxWidth: 360 }}>
-          <h1 style={{ fontSize: 24, marginBottom: 8, color: 'var(--success)' }}>Device activated</h1>
-          <p style={{ color: 'var(--muted)', marginBottom: 24 }}>Your tracker is now linked to your account. You can view it on your dashboard.</p>
-          <Link href="/track" className="admin-btn admin-btn--primary">Go to dashboard</Link>
+      <div className="activate-page">
+        <div className={`activate-card activate-card--success`}>
+          <div className="activate-icon-wrap">
+            <Check size={28} strokeWidth={2.5} aria-hidden />
+          </div>
+          <h1 className="activate-title" style={{ color: 'var(--success)' }}>Device activated</h1>
+          <p className="activate-subtitle">
+            Your tracker is now linked to your account. You can view it on your dashboard.
+          </p>
+          <div className="activate-success-cta">
+            <Link href="/track" className="activate-btn activate-btn--primary">
+              Go to dashboard
+            </Link>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ maxWidth: 360, width: '100%' }}>
-        <h1 style={{ fontSize: 24, marginBottom: 8 }}>Activate your tracker</h1>
-        <p style={{ color: 'var(--muted)', marginBottom: 24 }}>Enter the activation code from your order slip or email.</p>
-        <form onSubmit={handleSubmit}>
+    <div className="activate-page">
+      <div className="activate-card">
+        <div className="activate-icon-wrap">
+          <KeyRound size={28} strokeWidth={2} aria-hidden />
+        </div>
+        <h1 className="activate-title">Activate your tracker</h1>
+        <p className="activate-subtitle">
+          Enter the activation code from your order slip or email.
+        </p>
+        <form onSubmit={handleSubmit} className="activate-form">
           <input
             type="text"
+            className="activate-input"
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="Activation code"
-            style={{ width: '100%', padding: 12, marginBottom: 16, fontFamily: 'monospace', letterSpacing: 2 }}
+            placeholder="e.g. XXXXX-XXXXX"
             maxLength={32}
+            disabled={loading}
+            autoComplete="one-time-code"
+            aria-label="Activation code"
           />
-          {error && <p style={{ color: 'var(--error)', marginBottom: 16 }}>{error}</p>}
-          <button type="submit" className="admin-btn admin-btn--primary" disabled={loading} style={{ width: '100%' }}>
-            {loading ? 'Activating…' : 'Activate'}
+          {error && <p className="activate-error" role="alert">{error}</p>}
+          <button type="submit" className="activate-submit" disabled={loading}>
+            {loading ? (
+              <>
+                <span className="activate-spinner" aria-hidden />
+                Activating…
+              </>
+            ) : (
+              'Activate'
+            )}
           </button>
         </form>
-        <p style={{ marginTop: 24, fontSize: 14, color: 'var(--muted)' }}>
-          <Link href="/track">Back to dashboard</Link>
+        <p style={{ marginTop: '1.5rem', textAlign: 'center' }}>
+          <Link href="/track" className="activate-link">Back to dashboard</Link>
         </p>
       </div>
     </div>

@@ -181,6 +181,7 @@ type DeviceDetail = {
     id: string;
     user_id: string;
     name: string | null;
+    model_name?: string | null;
     created_at: string;
     last_seen_at: string | null;
     ingest_disabled: boolean;
@@ -193,6 +194,7 @@ type DeviceDetail = {
   total_payloads: number;
   payload_page: number;
   payload_limit: number;
+  available_models?: string[];
 };
 
 export default function AdminDeviceDetailPage() {
@@ -208,6 +210,7 @@ export default function AdminDeviceDetailPage() {
   const [payloadPage, setPayloadPage] = useState(1);
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [exportingAll, setExportingAll] = useState(false);
+  const [modelSelectValue, setModelSelectValue] = useState<string | undefined>(undefined);
   const exportWrapRef = useRef<HTMLDivElement>(null);
   const PAYLOAD_PAGE_SIZE = 20;
 
@@ -403,6 +406,45 @@ export default function AdminDeviceDetailPage() {
             <tr><td>Device ID</td><td className="admin-mono">{d.id}</td></tr>
             <tr><td>Owner</td><td>{d.owner_email ?? '—'}</td></tr>
             <tr><td>Owner role</td><td>{d.owner_role ?? '—'}</td></tr>
+            <tr><td>Model</td><td>{canWrite ? (() => {
+              const models = data?.available_models ?? [];
+              const current = d.model_name?.trim() ?? '';
+              const options = current && !models.includes(current) ? [current, ...models] : models;
+              const value = modelSelectValue !== undefined ? modelSelectValue : current;
+              return (
+                <select
+                  className="admin-pricing-card__input admin-pricing-card__input--text"
+                  style={{ maxWidth: '14rem' }}
+                  value={value}
+                  onChange={(e) => {
+                    const v = e.target.value.trim() || null;
+                    if (v === (d.model_name ?? null)) return;
+                    setModelSelectValue(v ?? '');
+                    setActing(true);
+                    fetch(`/api/admin/devices/${encodeURIComponent(deviceId)}`, {
+                      method: 'PATCH',
+                      credentials: 'include',
+                      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ model_name: v }),
+                    })
+                      .then((r) => r.ok ? r.json() : Promise.reject(new Error('Failed')))
+                      .then(() => {
+                        setData((prev) => prev ? { ...prev, device: { ...prev.device, model_name: v } } : null);
+                        setModelSelectValue(undefined);
+                      })
+                      .catch(() => setModelSelectValue(undefined))
+                      .finally(() => setActing(false));
+                  }}
+                  disabled={acting}
+                  aria-label="Device model"
+                >
+                  <option value="">—</option>
+                  {options.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              );
+            })() : (d.model_name ?? '—')}</td></tr>
             <tr><td>Name</td><td>{d.name ?? '—'}</td></tr>
             <tr><td>Assigned SIM (ICCID)</td><td className="admin-mono">{d.sim_iccid ?? '—'}</td></tr>
             <tr><td>Created</td><td className="admin-time">{formatDate(d.created_at)}</td></tr>

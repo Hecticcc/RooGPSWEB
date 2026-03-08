@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { parseIStartekLine, parsePT60Line } from './parser';
+import { parsePacket133Line } from './packet-133';
 import { initNightGuard, runNightGuard, shutdownNightGuard } from './night-guard';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -148,7 +149,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function insertLocation(parsed: ReturnType<typeof parsePT60Line>): Promise<boolean> {
+type ParsedLocationLike = { device_id: string; gps_time: string | null; gps_valid: boolean | null; latitude: number | null; longitude: number | null; speed_kph: number | null; course_deg: number | null; event_code: string | null; raw_payload: string; extra: Record<string, unknown> };
+
+async function insertLocation(parsed: ParsedLocationLike | null): Promise<boolean> {
   if (!supabase || !parsed) return false;
   const accept = await getIngestAccept();
   if (!accept) {
@@ -235,7 +238,7 @@ function handleLine(line: string, socket?: net.Socket) {
   if (shuttingDown) return;
   const isStartek = parseIStartekLine(line);
   parsedLines++;
-  const parsed = parsePT60Line(line);
+  const parsed = parsePacket133Line(line) ?? parsePT60Line(line);
   if (!parsed) {
     logParsedMessage(isStartek, false, 'parse_failed');
     return;

@@ -115,7 +115,7 @@ export default function AccountOrdersPage() {
         {orders.length > 0 && (
           <div className="my-orders-toolbar">
             <div className="my-orders-filters">
-              {['all', 'pending', 'paid', 'fulfilled', 'processing', 'shipped', 'activated'].map((s) => (
+              {['all', 'pending', 'paid', 'fulfilled', 'processing', 'shipped', 'activated', 'suspended'].map((s) => (
                 <button
                   key={s}
                   type="button"

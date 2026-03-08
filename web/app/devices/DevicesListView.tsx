@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 /** Mapbox CSS loaded here so the dynamic DashboardMap chunk does not create a separate CSS chunk (avoids dev chunk load errors). */
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { Car, Clock, Plus, ChevronRight, ChevronDown, Settings, Check, Loader2, AlertCircle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin, ShieldAlert } from 'lucide-react';
+import { Car, Clock, Plus, ChevronRight, ChevronDown, Settings, Check, Loader2, AlertCircle, AlertTriangle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin, ShieldAlert, KeyRound } from 'lucide-react';
 import { FaShieldDog } from 'react-icons/fa6';
 import { AppContainer } from '@/components/layout';
 
@@ -26,6 +26,7 @@ import TrackerIconPreview from '@/components/TrackerIconPreview';
 import BatteryLevelIcon from '@/components/BatteryLevelIcon';
 import { getBatteryStatus } from '@/lib/battery';
 import { TRACKER_NAME_MAX, validateTrackerName } from '@/lib/device-constants';
+import { getDeviceCapabilities } from '@/lib/device-capabilities';
 
 const TRACKER_ICONS = [
   { id: 'car', label: 'Car' },
@@ -76,6 +77,7 @@ type DeviceSignal = {
 type Device = {
   id: string;
   name: string | null;
+  model_name?: string | null;
   created_at: string;
   last_seen_at: string | null;
   latest_lat?: number | null;
@@ -102,6 +104,11 @@ type Device = {
   last_battery_voltage?: number | null;
   emergency_enabled?: boolean;
   emergency_status?: string | null;
+  subscription_suspended?: boolean;
+  capabilities?: { isWired: boolean } | null;
+  latest_external_power_connected?: boolean | null;
+  latest_backup_battery_percent?: number | null;
+  latest_acc_status?: 'on' | 'off' | null;
 };
 
 type Props = {
@@ -130,10 +137,12 @@ type Props = {
   onPopupClose?: () => void;
   hasActiveSimSubscription?: boolean | null;
   onRetry?: () => void;
+  isStaffOrAdmin?: boolean;
 };
 
 export default function DevicesListView(props: Props) {
   const {
+    isStaffOrAdmin = false,
     devices,
     loading,
     newId,
@@ -229,6 +238,7 @@ export default function DevicesListView(props: Props) {
         .filter((d) => d.latest_lat != null && d.latest_lng != null)
         .map((d) => {
           const emergencyOn = d.emergency_enabled === true && (d.emergency_status === 'ON' || d.emergency_status === 'ERROR');
+          const caps = d.capabilities ?? getDeviceCapabilities(d.model_name);
           return {
             id: d.id,
             name: d.name,
@@ -236,12 +246,16 @@ export default function DevicesListView(props: Props) {
             lng: d.latest_lng!,
             color: d.marker_color ?? '#f97316',
             icon: d.marker_icon ?? 'car',
-            batteryPercent: d.latest_battery_percent ?? null,
+            batteryPercent: caps.isWired ? (d.latest_backup_battery_percent ?? null) : (d.latest_battery_percent ?? null),
             batteryVoltageV: d.latest_battery_voltage_v ?? null,
             lastSeen: d.last_seen_at ?? null,
             offline: d.device_state === 'OFFLINE',
             device_state: d.device_state,
             emergencyMode: emergencyOn,
+            suspended: d.subscription_suspended ?? false,
+            isWired: caps.isWired,
+            externalPowerConnected: d.latest_external_power_connected ?? null,
+            backupBatteryPercent: d.latest_backup_battery_percent ?? null,
           };
         }),
     [devices]
@@ -320,14 +334,23 @@ export default function DevicesListView(props: Props) {
             <section className="dashboard-section trackers-section">
               <div className="trackers-section-header">
                 <h2 className="trackers-section-title">Trackers</h2>
-                <button
-                  type="button"
-                  onClick={onToggleAddForm}
-                  className={`trackers-add-btn${addFormOpen ? ' trackers-add-btn-open' : ''}`}
-                >
-                  <Plus size={18} strokeWidth={2.5} />
-                  {addFormOpen ? 'Cancel' : 'Add tracker'}
-                </button>
+                <div className="trackers-section-actions">
+                  <Link href="/activate" className="trackers-activate-btn" aria-label="Activate a new device">
+                    <KeyRound size={16} aria-hidden />
+                    Activate
+                  </Link>
+                  {isStaffOrAdmin && (
+                    <button
+                      type="button"
+                      onClick={onToggleAddForm}
+                      className={`trackers-add-btn-subtle${addFormOpen ? ' trackers-add-btn-subtle-open' : ''}`}
+                      aria-expanded={addFormOpen}
+                    >
+                      <Plus size={16} strokeWidth={2.5} aria-hidden />
+                      {addFormOpen ? 'Cancel' : 'Add tracker'}
+                    </button>
+                  )}
+                </div>
               </div>
               {addFormOpen && (
                 <div className="dashboard-add-form-wrap">
@@ -422,14 +445,16 @@ export default function DevicesListView(props: Props) {
                       ? 'Device is likely sleeping (stopped) and will check in within the heartbeat interval.'
                       : undefined;
                     const emergencyOn = d.emergency_enabled === true && (d.emergency_status === 'ON' || d.emergency_status === 'ERROR');
+                    const caps = d.capabilities ?? getDeviceCapabilities(d.model_name);
+                    const isWired = caps?.isWired ?? false;
                     const batteryStatus = getBatteryStatus({
                       voltage_v: d.last_battery_voltage ?? d.latest_battery_voltage_v ?? null,
-                      percent: d.latest_battery_percent ?? null,
+                      percent: isWired ? (d.latest_backup_battery_percent ?? null) : (d.latest_battery_percent ?? null),
                     });
                     return (
                     <article
                       key={d.id}
-                      className={`tracker-card tracker-card--${state.toLowerCase()}${highlightedTrackerId === d.id ? ' tracker-card--highlighted' : ''}${emergencyOn ? ' tracker-card--emergency' : ''}`}
+                      className={`tracker-card tracker-card--${state.toLowerCase()}${highlightedTrackerId === d.id ? ' tracker-card--highlighted' : ''}${emergencyOn ? ' tracker-card--emergency' : ''}${d.subscription_suspended ? ' tracker-card--suspended' : ''}`}
                     >
                       <div
                         className="tracker-card-accent"
@@ -438,8 +463,19 @@ export default function DevicesListView(props: Props) {
                       />
                       <div className="tracker-card-body">
                         <div className="tracker-card-primary">
-                          <span className="tracker-card-name">{d.name || d.id}</span>
+                          <span className="tracker-card-name">{d.name || d.id}{d.model_name ? <span style={{ color: 'var(--muted)', fontWeight: 500 }}> · {d.model_name}</span> : null}</span>
+                          {d.subscription_suspended ? (
+                            <div className="tracker-card-suspended-wrap">
+                              <div className="tracker-card-suspended-block" aria-label="Subscription suspended – overdue on payment">
+                                <AlertTriangle size={16} className="tracker-card-suspended-icon" aria-hidden />
+                                <span className="tracker-card-suspended-label">Suspended</span>
+                                <span className="tracker-card-suspended-sep" aria-hidden>·</span>
+                                <span className="tracker-card-suspended-reason">Overdue on payment</span>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
+                        {!d.subscription_suspended && (
                         <div className="tracker-card-details-row">
                           <span
                             className={`tracker-card-chip tracker-card-status-chip${state === 'SLEEPING' ? ' tracker-card-status-chip--sleeping' : ''}`}
@@ -452,14 +488,34 @@ export default function DevicesListView(props: Props) {
                             <span className={`tracker-card-status-dot tracker-card-status-dot--${state.toLowerCase()}`} aria-hidden />
                             <span>{statusLabel}</span>
                           </span>
-                          <span
-                            className="tracker-card-chip tracker-card-battery"
-                            title={`Battery: ${batteryStatus.label} — ${batteryStatus.microcopy}`}
-                            style={{ color: batteryStatus.color.text }}
-                          >
-                            <BatteryLevelIcon tier={batteryStatus.tier} size={12} color={batteryStatus.color.text} aria-hidden />
-                            <span>{batteryStatus.label}</span>
-                          </span>
+                          {isWired ? (
+                            <>
+                              <span
+                                className="tracker-card-chip tracker-card-wired-power"
+                                title={d.latest_external_power_connected === true ? 'External power connected' : d.latest_external_power_connected === false ? 'External power lost' : 'External power status unknown'}
+                                style={{ color: d.latest_external_power_connected === true ? 'var(--success)' : d.latest_external_power_connected === false ? 'var(--warn)' : 'var(--muted)' }}
+                              >
+                                <span>{d.latest_external_power_connected === true ? 'Wired' : d.latest_external_power_connected === false ? 'On backup' : 'Wired'}</span>
+                              </span>
+                              <span
+                                className="tracker-card-chip tracker-card-battery"
+                                title={`Backup battery: ${d.latest_backup_battery_percent != null ? `${d.latest_backup_battery_percent}%` : batteryStatus.label}`}
+                                style={{ color: batteryStatus.color.text }}
+                              >
+                                <BatteryLevelIcon tier={batteryStatus.tier} size={12} color={batteryStatus.color.text} aria-hidden />
+                                <span>{d.latest_backup_battery_percent != null ? `${d.latest_backup_battery_percent}%` : batteryStatus.label}</span>
+                              </span>
+                            </>
+                          ) : (
+                            <span
+                              className="tracker-card-chip tracker-card-battery"
+                              title={`Battery: ${batteryStatus.label} — ${batteryStatus.microcopy}`}
+                              style={{ color: batteryStatus.color.text }}
+                            >
+                              <BatteryLevelIcon tier={batteryStatus.tier} size={12} color={batteryStatus.color.text} aria-hidden />
+                              <span>{batteryStatus.label}</span>
+                            </span>
+                          )}
                           <span className="tracker-card-chip" title={d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : undefined}>
                             <Clock size={12} strokeWidth={2} aria-hidden />
                             <span>
@@ -557,6 +613,7 @@ export default function DevicesListView(props: Props) {
                             </span>
                           )}
                         </div>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -636,6 +693,7 @@ export default function DevicesListView(props: Props) {
                   <div className="tracker-settings-modal-title-row">
                     <h2 id="tracker-settings-modal-title" className="tracker-settings-modal-title">
                       {device.name || device.id}
+                      {device.model_name && <span className="tracker-settings-modal-model" style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.9em' }}> · {device.model_name}</span>}
                     </h2>
                     <button
                       type="button"
@@ -680,9 +738,17 @@ export default function DevicesListView(props: Props) {
                   </span>
                 </div>
                 <div className="tracker-settings-modal-status-row">
-                  <span className="tracker-settings-modal-status-label">Battery (last packet)</span>
+                  <span className="tracker-settings-modal-status-label">
+                    {device.capabilities?.isWired ? 'Backup battery (last packet)' : 'Battery (last packet)'}
+                  </span>
                   <span className="tracker-settings-modal-status-value">
-                    {device.last_battery_voltage != null ? `${device.last_battery_voltage.toFixed(2)} V` : '—'}
+                    {device.capabilities?.isWired
+                      ? (device.latest_backup_battery_percent != null
+                          ? `${device.latest_backup_battery_percent}%`
+                          : device.last_battery_voltage != null
+                            ? `${device.last_battery_voltage.toFixed(2)} V`
+                            : '—')
+                      : (device.last_battery_voltage != null ? `${device.last_battery_voltage.toFixed(2)} V` : '—')}
                   </span>
                 </div>
               </div>
@@ -1146,7 +1212,14 @@ export default function DevicesListView(props: Props) {
                         </div>
                         </>
                       ) : (
-                        <p className="tracker-settings-signal-empty">No signal data yet. It will appear here after your tracker sends its next update.</p>
+                        <>
+                          <p className="tracker-settings-signal-empty">No signal data yet. It will appear here after your tracker sends its next update.</p>
+                          {device.capabilities?.isWired && (
+                            <p className="tracker-settings-signal-empty tracker-settings-signal-empty--hint" style={{ marginTop: 8, fontSize: 13, opacity: 0.9 }}>
+                              Wired trackers (e.g. RG-WF1) report signal in location packets; ensure the ingest service is running the latest version so the next update populates this.
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

@@ -95,7 +95,7 @@ export async function PATCH(
     .update(updates)
     .eq('id', id)
     .eq('user_id', user.id)
-    .select('id, name, marker_color, marker_icon, watchdog_armed, watchdog_armed_at')
+    .select('id, name, model_name, marker_color, marker_icon, watchdog_armed, watchdog_armed_at')
     .single();
 
   if (error) {

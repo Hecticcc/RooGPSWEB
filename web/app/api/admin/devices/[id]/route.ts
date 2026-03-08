@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireRole, createServiceRoleClient } from '@/lib/admin-auth';
+import { ADMIN_DEVICE_MODEL_CODES } from '@/lib/device-capabilities';
 
 export async function GET(
   request: Request,
@@ -35,7 +36,9 @@ export async function GET(
     .not('sim_iccid', 'is', null)
     .limit(1)
     .maybeSingle();
-  const sim_iccid = (tokenRow as { sim_iccid?: string } | null)?.sim_iccid?.trim() ?? null;
+  const tokenSim = (tokenRow as { sim_iccid?: string } | null)?.sim_iccid?.trim() ?? null;
+  const deviceSim = (device as { sim_iccid?: string | null }).sim_iccid?.trim() ?? null;
+  const sim_iccid = tokenSim ?? deviceSim ?? null;
 
   const limit = Math.min(100, Math.max(1, parseInt(new URL(request.url).searchParams.get('limit') ?? '20', 10) || 20));
   const page = Math.max(1, parseInt(new URL(request.url).searchParams.get('page') ?? '1', 10) || 1);
@@ -78,6 +81,15 @@ export async function GET(
     };
   });
 
+  const { data: trackerPricing } = await admin
+    .from('product_pricing')
+    .select('device_model_name')
+    .or('sku.eq.gps_tracker,sku.eq.gps_tracker_wired');
+  const fromPricing = (trackerPricing ?? [])
+    .map((p) => (p as { device_model_name?: string | null }).device_model_name?.trim())
+    .filter((s): s is string => Boolean(s));
+  const available_models = Array.from(new Set([...ADMIN_DEVICE_MODEL_CODES, ...fromPricing])).sort();
+
   return NextResponse.json({
     device: {
       ...device,
@@ -89,10 +101,11 @@ export async function GET(
     total_payloads,
     payload_page: page,
     payload_limit: limit,
+    available_models,
   });
 }
 
-/** PATCH /api/admin/devices/[id] – update assigned SIM (staff+). Body: { sim_iccid: string }. */
+/** PATCH /api/admin/devices/[id] – update device (staff+). Body: { sim_iccid?: string; model_name?: string | null; name?: string | null }. */
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -102,49 +115,61 @@ export async function PATCH(
   const { id: deviceId } = await params;
   if (!deviceId) return NextResponse.json({ error: 'Device ID required' }, { status: 400 });
 
-  let body: { sim_iccid?: string };
+  let body: { sim_iccid?: string; model_name?: string | null; name?: string | null };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
-  const simIccid = typeof body.sim_iccid === 'string' ? body.sim_iccid.trim() : null;
-  if (!simIccid) return NextResponse.json({ error: 'sim_iccid required' }, { status: 400 });
 
   const admin = createServiceRoleClient();
   if (!admin) return NextResponse.json({ error: 'Server configuration error' }, { status: 503 });
 
-  const { data: token, error: tokenErr } = await admin
-    .from('activation_tokens')
-    .select('id, order_id')
-    .eq('device_id', deviceId)
-    .limit(1)
-    .maybeSingle();
-  if (tokenErr) return NextResponse.json({ error: tokenErr.message }, { status: 500 });
-  if (!token) {
-    return NextResponse.json(
-      { error: 'No activation token for this device. Assign SIM via order fulfilment first.' },
-      { status: 400 }
-    );
+  const simIccid = typeof body.sim_iccid === 'string' ? body.sim_iccid.trim() : null;
+  if (simIccid) {
+    const { data: token, error: tokenErr } = await admin
+      .from('activation_tokens')
+      .select('id, order_id')
+      .eq('device_id', deviceId)
+      .limit(1)
+      .maybeSingle();
+    if (tokenErr) return NextResponse.json({ error: tokenErr.message }, { status: 500 });
+
+    if (token) {
+      const { error: updateErr } = await admin
+        .from('activation_tokens')
+        .update({ sim_iccid: simIccid })
+        .eq('id', token.id);
+      if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+
+      const { data: orderItem } = await admin
+        .from('order_items')
+        .select('id')
+        .eq('activation_token_id', token.id)
+        .maybeSingle();
+      if (orderItem) {
+        await admin
+          .from('order_items')
+          .update({ assigned_sim_iccid: simIccid })
+          .eq('id', orderItem.id);
+      }
+    }
+
+    const { error: deviceErr } = await admin
+      .from('devices')
+      .update({ sim_iccid: simIccid })
+      .eq('id', deviceId);
+    if (deviceErr) return NextResponse.json({ error: deviceErr.message }, { status: 500 });
   }
 
-  const { error: updateErr } = await admin
-    .from('activation_tokens')
-    .update({ sim_iccid: simIccid })
-    .eq('id', token.id);
-  if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
-
-  const { data: orderItem } = await admin
-    .from('order_items')
-    .select('id')
-    .eq('activation_token_id', token.id)
-    .maybeSingle();
-  if (orderItem) {
-    await admin
-      .from('order_items')
-      .update({ assigned_sim_iccid: simIccid })
-      .eq('id', orderItem.id);
+  const deviceUpdates: { model_name?: string | null; name?: string | null } = {};
+  if (body.model_name !== undefined) deviceUpdates.model_name = body.model_name === null || body.model_name === '' ? null : String(body.model_name).trim() || null;
+  if (body.name !== undefined) deviceUpdates.name = body.name === null || body.name === '' ? null : String(body.name).trim() || null;
+  if (Object.keys(deviceUpdates).length > 0) {
+    const { error: devErr } = await admin.from('devices').update(deviceUpdates).eq('id', deviceId);
+    if (devErr) return NextResponse.json({ error: devErr.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, sim_iccid: simIccid });
+  if (simIccid && Object.keys(deviceUpdates).length === 0) return NextResponse.json({ ok: true, sim_iccid: simIccid });
+  return NextResponse.json({ ok: true, ...(simIccid && { sim_iccid: simIccid }) });
 }

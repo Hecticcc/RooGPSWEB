@@ -1,11 +1,17 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useAdminAuth } from '../AdminAuthContext';
 import { getStatusLabel, getStatusBadgeClass } from '@/lib/order-status';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
+
+const ORDERS_TABS = [
+  { value: 'other', label: 'Other statuses', href: '/admin/orders' },
+  { value: 'activated', label: 'Activated', href: '/admin/orders?tab=activated' },
+] as const;
 
 type OrderRow = {
   id: string;
@@ -36,6 +42,8 @@ const SORT_OPTIONS = [
 ] as const;
 
 export default function AdminOrdersPage() {
+  const searchParams = useSearchParams();
+  const tab = (searchParams.get('tab') ?? 'other').toLowerCase() === 'activated' ? 'activated' : 'other';
   const { getAuthHeaders } = useAdminAuth();
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -46,12 +54,17 @@ export default function AdminOrdersPage() {
   const [sort, setSort] = useState<string>('created_at');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const prevTabRef = useRef(tab);
 
   const loadOrders = useCallback(() => {
+    const isNewTab = prevTabRef.current !== tab;
+    if (isNewTab) prevTabRef.current = tab;
+    const pageToLoad = isNewTab ? 1 : page;
     setLoading(true);
     const params = new URLSearchParams();
-    params.set('page', String(page));
+    params.set('page', String(pageToLoad));
     params.set('per_page', String(PER_PAGE));
+    if (tab === 'activated') params.set('tab', 'activated');
     if (search.trim()) params.set('search', search.trim());
     const sortOption = SORT_OPTIONS.find((o) => o.value === sort) ?? SORT_OPTIONS[0];
     const sortField = sortOption.value.replace(/_asc$/, '').replace(/_desc$/, '');
@@ -74,11 +87,15 @@ export default function AdminOrdersPage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false));
-  }, [page, search, sort, getAuthHeaders]);
+  }, [page, search, sort, tab, getAuthHeaders]);
 
   useEffect(() => {
     loadOrders();
   }, [loadOrders]);
+
+  useEffect(() => {
+    if (tab !== prevTabRef.current) setPage(1);
+  }, [tab]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,14 +114,27 @@ export default function AdminOrdersPage() {
       <header className="admin-orders-header">
         <h1 className="admin-page-title">Orders</h1>
         <p className="admin-orders-subtitle">
-          {total} order{total !== 1 ? 's' : ''} total
-          {(pendingCount > 0 || paidCount > 0) && (
+          {total} order{total !== 1 ? 's' : ''} {tab === 'activated' ? 'activated' : 'total'}
+          {tab === 'other' && (pendingCount > 0 || paidCount > 0) && (
             <span className="admin-orders-meta">
               · {pendingCount} pending · {paidCount} paid on this page
             </span>
           )}
         </p>
       </header>
+
+      <nav className="admin-orders-tabs" aria-label="Order status">
+        {ORDERS_TABS.map((t) => (
+          <Link
+            key={t.value}
+            href={t.href}
+            className={`admin-orders-tab ${tab === t.value ? 'admin-orders-tab--active' : ''}`}
+            aria-current={tab === t.value ? 'page' : undefined}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </nav>
 
       <div className="admin-orders-toolbar">
         <form onSubmit={handleSearchSubmit} className="admin-orders-search">
@@ -162,7 +192,9 @@ export default function AdminOrdersPage() {
             {orders.length === 0 ? (
               <tr>
                 <td colSpan={7} className="admin-orders-empty">
-                  {search ? 'No orders match your search.' : 'No orders yet.'}
+                  {search
+                    ? (tab === 'activated' ? 'No activated orders match your search.' : 'No orders match your search.')
+                    : (tab === 'activated' ? 'No activated orders yet.' : 'No orders yet.')}
                 </td>
               </tr>
             ) : (

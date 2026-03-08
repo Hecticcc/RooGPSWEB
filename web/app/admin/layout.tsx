@@ -19,11 +19,15 @@ import {
   DollarSign,
   Menu,
   X,
+  CreditCard,
+  Headphones,
 } from 'lucide-react';
 
 const NAV = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/support', label: 'Support', icon: Headphones },
   { href: '/admin/orders', label: 'Orders', icon: ShoppingCart },
+  { href: '/admin/subscriptions', label: 'Subscriptions', icon: CreditCard },
   { href: '/admin/pricing', label: 'Pricing', icon: DollarSign },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/devices', label: 'Devices', icon: Smartphone },
@@ -39,6 +43,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [checked, setChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [paidOrdersCount, setPaidOrdersCount] = useState<number | null>(null);
+  const [openTicketsCount, setOpenTicketsCount] = useState<number | null>(null);
 
   const closeSidebar = () => setSidebarOpen(false);
 
@@ -97,6 +102,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return () => { cancelled = true; };
   }, [checked, accessToken]);
 
+  useEffect(() => {
+    if (!checked || !accessToken) return;
+    let cancelled = false;
+    fetch('/api/support/stats', {
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data.open_and_in_progress === 'number') setOpenTicketsCount(data.open_and_in_progress);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [checked, accessToken]);
+
   if (!checked) {
     return (
       <div
@@ -106,6 +127,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           alignItems: 'center',
           justifyContent: 'center',
           minHeight: '100vh',
+          minHeight: '100dvh',
+          width: '100%',
         }}
       >
         <AppLoadingIcon />
@@ -146,6 +169,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   ? pathname === '/admin' || pathname === '/admin/dashboard'
                   : pathname.startsWith(href);
               const showPaidBadge = href === '/admin/orders' && paidOrdersCount != null && paidOrdersCount > 0;
+              const showOpenTicketsBadge = href === '/admin/support' && openTicketsCount != null && openTicketsCount > 0;
               return (
                 <Link
                   key={href}
@@ -158,6 +182,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   {showPaidBadge && (
                     <span className="admin-nav-badge" aria-label={`${paidOrdersCount} paid order${paidOrdersCount === 1 ? '' : 's'}`}>
                       {paidOrdersCount}
+                    </span>
+                  )}
+                  {showOpenTicketsBadge && (
+                    <span className="admin-nav-badge" aria-label={`${openTicketsCount} open or in progress ticket${openTicketsCount === 1 ? '' : 's'}`}>
+                      {openTicketsCount}
                     </span>
                   )}
                 </Link>

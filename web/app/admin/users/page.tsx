@@ -128,7 +128,12 @@ export default function AdminUsersPage() {
 
   return (
     <>
-      <h1 className="admin-page-title">Users</h1>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1.25rem' }}>
+        <h1 className="admin-page-title" style={{ margin: 0 }}>Users</h1>
+        <Link href="/admin/users/new" className="admin-btn">
+          Create user
+        </Link>
+      </div>
       <div className="admin-card admin-table-wrap">
         <table className="admin-table">
           <thead>

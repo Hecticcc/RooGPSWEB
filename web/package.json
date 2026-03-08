@@ -5,6 +5,7 @@
   "scripts": {
     "test:battery": "npx ts-node -P tsconfig.test.json lib/__tests__/battery.test.ts",
     "test:device-state": "npx ts-node -P tsconfig.test.json lib/device-state.test.ts",
+    "test:trial": "npx ts-node -P tsconfig.test.json lib/trial.test.ts",
     "test:emergency-mode": "npx ts-node -P tsconfig.test.json lib/emergency-mode.test.ts",
     "test:mode-transition": "npx ts-node -P tsconfig.test.json lib/mode-transition.test.ts",
     "dev": "cross-env NODE_OPTIONS=--max-http-header-size=32768 next dev",
@@ -21,6 +22,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-icons": "^5.5.0",
+    "react-markdown": "^10.1.0",
     "stripe": "^20.4.0",
     "zod": "^3.25.76"
   },

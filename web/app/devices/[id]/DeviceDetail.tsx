@@ -27,6 +27,7 @@ import BatteryLevelIcon from '@/components/BatteryLevelIcon';
 import TripsTab from '@/app/devices/TripsTab';
 import { getBatteryStatus } from '@/lib/battery';
 import { getEventCodeInfo } from '@/lib/event-codes';
+import { getDeviceCapabilities, type DeviceCapabilities } from '@/lib/device-capabilities';
 
 const MapboxMap = dynamic(() => import('@/components/MapboxMap'), { ssr: false });
 
@@ -55,6 +56,11 @@ type Latest = {
   csq_last?: number | null;
   signal_bars?: number | null;
   offline_reason?: string | null;
+  capabilities?: DeviceCapabilities | null;
+  external_power_connected?: boolean | null;
+  backup_battery_percent?: number | null;
+  acc_status?: 'on' | 'off' | null;
+  power_source?: 'external' | 'backup' | null;
 };
 
 type HistoryRow = Latest & { id: string };
@@ -89,6 +95,7 @@ type ModeTransitionStatus =
 type Device = {
   id: string;
   name: string | null;
+  model_name?: string | null;
   last_seen_at: string | null;
   emergency_enabled?: boolean;
   emergency_status?: EmergencyStatus | null;
@@ -202,7 +209,7 @@ export default function DeviceDetail() {
   async function fetchDevice() {
     const { data: dev, error: devErr } = await supabase
       .from('devices')
-      .select('id, name, last_seen_at, emergency_enabled, emergency_status, emergency_activated_at, emergency_last_error, desired_mode, applied_mode, mode_transition_status, mode_transition_started_at, mode_verify_deadline_at, mode_verify_attempt, mode_verify_details')
+      .select('id, name, model_name, last_seen_at, emergency_enabled, emergency_status, emergency_activated_at, emergency_last_error, desired_mode, applied_mode, mode_transition_status, mode_transition_started_at, mode_verify_deadline_at, mode_verify_attempt, mode_verify_details')
       .eq('id', id)
       .single();
     if (!devErr && dev) setDevice(dev);
@@ -258,7 +265,7 @@ export default function DeviceDetail() {
       }
       const { data: dev, error: devErr } = await supabase
         .from('devices')
-        .select('id, name, last_seen_at, emergency_enabled, emergency_status, emergency_activated_at, emergency_last_error, desired_mode, applied_mode, mode_transition_status, mode_transition_started_at, mode_verify_deadline_at, mode_verify_attempt, mode_verify_details')
+        .select('id, name, model_name, last_seen_at, emergency_enabled, emergency_status, emergency_activated_at, emergency_last_error, desired_mode, applied_mode, mode_transition_status, mode_transition_started_at, mode_verify_deadline_at, mode_verify_attempt, mode_verify_details')
         .eq('id', id)
         .single();
       if (devErr || !dev) {
@@ -460,9 +467,11 @@ export default function DeviceDetail() {
   }
 
   const hasCoords = latest && latest.latitude != null && latest.longitude != null;
+  const caps = latest?.capabilities ?? getDeviceCapabilities(device?.model_name);
+  const isWired = caps?.isWired ?? false;
   const batteryStatus = getBatteryStatus({
     voltage_v: latest?.battery_voltage_last ?? latest?.battery_voltage_v ?? null,
-    percent: latest?.battery_percent ?? null,
+    percent: isWired ? (latest?.backup_battery_percent ?? null) : (latest?.battery_percent ?? null),
   });
 
   return (
@@ -474,7 +483,7 @@ export default function DeviceDetail() {
             <span>Dashboard</span>
           </Link>
           <div className="device-view-title-row">
-            <h1 className="device-view-title">{device.name || device.id}</h1>
+            <h1 className="device-view-title">{device.name || device.id}{device.model_name ? <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.85em' }}> · {device.model_name}</span> : null}</h1>
             <button
               type="button"
               onClick={handleRefresh}
@@ -685,15 +694,45 @@ export default function DeviceDetail() {
                             <span className="device-view-hero-stat-value">{latest.speed_kph != null ? `${latest.speed_kph} km/h` : '—'}</span>
                           </div>
                         </div>
-                        <div className="device-view-hero-stat">
-                          <BatteryLevelIcon tier={batteryStatus.tier} size={14} color={batteryStatus.color.text} aria-hidden className="device-view-hero-stat-icon" />
-                          <div>
-                            <span className="device-view-hero-stat-label">Battery</span>
-                            <span className="device-view-hero-stat-value" style={{ color: batteryStatus.color.text }}>
-                              {latest.battery_level_label ?? batteryStatus.label}
-                            </span>
+                        {isWired ? (
+                          <>
+                            <div className="device-view-hero-stat">
+                              <span className="device-view-hero-stat-label">External Power</span>
+                              <span className="device-view-hero-stat-value" data-connected={latest.external_power_connected === true ? 'yes' : latest.external_power_connected === false ? 'no' : undefined}>
+                                {latest.external_power_connected === true
+                                  ? 'Connected'
+                                  : latest.external_power_connected === false
+                                    ? 'Lost'
+                                    : '—'}
+                              </span>
+                            </div>
+                            <div className="device-view-hero-stat">
+                              <BatteryLevelIcon tier={batteryStatus.tier} size={14} color={batteryStatus.color.text} aria-hidden className="device-view-hero-stat-icon" />
+                              <div>
+                                <span className="device-view-hero-stat-label">Backup Battery</span>
+                                <span className="device-view-hero-stat-value" style={{ color: batteryStatus.color.text }}>
+                                  {latest.backup_battery_percent != null ? `${latest.backup_battery_percent}%` : '—'}
+                                </span>
+                              </div>
+                            </div>
+                            {latest.acc_status != null && (
+                              <div className="device-view-hero-stat">
+                                <span className="device-view-hero-stat-label">ACC</span>
+                                <span className="device-view-hero-stat-value">{latest.acc_status === 'on' ? 'On' : 'Off'}</span>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="device-view-hero-stat">
+                            <BatteryLevelIcon tier={batteryStatus.tier} size={14} color={batteryStatus.color.text} aria-hidden className="device-view-hero-stat-icon" />
+                            <div>
+                              <span className="device-view-hero-stat-label">Battery</span>
+                              <span className="device-view-hero-stat-value" style={{ color: batteryStatus.color.text }}>
+                                {latest.battery_level_label ?? batteryStatus.label}
+                              </span>
+                            </div>
                           </div>
-                        </div>
+                        )}
                         <div className="device-view-hero-stat">
                           <Wifi size={14} className="device-view-hero-stat-icon" aria-hidden />
                           <div>

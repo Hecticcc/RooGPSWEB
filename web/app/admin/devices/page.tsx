@@ -23,7 +23,8 @@ type DeviceRow = {
   user_email: string | null;
   user_role: string | null;
   name: string | null;
-  status: 'online' | 'sleep' | 'offline';
+  model_name: string | null;
+  status: 'online' | 'sleep' | 'offline' | 'suspended';
   device_state: 'ONLINE' | 'SLEEPING' | 'OFFLINE';
   battery_percent: number | null;
   last_seen_at: string | null;
@@ -142,6 +143,7 @@ export default function AdminDevicesPage() {
             <option value="">All</option>
             <option value="online">Online</option>
             <option value="offline">Offline</option>
+            <option value="suspended">Suspended</option>
             <option value="unassigned">Unassigned</option>
             <option value="low_battery">Low battery (&lt;20%)</option>
           </select>
@@ -176,6 +178,8 @@ export default function AdminDevicesPage() {
           <thead>
             <tr>
               <th>Device ID</th>
+              <th>Model</th>
+              <th>Name</th>
               <th>Assigned user</th>
               <th>Status</th>
               <th>Battery</th>
@@ -189,6 +193,8 @@ export default function AdminDevicesPage() {
             {devices.map((d) => (
               <tr key={d.id}>
                 <td className="admin-mono">{d.id}</td>
+                <td>{d.model_name ? <span>{d.model_name}</span> : <span className="admin-time">—</span>}</td>
+                <td>{d.name ? <span>{d.name}</span> : <span className="admin-time">—</span>}</td>
                 <td>{d.user_email ?? (d.user_id ? '—' : 'Unassigned')}</td>
                 <td>
                   <span
@@ -197,11 +203,13 @@ export default function AdminDevicesPage() {
                         ? 'admin-badge--success'
                         : d.status === 'sleep'
                           ? 'admin-badge--sleep'
-                          : 'admin-badge--warn'
+                          : d.status === 'suspended'
+                            ? 'admin-badge--status-suspended'
+                            : 'admin-badge--warn'
                     }`}
-                    title={d.status === 'sleep' ? 'Device is in sleep mode (stopped, within heartbeat window)' : undefined}
+                    title={d.status === 'sleep' ? 'Device is in sleep mode (stopped, within heartbeat window)' : d.status === 'suspended' ? 'Subscription suspended (overdue on payment)' : undefined}
                   >
-                    {d.status === 'sleep' ? 'Sleep' : d.status}
+                    {d.status === 'sleep' ? 'Sleep' : d.status === 'suspended' ? 'Suspended' : d.status}
                   </span>
                 </td>
                 <td>{d.battery_percent != null ? `${d.battery_percent}%` : '—'}</td>

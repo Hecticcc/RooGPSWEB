@@ -36,7 +36,7 @@ export async function GET(
 
   const { data: device } = await admin
     .from('devices')
-    .select('id, name, last_seen_at, heartbeat_minutes, moving_interval_seconds')
+    .select('id, name, model_name, last_seen_at, heartbeat_minutes, moving_interval_seconds')
     .eq('id', deviceId)
     .single();
   if (!device) {
@@ -111,7 +111,7 @@ export async function GET(
       : null;
 
   return NextResponse.json({
-    device: { id: device.id, name: device.name ?? 'Tracker' },
+    device: { id: device.id, name: device.name ?? 'Tracker', model_name: (device as { model_name?: string | null }).model_name ?? null },
     expires_at: link.expires_at,
     view_state: viewStateResult.view_state,
     motion,

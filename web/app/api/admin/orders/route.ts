@@ -17,6 +17,8 @@ export async function GET(request: Request) {
   const page = Math.max(1, parseInt(searchParams.get('page') ?? String(DEFAULT_PAGE), 10) || DEFAULT_PAGE);
   const perPage = Math.min(100, Math.max(1, parseInt(searchParams.get('per_page') ?? String(DEFAULT_PER_PAGE), 10) || DEFAULT_PER_PAGE));
   const search = (searchParams.get('search') ?? '').trim();
+  const tab = (searchParams.get('tab') ?? 'other').toLowerCase();
+  const activatedOnly = tab === 'activated';
   const sort = SORT_FIELDS.includes(searchParams.get('sort') as (typeof SORT_FIELDS)[number])
     ? (searchParams.get('sort') as (typeof SORT_FIELDS)[number])
     : 'created_at';
@@ -39,6 +41,12 @@ export async function GET(request: Request) {
       count: 'exact',
     })
     .order(sort, { ascending: order === 'asc' });
+
+  if (activatedOnly) {
+    query = query.eq('status', 'activated');
+  } else {
+    query = query.neq('status', 'activated');
+  }
 
   if (search.length > 0) {
     const searchEscaped = search.replace(/%/g, '\\%').replace(/\\/g, '\\\\');

@@ -116,6 +116,8 @@ type Device = {
   latest_backup_battery_percent?: number | null;
   latest_acc_status?: 'on' | 'off' | null;
   moving_interval_seconds?: number | null;
+  /** Ingest server that received the last packet (e.g. Skippy, Joey). */
+  ingest_server?: string | null;
 };
 
 type Props = {
@@ -840,6 +842,12 @@ export default function DevicesListView(props: Props) {
                             ? `${device.last_battery_voltage.toFixed(2)} V`
                             : '—')
                       : (device.last_battery_voltage != null ? `${device.last_battery_voltage.toFixed(2)} V` : '—')}
+                  </span>
+                </div>
+                <div className="tracker-settings-modal-status-row">
+                  <span className="tracker-settings-modal-status-label">Server</span>
+                  <span className="tracker-settings-modal-status-value">
+                    {device.ingest_server ?? '—'}
                   </span>
                 </div>
               </div>

@@ -57,6 +57,7 @@ export default function MarketingHeader() {
           {NAV_LINKS.map(({ href, label }) => (
             <a key={href} href={href}>{label}</a>
           ))}
+          <a href="https://status.roogps.com" target="_blank" rel="noopener noreferrer" className="marketing-nav-status">Status</a>
           <Link href="/login" className="marketing-cta-header">Dashboard</Link>
         </nav>
         <button
@@ -78,6 +79,7 @@ export default function MarketingHeader() {
           {NAV_LINKS.map(({ href, label }) => (
             <a key={href} href={href} onClick={() => setMenuOpen(false)}>{label}</a>
           ))}
+          <a href="https://status.roogps.com" target="_blank" rel="noopener noreferrer" onClick={() => setMenuOpen(false)}>Status</a>
           <Link href="/login" className="marketing-cta-header" onClick={() => setMenuOpen(false)}>
             Dashboard
           </Link>

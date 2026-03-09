@@ -61,14 +61,14 @@ function run() {
   ok(r3.device_state === 'OFFLINE', 'OFFLINE: 15h ago');
   ok(r3.offline_reason === 'OFFLINE_UNKNOWN', 'OFFLINE: reason UNKNOWN');
 
-  // Edge: 2h ago but is_stopped false => OFFLINE
+  // Within window we show SLEEPING regardless of is_stopped (sleep heartbeats often omit/misreport it)
   const r4 = computeDeviceState({
     last_seen_at: lastSeenAgoSeconds(twoHours),
     heartbeat_minutes: 720,
     last_known_is_stopped: false,
     _config: { grace_seconds: 3600 },
   });
-  ok(r4.device_state === 'OFFLINE', 'Edge: 2h ago, is_stopped false => OFFLINE');
+  ok(r4.device_state === 'SLEEPING', '2h ago, is_stopped false => still SLEEPING (within 13h window)');
 
   // OFFLINE_LOW_BATTERY when beyond window and battery <= 3.55
   const r5 = computeDeviceState({

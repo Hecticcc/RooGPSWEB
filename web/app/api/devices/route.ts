@@ -73,11 +73,11 @@ export async function GET(request: Request) {
       const limit = 8;
       const { data: locs } = await supabase
         .from('locations')
-        .select('latitude, longitude, received_at, extra')
+        .select('latitude, longitude, received_at, extra, ingest_server')
         .eq('device_id', d.id)
         .order('received_at', { ascending: false })
         .limit(limit);
-      const list = (locs ?? []) as { latitude: number | null; longitude: number | null; received_at: string; extra: Record<string, unknown> | null }[];
+      const list = (locs ?? []) as { latitude: number | null; longitude: number | null; received_at: string; extra: Record<string, unknown> | null; ingest_server?: string | null }[];
       const loc = list[0] ?? null;
       const extra = (loc?.extra as Record<string, unknown> | null) ?? null;
       const hasBatteryData = (e: Record<string, unknown> | null) => {
@@ -141,6 +141,7 @@ export async function GET(request: Request) {
         latest_backup_battery_percent: caps.isWired ? wiredPower.backup_battery_percent : undefined,
         latest_acc_status: caps.isWired ? wiredPower.acc_status : undefined,
         latest_power_source: caps.isWired ? wiredPower.power_source : undefined,
+        ingest_server: loc?.ingest_server ?? null,
       };
     })
   );

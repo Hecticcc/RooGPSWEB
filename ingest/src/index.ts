@@ -26,6 +26,9 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const DEADLETTER_PATH = path.join(DATA_DIR, 'deadletter.log');
 const FALLBACK_PATH = path.join(DATA_DIR, 'fallback.log');
 
+/** Server name for this ingest instance (e.g. Skippy, Joey). Stored on each location row so the UI can show "Server: Skippy". */
+const INGEST_SERVER_NAME = (process.env.INGEST_SERVER_NAME ?? '').trim() || null;
+
 const startTime = Date.now();
 let connections = 0;
 let parsedLines = 0;
@@ -158,7 +161,7 @@ async function insertLocation(parsed: ParsedLocationLike | null): Promise<boolea
     log('info', 'ingest accept disabled, skipping insert');
     return false;
   }
-  const row = {
+  const row: Record<string, unknown> = {
     device_id: parsed.device_id,
     gps_time: parsed.gps_time,
     gps_valid: parsed.gps_valid,
@@ -170,6 +173,7 @@ async function insertLocation(parsed: ParsedLocationLike | null): Promise<boolea
     raw_payload: parsed.raw_payload,
     extra: parsed.extra,
   };
+  if (INGEST_SERVER_NAME) row.ingest_server = INGEST_SERVER_NAME;
   const backoffMs = [100, 300, 900];
   for (let attempt = 0; attempt < SUPABASE_RETRIES; attempt++) {
     const { error: insertErr } = await supabase.from('locations').insert(row);
@@ -222,6 +226,15 @@ function logParsedMessage(
 const clientSockets = new Set<net.Socket>();
 /** Last device_id seen on each socket (so we can attribute connection errors to a device) */
 const socketToDeviceId = new Map<net.Socket, string>();
+
+/** Idle/sleep disconnects: device or network closed after no data (e.g. 12h heartbeat). Don't count as errors. */
+function isExpectedIdleDisconnect(err: Error): boolean {
+  const code = (err as NodeJS.ErrnoException).code ?? '';
+  const msg = (err.message ?? '').toLowerCase();
+  if (['ETIMEDOUT', 'ECONNRESET', 'EPIPE'].includes(code)) return true;
+  if (msg.includes('read etimedout') || msg.includes('econnreset') || msg.includes('socket hang up')) return true;
+  return false;
+}
 
 function recordConnectionError(deviceId: string, errorMessage: string) {
   if (!supabase) return;
@@ -330,6 +343,10 @@ const server = net.createServer((socket) => {
   });
   socket.on('error', (err: Error) => {
     connections--;
+    if (isExpectedIdleDisconnect(err)) {
+      log('debug', 'socket closed (idle/sleep disconnect)', { err: err.message });
+      return;
+    }
     errors++;
     lastError = `socket error: ${err.message}`;
     lastErrorAt = Date.now();

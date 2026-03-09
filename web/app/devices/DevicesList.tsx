@@ -37,6 +37,7 @@ type Device = {
   emergency_enabled?: boolean;
   emergency_status?: string | null;
   subscription_suspended?: boolean;
+  ingest_server?: string | null;
 };
 
 const POLL_INTERVAL_MS = 30 * 1000; // refresh trackers and map every 30s

@@ -3,11 +3,11 @@
  * Used so the UI shows "Sleep mode" when the device is likely sleeping (heartbeat interval)
  * instead of "Offline".
  *
- * When does Sleep mode activate?
- * - After the device has not been seen for longer than the "online" window (e.g. > 10 min).
- * - But still within the "sleeping" window: (heartbeat_minutes * 60 + grace_seconds), e.g. 12h + 1h = 13h.
- * - And we don't know the device was moving (is_stopped is true or null; only is_stopped === false forces Offline).
- * Offline = only after 13–14h (heartbeat+grace) with no ping, or when the last packet said "moving" (so we expect reports).
+ * How we decide:
+ * - ONLINE: last_seen within "online" threshold (e.g. ≤10 min, or ≤2× moving_interval).
+ * - SLEEPING: last_seen past online threshold but within "sleeping" window (heartbeat + grace, e.g. 12h + 1h = 13h).
+ *   Any check-in within this window is shown as Sleep (we do not use is_stopped to force Offline here).
+ * - OFFLINE: no last_seen, or last_seen older than the sleeping window (e.g. >13h). Optionally OFFLINE_LOW_BATTERY if battery ≤ threshold.
  */
 
 export type DeviceState = 'ONLINE' | 'SLEEPING' | 'OFFLINE';
@@ -81,8 +81,9 @@ function nextExpectedCheckinAt(last_seen_at: string | null, heartbeat_minutes: n
 /**
  * Compute device state from last seen time and PT60-L last-known fields.
  * - ONLINE: last_seen within online_threshold.
- * - SLEEPING: beyond online_threshold but within (heartbeat + grace), and last packet was stopped.
- * - OFFLINE: beyond (heartbeat + grace), or beyond online_threshold and not stopped (moving should report).
+ * - SLEEPING: beyond online_threshold but within (heartbeat + grace). We treat any recent check-in as SLEEPING
+ *   so sleep heartbeats (which may omit or misreport is_stopped) don't wrongly show as Offline.
+ * - OFFLINE: beyond (heartbeat + grace) with no ping.
  */
 export function computeDeviceState(input: DeviceStateInput): DeviceStateResult {
   const config = input._config ?? {};
@@ -124,10 +125,9 @@ export function computeDeviceState(input: DeviceStateInput): DeviceStateResult {
     };
   }
 
-  // Within heartbeat+grace window: show SLEEPING unless we know the device was moving (is_stopped === false).
-  // When is_stopped is null (e.g. no PT60 data), assume it may be sleeping so we don't flip to Offline too soon.
-  const wasMoving = input.last_known_is_stopped === false;
-  if (!wasMoving && lastSeenAgeSeconds <= sleepingWindowSeconds) {
+  // Within heartbeat+grace: show SLEEPING. Don't use is_stopped to force OFFLINE here—sleep heartbeats
+  // often omit or misreport it, which was causing devices that just checked in (e.g. 5:32 / 5:52 pm) to show Offline.
+  if (lastSeenAgeSeconds <= sleepingWindowSeconds) {
     return {
       device_state: 'SLEEPING',
       offline_reason: null,

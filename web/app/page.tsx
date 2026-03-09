@@ -295,7 +295,11 @@ export default async function HomePage() {
               <span>Australian Owned · Australian Support · For Australians</span>
             </div>
           </div>
-          <p className="marketing-footer-copy">© RooGPS. Australian GPS tracking.</p>
+          <p className="marketing-footer-copy">
+            © RooGPS. Australian GPS tracking.
+            {' · '}
+            <a href="https://status.roogps.com" target="_blank" rel="noopener noreferrer" className="marketing-footer-link">Status</a>
+          </p>
         </div>
       </footer>
     </main>

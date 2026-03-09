@@ -39,17 +39,17 @@ export async function GET(request: Request) {
   const emailByUser = new Map((authData?.users ?? []).map((u) => [u.id, u.email ?? null]));
 
   const deviceIds = deviceList.map((d) => d.id);
-  const latestLocations: Record<string, { battery_percent?: number; extra?: unknown }> = {};
+  const latestLocations: Record<string, { battery_percent?: number; extra?: unknown; received_at?: string }> = {};
   if (deviceIds.length > 0) {
     const { data: locs } = await admin
       .from('locations')
-      .select('device_id, extra')
+      .select('device_id, extra, received_at')
       .in('device_id', deviceIds)
       .order('received_at', { ascending: false });
-    const byDevice = new Map<string, { extra: unknown }>();
+    const byDevice = new Map<string, { extra: unknown; received_at?: string }>();
     for (const loc of locs ?? []) {
       if (!byDevice.has(loc.device_id)) {
-        byDevice.set(loc.device_id, { extra: loc.extra });
+        byDevice.set(loc.device_id, { extra: loc.extra, received_at: (loc as { received_at?: string }).received_at });
       }
     }
     Array.from(byDevice.entries()).forEach(([did, v]) => {
@@ -57,6 +57,7 @@ export async function GET(request: Request) {
       latestLocations[did] = {
         battery_percent: extra?.battery?.percent,
         extra: v.extra,
+        received_at: v.received_at,
       };
     });
   }
@@ -135,8 +136,15 @@ export async function GET(request: Request) {
     const locExtra = latestLocations[d.id]?.extra as { pt60_state?: { is_stopped?: boolean } } | undefined;
     const lastIsStopped = locExtra?.pt60_state?.is_stopped ?? null;
     const deviceRow = d as DeviceRow;
+    // Use effective last seen: max(latest location received_at, devices.last_seen_at) so sleep heartbeats count (same fix as user devices API).
+    const locReceivedAt = latestLocations[d.id]?.received_at ?? null;
+    const dbLastSeen = d.last_seen_at ?? null;
+    const lastSeenAt =
+      locReceivedAt && (!dbLastSeen || new Date(locReceivedAt) > new Date(dbLastSeen))
+        ? locReceivedAt
+        : dbLastSeen;
     const stateResult = computeDeviceState({
-      last_seen_at: d.last_seen_at,
+      last_seen_at: lastSeenAt,
       moving_interval_seconds: deviceRow.moving_interval_seconds ?? null,
       heartbeat_minutes: deviceRow.heartbeat_minutes ?? null,
       last_known_is_stopped: lastIsStopped,
@@ -164,7 +172,7 @@ export async function GET(request: Request) {
       status,
       device_state: stateResult.device_state,
       battery_percent: battery ?? null,
-      last_seen_at: d.last_seen_at,
+      last_seen_at: lastSeenAt,
       created_at: d.created_at,
       sim_iccid,
       sim_status,

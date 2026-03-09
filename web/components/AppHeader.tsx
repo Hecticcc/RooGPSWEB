@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import Logo from './Logo';
 
+const STATUS_URL = 'https://status.roogps.com';
+
 export default function AppHeader() {
   return (
     <header className="app-header">
@@ -12,6 +14,17 @@ export default function AppHeader() {
             <Logo size={128} inline />
           </span>
         </Link>
+      </div>
+      <div className="app-header-right">
+        <a
+          href={STATUS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="app-header-status"
+          aria-label="RooGPS system status"
+        >
+          Status
+        </a>
       </div>
     </header>
   );

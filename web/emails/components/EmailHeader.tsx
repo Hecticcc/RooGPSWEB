@@ -15,9 +15,11 @@ const headerSection = {
   backgroundColor: '#1a1a1a',
   padding: '20px 24px',
   borderRadius: '8px 8px 0 0',
+  textAlign: 'center' as const,
 };
 
 const logo = {
   display: 'block',
+  margin: '0 auto',
   objectFit: 'contain' as const,
 };

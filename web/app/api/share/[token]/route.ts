@@ -85,7 +85,10 @@ export async function GET(
     signal?: { gps?: { valid?: boolean } };
     gps_lock?: boolean;
   } | null) ?? null;
-  const lastSeenAt = latestRow?.received_at ?? deviceRow.last_seen_at ?? null;
+  const dbLast = deviceRow.last_seen_at ?? null;
+  const locReceived = latestRow?.received_at ?? null;
+  const lastSeenAt =
+    locReceived && (!dbLast || new Date(locReceived) > new Date(dbLast)) ? locReceived : dbLast;
   const batteryV = extra?.battery?.voltage_v ?? extra?.power?.battery_voltage_v ?? extra?.internal_battery_voltage_v ?? null;
   const gpsFixLast = latestRow?.gps_valid ?? extra?.gps_lock ?? extra?.signal?.gps?.valid ?? null;
   const viewStateResult = computeViewDeviceState({

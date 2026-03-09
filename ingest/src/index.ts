@@ -176,7 +176,7 @@ async function insertLocation(parsed: ParsedLocationLike | null): Promise<boolea
     if (!insertErr) {
       insertedRows++;
       const { error: updateErr } = await supabase.from('devices').update({ last_seen_at: new Date().toISOString() }).eq('id', parsed.device_id);
-      if (updateErr) log('warn', 'devices last_seen_at update failed', { err: updateErr.message });
+      if (updateErr) log('error', 'devices last_seen_at update failed (device may show offline)', { device_id: parsed.device_id, err: updateErr.message });
       return true;
     }
     if (attempt < SUPABASE_RETRIES - 1) {

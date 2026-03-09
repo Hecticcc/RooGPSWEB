@@ -106,7 +106,14 @@ export async function GET(request: Request) {
       const gpsLockFromExtra = (e: Record<string, unknown> | null) =>
         (e?.gps_lock as boolean) ?? (e?.signal as { gps?: { valid?: boolean } })?.gps?.valid ?? null;
       const gpsLockLast = gpsLockFromExtra(extraForSignal ?? extra);
-      const lastSeenAt = loc?.received_at ?? d.last_seen_at;
+      // Use the latest of: most recent location received_at (heartbeats count) or devices.last_seen_at.
+      // This fixes devices showing offline when ingest wrote locations but devices.last_seen_at wasn't updated.
+      const locReceivedAt = loc?.received_at ?? null;
+      const dbLastSeen = d.last_seen_at ?? null;
+      const lastSeenAt =
+        locReceivedAt && (!dbLastSeen || new Date(locReceivedAt) > new Date(dbLastSeen))
+          ? locReceivedAt
+          : dbLastSeen;
       const stateResult = computeDeviceState({
         last_seen_at: lastSeenAt,
         moving_interval_seconds: d.moving_interval_seconds ?? null,
@@ -117,6 +124,7 @@ export async function GET(request: Request) {
       const wiredPower = getWiredPowerFromExtra(caps.isWired ? extraForBattery : extra);
       return {
         ...d,
+        last_seen_at: lastSeenAt,
         latest_lat: loc?.latitude ?? null,
         latest_lng: loc?.longitude ?? null,
         latest_battery_percent: (extraForBattery?.battery as { percent?: number })?.percent ?? null,

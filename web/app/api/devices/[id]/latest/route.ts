@@ -72,7 +72,10 @@ export async function GET(
   const gpsFixLast = caps.isWired && dataForSignal !== data
     ? gpsFixFromExtra(extraForSignal)
     : (data.gps_valid ?? gpsFixFromExtra(extra));
-  const lastSeenAt = data.received_at ?? (device as { last_seen_at?: string | null }).last_seen_at;
+  const devLastSeen = (device as { last_seen_at?: string | null }).last_seen_at ?? null;
+  const locReceived = data.received_at ?? null;
+  const lastSeenAt =
+    locReceived && (!devLastSeen || new Date(locReceived) > new Date(devLastSeen)) ? locReceived : devLastSeen;
   const viewState = computeViewDeviceState({
     last_seen_at: lastSeenAt,
     moving_interval_seconds: deviceRow.moving_interval_seconds ?? null,

@@ -5,8 +5,14 @@ import path from 'path';
 import { config } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 
-// Load .env from the app directory (next to dist/) so INGEST_SERVER_NAME etc. work when started from any cwd
-config({ path: path.resolve(__dirname, '..', '.env') });
+// Load .env: app dir (ingest/.env), repo root (.env when run from repo/ingest/dist), or cwd
+const appRoot = path.resolve(__dirname, '..');       // ingest/
+const repoRoot = path.resolve(__dirname, '..', '..');
+const envInApp = path.join(appRoot, '.env');
+const envInRepo = path.join(repoRoot, '.env');
+if (fs.existsSync(envInApp)) config({ path: envInApp });
+else if (fs.existsSync(envInRepo)) config({ path: envInRepo });
+else config();
 import { parseIStartekLine, parsePT60Line } from './parser';
 import { parsePacket133Line } from './packet-133';
 import { initNightGuard, runNightGuard, shutdownNightGuard } from './night-guard';
@@ -372,6 +378,7 @@ function closeAllSockets() {
 
 server.listen(INGEST_PORT, INGEST_HOST, () => {
   log('info', `TCP ingest listening on ${INGEST_HOST}:${INGEST_PORT}`);
+  log('info', 'ingest_server name for locations', { ingest_server: INGEST_SERVER_NAME ?? '(not set)' });
   initNightGuard(supabase);
 });
 

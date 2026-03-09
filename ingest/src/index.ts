@@ -2,7 +2,11 @@ import net from 'net';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { config } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+
+// Load .env from the app directory (next to dist/) so INGEST_SERVER_NAME etc. work when started from any cwd
+config({ path: path.resolve(__dirname, '..', '.env') });
 import { parseIStartekLine, parsePT60Line } from './parser';
 import { parsePacket133Line } from './packet-133';
 import { initNightGuard, runNightGuard, shutdownNightGuard } from './night-guard';

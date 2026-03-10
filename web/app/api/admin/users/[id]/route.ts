@@ -45,6 +45,23 @@ export async function GET(
   }
   const u = authUser.user;
 
+  let lastLoginIp: string | null = null;
+  try {
+    const { data: sessionRow } = await admin
+      .schema('auth')
+      .from('sessions')
+      .select('ip')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (sessionRow && (sessionRow as { ip?: string | null }).ip != null) {
+      lastLoginIp = String((sessionRow as { ip: string }).ip);
+    }
+  } catch {
+    // auth.sessions may not be readable or column names may differ
+  }
+
   const [profileRow, roleRow, devicesRows, ordersRows, tokensRows] = await Promise.all([
     admin.from('profiles').select('first_name, last_name, address_line1, address_line2, suburb, state, postcode, country, mobile').eq('user_id', userId).maybeSingle(),
     admin.from('user_roles').select('role, created_at').eq('user_id', userId).maybeSingle(),
@@ -134,11 +151,30 @@ export async function GET(
       };
     });
 
+  const ordersList = orders.map((o) => ({
+    id: o.id,
+    order_number: o.order_number ?? null,
+    status: o.status,
+    total_cents: o.total_cents,
+    currency: o.currency,
+    created_at: o.created_at,
+  }));
+
+  const PAID_STATUSES = ['paid', 'fulfilled', 'processing', 'shipped', 'activated'];
+  const total_paid_cents = orders
+    .filter((o) => PAID_STATUSES.includes(o.status))
+    .reduce((sum, o) => sum + (o.total_cents ?? 0), 0);
+  const overdue_cents = orders
+    .filter((o) => o.status === 'pending')
+    .reduce((sum, o) => sum + (o.total_cents ?? 0), 0);
+  const currency = orders[0]?.currency ?? 'AUD';
+
   return NextResponse.json({
     id: u.id,
     email: u.email ?? null,
     created_at: u.created_at ?? null,
     last_sign_in_at: u.last_sign_in_at ?? null,
+    last_login_ip: lastLoginIp,
     role,
     role_created_at: roleCreatedAt,
     profile: profile ? {
@@ -155,5 +191,9 @@ export async function GET(
     devices,
     subscriptions,
     devices_with_sim,
+    orders: ordersList,
+    total_paid_cents,
+    overdue_cents,
+    currency,
   });
 }

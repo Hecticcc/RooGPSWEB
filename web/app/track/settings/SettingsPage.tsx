@@ -526,7 +526,7 @@ export default function SettingsPage() {
                 />
               </label>
               <label className="dashboard-settings-toggle-wrap">
-                <span className="dashboard-settings-toggle-label">Remind me when I have 5 SMS left</span>
+                <span className="dashboard-settings-toggle-label">Low Balance Alert</span>
                 <input
                   type="checkbox"
                   checked={smsLowReminderEnabled}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
@@ -61,14 +61,242 @@ type Latest = {
   backup_battery_percent?: number | null;
   acc_status?: 'on' | 'off' | null;
   power_source?: 'external' | 'backup' | null;
+  /** Carrier from Simbase (device's SIM); used as fallback in network bar when location extra has no carrier. */
+  carrier?: string | null;
 };
 
-type HistoryRow = Latest & { id: string };
+type HistoryRow = Latest & {
+  id: string;
+  extra?: { signal?: { gsm?: { csq?: number } }; connection?: { carrier?: string } } | null;
+};
 
 function formatHistoryTime(receivedAt: string): string {
   const d = new Date(receivedAt);
   if (isNaN(d.getTime())) return '—';
   return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium', hour12: false });
+}
+
+function formatRelative(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  const sec = Math.round((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return 'Just now';
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}hr ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
+}
+
+/** Segment for signal/network bar chart: time range + optional carrier and CSQ */
+type SignalSegment = {
+  from: number;
+  to: number;
+  receivedAt: string;
+  carrier?: string | null;
+  csq?: number | null;
+};
+
+function buildSignalSegments(history: HistoryRow[]): SignalSegment[] {
+  if (history.length === 0) return [];
+  const sorted = [...history].sort((a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime());
+  const segments: SignalSegment[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const row = sorted[i];
+    const t = new Date(row.received_at).getTime();
+    const next = sorted[i + 1];
+    const tEnd = next ? new Date(next.received_at).getTime() : t + 1;
+    const extra = row.extra as {
+      signal?: { gsm?: { csq?: number } };
+      connection?: { carrier?: string };
+      carrier?: string;
+    } | undefined;
+    const carrier = (extra?.carrier ?? extra?.connection?.carrier ?? null)?.trim() || null;
+    const csq = extra?.signal?.gsm?.csq ?? null;
+    segments.push({ from: t, to: tEnd, receivedAt: row.received_at, carrier, csq });
+  }
+  return segments;
+}
+
+const CARRIER_COLORS: Record<string, string> = {
+  Telstra: '#3b82f6',
+  Optus: '#fecd07', /* Optus yellow */
+  Vodafone: '#ef4444',
+};
+
+const CARRIER_LOGOS: Record<string, string> = {
+  Telstra: '/images/carriers/telstra.png',
+  Optus: '/images/carriers/optus.png',
+  Vodafone: '/images/carriers/vodafone.png',
+};
+
+function carrierColorFor(name: string | null | undefined): string | null {
+  if (!name || typeof name !== 'string') return null;
+  const n = name.trim();
+  const key = (Object.keys(CARRIER_COLORS) as string[]).find((c) => c.toLowerCase() === n.toLowerCase());
+  return key ? CARRIER_COLORS[key] ?? null : null;
+}
+
+function signalSegmentColor(seg: SignalSegment, deviceCarrier?: string | null): string {
+  const effectiveCarrier = seg.carrier ?? deviceCarrier;
+  const carrierCol = carrierColorFor(effectiveCarrier ?? undefined);
+  if (carrierCol) return carrierCol;
+  if (seg.csq != null) {
+    if (seg.csq >= 15) return 'var(--success)';
+    if (seg.csq >= 10) return 'var(--warn)';
+    if (seg.csq >= 0) return 'var(--error)';
+  }
+  return 'var(--border)';
+}
+
+function SignalBarChart({
+  segments,
+  latest,
+  className,
+}: {
+  segments: SignalSegment[];
+  latest: Latest | null;
+  className?: string;
+}) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [tooltipLeft, setTooltipLeft] = useState<number | null>(null);
+  const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const barWrapRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (hoverIdx == null) {
+      setTooltipLeft(null);
+      return;
+    }
+    const seg = segmentRefs.current[hoverIdx];
+    const wrap = barWrapRef.current;
+    if (!seg) return;
+    const center = seg.offsetLeft + seg.offsetWidth / 2;
+    if (!wrap) {
+      setTooltipLeft(center);
+      return;
+    }
+    const wrapWidth = wrap.offsetWidth;
+    const minLeft = 80;
+    const maxLeft = Math.max(minLeft, wrapWidth - 80);
+    const clamped = Math.min(maxLeft, Math.max(minLeft, center));
+    setTooltipLeft(clamped);
+  }, [hoverIdx, segments.length]);
+
+  if (segments.length === 0) {
+    return (
+      <div className={className} style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', height: '100%', minHeight: 52 }}>
+        <span className="device-view-hero-stat-label" style={{ display: 'block' }}>Network</span>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', fontSize: 13, color: 'var(--muted)' }}>
+          Load history to see signal timeline
+        </div>
+      </div>
+    );
+  }
+  const tMin = Math.min(...segments.map((s) => s.from));
+  const tMax = Math.max(...segments.map((s) => s.to));
+  const range = tMax - tMin || 1;
+  const segmentCarriers = Array.from(new Set(segments.map((s) => s.carrier).filter(Boolean))) as string[];
+  const carriers = segmentCarriers.length > 0 ? segmentCarriers : (latest?.carrier ? [latest.carrier] : []);
+
+  return (
+    <div className={className} style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', height: '100%', minHeight: 52, position: 'relative' }}>
+      <div className="device-view-network-header">
+        <span className="device-view-hero-stat-label">Network</span>
+        {latest?.last_seen_iso && (
+          <span className="device-view-network-time">
+            {formatRelative(latest.last_seen_iso)}
+          </span>
+        )}
+      </div>
+      <div ref={barWrapRef} className="device-view-network-bar-wrap">
+        <div
+          className="device-view-network-bar"
+          role="img"
+          aria-label="Signal and network over time"
+        >
+          {segments.map((seg, i) => {
+            const w = ((seg.to - seg.from) / range) * 100;
+            const color = signalSegmentColor(seg, latest?.carrier);
+            const isHover = hoverIdx === i;
+            return (
+              <div
+                key={`${seg.receivedAt}-${i}`}
+                ref={(el) => { segmentRefs.current[i] = el; }}
+                className="device-view-network-segment"
+                data-hover={isHover ? 'true' : undefined}
+                style={{
+                  width: `${Math.max(w, 2)}%`,
+                  minWidth: 4,
+                  backgroundColor: color,
+                }}
+                onMouseEnter={() => setHoverIdx(i)}
+                onMouseLeave={() => setHoverIdx(null)}
+              />
+            );
+          })}
+        </div>
+        {hoverIdx != null && segments[hoverIdx] && tooltipLeft != null && (
+          <div
+            className="device-view-network-tooltip"
+            style={{ left: tooltipLeft, transform: 'translateX(-50%)' }}
+          >
+            <div className="device-view-network-tooltip-title">Signal at this time</div>
+            {(() => {
+              const seg = segments[hoverIdx!];
+              const carrierName = seg.carrier ?? latest?.carrier ?? 'Network';
+              const carrierKey = (['Telstra', 'Optus', 'Vodafone'] as const).find((k) => k.toLowerCase() === (carrierName ?? '').trim().toLowerCase());
+              const tooltipLogoSrc = carrierKey ? CARRIER_LOGOS[carrierKey] : null;
+              const carrierColor = carrierColorFor(carrierName) ?? 'var(--muted)';
+              return (
+                <>
+                  <div className="device-view-network-tooltip-carrier-row">
+                    {tooltipLogoSrc ? (
+                      <img src={tooltipLogoSrc} alt={carrierKey ?? carrierName} className="device-view-network-tooltip-logo" />
+                    ) : (
+                      <span className="device-view-network-tooltip-carrier" style={{ color: carrierColor }}>
+                        {carrierName}
+                      </span>
+                    )}
+                  </div>
+                  <div className="device-view-network-tooltip-line">
+                    Connected {formatRelative(seg.receivedAt)}
+                  </div>
+                  {seg.csq != null ? (
+                    <div className="device-view-network-tooltip-line">
+                      Signal: <span className="device-view-network-tooltip-csq">CSQ {seg.csq}</span>
+                    </div>
+                  ) : (
+                    <div className="device-view-network-tooltip-line">Signal: —</div>
+                  )}
+                </>
+              );
+            })()}
+            <div className="device-view-network-tooltip-arrow" aria-hidden />
+          </div>
+        )}
+      </div>
+      {carriers.length > 0 && (
+        <div className="device-view-carrier-logos">
+          {carriers.map((c) => {
+            const key = (['Telstra', 'Optus', 'Vodafone'] as const).find((k) => k.toLowerCase() === (c ?? '').trim().toLowerCase());
+            const logoSrc = key ? CARRIER_LOGOS[key] : null;
+            const display = key ?? c;
+            if (logoSrc) {
+              return (
+                <img
+                  key={c}
+                  src={logoSrc}
+                  alt={display}
+                  className="device-view-carrier-logo"
+                />
+              );
+            }
+            const color = carrierColorFor(c) ?? 'inherit';
+            return <span key={c} style={{ color, fontWeight: 500 }}>{display}</span>;
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Format a Date as yyyy-MM-ddThh:mm in local time (for datetime-local and API range). */
@@ -478,34 +706,42 @@ export default function DeviceDetail() {
     <main className="dashboard-page">
       <div className="device-view">
         <header className="device-view-header">
-          <Link href="/track" className="device-view-back">
-            <ChevronLeft size={20} strokeWidth={2} aria-hidden />
-            <span>Dashboard</span>
-          </Link>
-          <div className="device-view-title-row">
-            <h1 className="device-view-title">{device.name || device.id}{device.model_name ? <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.78em' }}> · {device.model_name}</span> : null}</h1>
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="device-view-refresh-btn"
-              title="Refresh"
-              aria-label="Refresh"
-            >
-              <RefreshCw size={18} strokeWidth={2} className={refreshing ? 'device-view-refresh-spin' : ''} aria-hidden />
-            </button>
-            <button
-              type="button"
-              onClick={() => { setShowShareModal(true); setShareLinkUrl(null); setShareLinkExpiresAt(null); }}
-              className="device-view-refresh-btn"
-              title="Share tracking link"
-              aria-label="Share tracking link"
-            >
-              <Share2 size={18} strokeWidth={2} aria-hidden />
-            </button>
-          </div>
+          <div className="device-view-header-inner">
+            <div className="device-view-header-top">
+              <Link href="/track" className="device-view-back">
+                <ChevronLeft size={20} strokeWidth={2} aria-hidden />
+                <span>Dashboard</span>
+              </Link>
+              <div className="device-view-title-row">
+                <h1 className="device-view-title" title={`${device.name || device.id}${device.model_name ? ` · ${device.model_name}` : ''}`}>
+                  <span className="device-view-title-name">{device.name || device.id}</span>
+                  {device.model_name ? <span className="device-view-title-model"> · {device.model_name}</span> : null}
+                </h1>
+                <div className="device-view-title-actions">
+                  <button
+                    type="button"
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    className="device-view-refresh-btn"
+                    title="Refresh"
+                    aria-label="Refresh"
+                  >
+                    <RefreshCw size={18} strokeWidth={2} className={refreshing ? 'device-view-refresh-spin' : ''} aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowShareModal(true); setShareLinkUrl(null); setShareLinkExpiresAt(null); }}
+                    className="device-view-refresh-btn"
+                    title="Share tracking link"
+                    aria-label="Share tracking link"
+                  >
+                    <Share2 size={18} strokeWidth={2} aria-hidden />
+                  </button>
+                </div>
+              </div>
+            </div>
 
-          <div className="device-view-header-tabs-row">
+            <div className="device-view-header-tabs-row">
             <div className="device-view-tabs" role="tablist" aria-label="View sections">
               <button
                 type="button"
@@ -659,6 +895,7 @@ export default function DeviceDetail() {
                 </div>
               )}
             </div>
+            </div>
           </div>
         </header>
 
@@ -696,29 +933,33 @@ export default function DeviceDetail() {
                         </div>
                         {isWired ? (
                           <>
-                            <div className="device-view-hero-stat">
-                              <span className="device-view-hero-stat-label">External Power</span>
-                              <span className="device-view-hero-stat-value" data-connected={latest.external_power_connected === true ? 'yes' : latest.external_power_connected === false ? 'no' : undefined}>
-                                {latest.external_power_connected === true
-                                  ? 'Connected'
-                                  : latest.external_power_connected === false
-                                    ? 'Lost'
-                                    : '—'}
-                              </span>
-                            </div>
-                            <div className="device-view-hero-stat">
-                              <BatteryLevelIcon tier={batteryStatus.tier} size={14} color={batteryStatus.color.text} aria-hidden className="device-view-hero-stat-icon" />
-                              <div>
-                                <span className="device-view-hero-stat-label">Backup Battery</span>
-                                <span className="device-view-hero-stat-value" style={{ color: batteryStatus.color.text }}>
-                                  {latest.backup_battery_percent != null ? `${latest.backup_battery_percent}%` : '—'}
-                                </span>
+                            {(latest.external_power_connected === true || latest.external_power_connected === false) && (
+                              <div className="device-view-hero-stat">
+                                <div>
+                                  <span className="device-view-hero-stat-label">External Power</span>
+                                  <span className="device-view-hero-stat-value" data-connected={latest.external_power_connected === true ? 'yes' : 'no'}>
+                                    {latest.external_power_connected === true ? 'Connected' : 'Lost'}
+                                  </span>
+                                </div>
                               </div>
-                            </div>
+                            )}
+                            {latest.backup_battery_percent != null && (
+                              <div className="device-view-hero-stat">
+                                <BatteryLevelIcon tier={batteryStatus.tier} size={14} color={batteryStatus.color.text} aria-hidden className="device-view-hero-stat-icon" />
+                                <div>
+                                  <span className="device-view-hero-stat-label">Backup Battery</span>
+                                  <span className="device-view-hero-stat-value" style={{ color: batteryStatus.color.text }}>
+                                    {latest.backup_battery_percent}%
+                                  </span>
+                                </div>
+                              </div>
+                            )}
                             {latest.acc_status != null && (
                               <div className="device-view-hero-stat">
-                                <span className="device-view-hero-stat-label">ACC</span>
-                                <span className="device-view-hero-stat-value">{latest.acc_status === 'on' ? 'On' : 'Off'}</span>
+                                <div>
+                                  <span className="device-view-hero-stat-label">ACC</span>
+                                  <span className="device-view-hero-stat-value">{latest.acc_status === 'on' ? 'On' : 'Off'}</span>
+                                </div>
                               </div>
                             )}
                           </>
@@ -733,22 +974,31 @@ export default function DeviceDetail() {
                             </div>
                           </div>
                         )}
-                        <div className="device-view-hero-stat">
-                          <Wifi size={14} className="device-view-hero-stat-icon" aria-hidden />
-                          <div>
-                            <span className="device-view-hero-stat-label">Signal</span>
-                            <span className="device-view-hero-stat-value">
-                              {latest.signal_bars != null ? (
-                                <span className="device-view-signal-bars" aria-label={`${latest.signal_bars} bars`}>
-                                  {[1, 2, 3, 4].map((i) => (
-                                    <span key={i} className={`device-view-signal-bar ${i <= latest.signal_bars! ? 'device-view-signal-bar--on' : ''}`} />
-                                  ))}
-                                </span>
-                              ) : null}
-                              {latest.csq_last != null ? ` CSQ ${latest.csq_last}` : '—'}
-                            </span>
+                        {(latest.signal_bars != null || latest.csq_last != null) && (
+                          <div className="device-view-hero-stat">
+                            <Wifi size={14} className="device-view-hero-stat-icon" aria-hidden />
+                            <div>
+                              <span className="device-view-hero-stat-label">Signal</span>
+                              <span className="device-view-hero-stat-value">
+                                {latest.signal_bars != null ? (
+                                  <span className="device-view-signal-bars" aria-label={`${latest.signal_bars} bars`}>
+                                    {[1, 2, 3, 4].map((i) => (
+                                      <span key={i} className={`device-view-signal-bar ${i <= latest.signal_bars! ? 'device-view-signal-bar--on' : ''}`} />
+                                    ))}
+                                  </span>
+                                ) : null}
+                                {latest.csq_last != null ? ` CSQ ${latest.csq_last}` : ''}
+                              </span>
+                            </div>
                           </div>
-                        </div>
+                        )}
+                        {buildSignalSegments(history.slice(-100)).length > 0 && (
+                          <SignalBarChart
+                            className="device-view-hero-signal-chart"
+                            segments={buildSignalSegments(history.slice(-100))}
+                            latest={latest}
+                          />
+                        )}
                       </div>
                       {viewState === 'SLEEPING' && latest.next_expected_checkin_at && (
                         <div className="device-view-next-checkin">

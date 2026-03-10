@@ -19,11 +19,14 @@ export async function wasEmailSent(eventName: string, idempotencyKey: string): P
 
 /**
  * Record that an email was sent so we don't send again for the same key.
+ * Optionally store subject and body for admin "Emails sent" view.
  */
 export async function recordEmailSent(
   eventName: string,
   idempotencyKey: string,
-  recipientEmail: string | null
+  recipientEmail: string | null,
+  subject?: string | null,
+  bodyHtml?: string | null
 ): Promise<void> {
   const admin = createServiceRoleClient();
   if (!admin) return;
@@ -31,6 +34,8 @@ export async function recordEmailSent(
     event_name: eventName,
     idempotency_key: idempotencyKey,
     recipient_email: recipientEmail,
+    ...(subject != null && { subject }),
+    ...(bodyHtml != null && { body_html: bodyHtml }),
   });
   // Ignore unique violation (already sent)
   if (error && error.code !== '23505') {

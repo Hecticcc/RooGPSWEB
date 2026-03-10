@@ -4,6 +4,7 @@ import { computeViewDeviceState } from '@/lib/device-state';
 import { getBatteryStatus } from '@/lib/battery';
 import { csqToBars } from '@/lib/signal';
 import { getDeviceCapabilities, getWiredPowerFromExtra } from '@/lib/device-capabilities';
+import { getSimbaseCarrier } from '@/lib/simbase';
 
 export async function GET(
   request: Request,
@@ -20,13 +21,15 @@ export async function GET(
   }
   const { data: device } = await supabase
     .from('devices')
-    .select('id, model_name, last_seen_at, heartbeat_minutes, moving_interval_seconds')
+    .select('id, model_name, sim_iccid, last_seen_at, heartbeat_minutes, moving_interval_seconds')
     .eq('id', id)
     .eq('user_id', user.id)
     .single();
   if (!device) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
+  const simIccid = (device as { sim_iccid?: string | null }).sim_iccid;
+  const carrier = simIccid ? await getSimbaseCarrier(simIccid) : null;
   type DeviceRow = (typeof device) & { model_name?: string | null; heartbeat_minutes?: number; moving_interval_seconds?: number };
   const deviceRow = device as DeviceRow;
   const caps = getDeviceCapabilities(deviceRow.model_name);
@@ -123,5 +126,6 @@ export async function GET(
     base.power_source = wiredPower.power_source;
     base.backup_battery_voltage_v = wiredPower.backup_battery_voltage_v;
   }
+  if (carrier != null) base.carrier = carrier;
   return NextResponse.json(base);
 }

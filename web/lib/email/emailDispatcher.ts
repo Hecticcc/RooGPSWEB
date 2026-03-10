@@ -166,7 +166,7 @@ export async function handleEmailEvent(
   });
 
   if (result.ok) {
-    await recordEmailSent(eventName, idempotencyKey, to);
+    await recordEmailSent(eventName, idempotencyKey, to, subject, html);
     return { sent: true };
   }
   return { sent: false, error: result.error };

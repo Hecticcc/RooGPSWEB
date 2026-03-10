@@ -1352,37 +1352,46 @@ export default function DevicesListView(props: Props) {
                         </div>
                         </>
                       ) : device.gps_lock_last != null ? (
-                        <>
-                          <p className="tracker-settings-signal-empty" style={{ marginBottom: 12 }}>
-                            Your last packet reported GPS lock but did not include detailed signal (satellites, cellular). Showing what we know from that update:
-                          </p>
-                          <div className="tracker-settings-signal-simple">
-                            <div className="tracker-settings-signal-row">
-                              <div className="tracker-settings-signal-row-head">
-                                <span>Location Signal (from last packet)</span>
-                                <span className="tracker-settings-signal-help" data-tooltip="Derived from GPS lock in the last packet. Detailed signal was not reported." aria-label="Derived from GPS lock in the last packet."><HelpCircle size={16} aria-hidden /></span>
-                              </div>
-                              <div
-                                className={`tracker-settings-signal-block tracker-settings-signal-block--${device.gps_lock_last ? 'good' : 'none'}`}
-                                aria-label={device.gps_lock_last ? 'GPS lock: Yes' : 'GPS lock: No'}
-                              >
-                                {device.gps_lock_last ? (
-                                  <><Check size={18} strokeWidth={2.5} aria-hidden /><span>GPS lock</span></>
-                                ) : (
-                                  <><X size={18} strokeWidth={2.5} aria-hidden /><span>No GPS lock</span></>
-                                )}
-                              </div>
-                              {!device.gps_lock_last && (
-                                <p className="tracker-settings-signal-location-warning">
-                                  Ensure the tracker has a clear view of the sky for the best GPS signal.
-                                </p>
+                        <div className="tracker-settings-signal-simple">
+                          <div className="tracker-settings-signal-row">
+                            <div className="tracker-settings-signal-row-head">
+                              <span>Location Signal (from last packet)</span>
+                              <span className="tracker-settings-signal-help" data-tooltip="Derived from GPS lock in the last packet. Detailed signal was not reported." aria-label="Derived from GPS lock in the last packet."><HelpCircle size={16} aria-hidden /></span>
+                            </div>
+                            <div
+                              className={`tracker-settings-signal-block tracker-settings-signal-block--${device.gps_lock_last ? 'good' : 'none'}`}
+                              aria-label={device.gps_lock_last ? 'GPS lock: Yes' : 'GPS lock: No'}
+                            >
+                              {device.gps_lock_last ? (
+                                <><Check size={18} strokeWidth={2.5} aria-hidden /><span>GPS lock</span></>
+                              ) : (
+                                <><X size={18} strokeWidth={2.5} aria-hidden /><span>No GPS lock</span></>
                               )}
                             </div>
                           </div>
-                          <p className="tracker-settings-signal-empty tracker-settings-signal-empty--hint" style={{ marginTop: 12, fontSize: 13, opacity: 0.9 }}>
-                            Satellite and cellular details will appear here when your tracker sends a packet that includes them.
-                          </p>
-                        </>
+                          <div className="tracker-settings-signal-row">
+                            <div className="tracker-settings-signal-row-head">
+                              <span>Satellite Connectivity</span>
+                              <span className="tracker-settings-signal-help" data-tooltip="GPS accuracy based on satellites and signal quality." aria-label="Help: GPS accuracy based on satellites and signal quality."><HelpCircle size={16} aria-hidden /></span>
+                            </div>
+                            <div className="tracker-settings-signal-block tracker-settings-signal-block--cellular tracker-settings-signal-block--none" aria-label="Satellite connectivity: no data">
+                              <div className="tracker-settings-signal-bar" role="img" aria-hidden>
+                                <div className="tracker-settings-signal-bar-fill" style={{ width: '0%' }} />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="tracker-settings-signal-row">
+                            <div className="tracker-settings-signal-row-head">
+                              <span>Cellular Network Strength</span>
+                              <span className="tracker-settings-signal-help" data-tooltip="Reflects the strength of the mobile data connection used to transmit real-time tracking information." aria-label="Help: Reflects the strength of the mobile data connection used to transmit real-time tracking information."><HelpCircle size={16} aria-hidden /></span>
+                            </div>
+                            <div className="tracker-settings-signal-block tracker-settings-signal-block--cellular tracker-settings-signal-block--none" aria-label="Cellular signal: no data">
+                              <div className="tracker-settings-signal-bar" role="img" aria-hidden>
+                                <div className="tracker-settings-signal-bar-fill" style={{ width: '0%' }} />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       ) : (
                         <>
                           <p className="tracker-settings-signal-empty">No signal data yet. It will appear here after your tracker sends its next update.</p>

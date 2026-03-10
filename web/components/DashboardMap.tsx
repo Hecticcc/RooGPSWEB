@@ -41,8 +41,6 @@ const POPUP_ICON_GPS =
   '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="3"/></svg>';
 const POPUP_ICON_BATTERY =
   '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="14" height="10" rx="2"/><path d="M16 10h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/></svg>';
-const POPUP_ICON_SERVER =
-  '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01M6 18h.01M18 6h.01M18 18h.01"/></svg>';
 
 export type MapMarker = {
   id: string;
@@ -129,17 +127,12 @@ function buildPopupHtml(
   lastSeenText: string,
   statusLine: string,
   address: string | null,
-  gpsLock: boolean | null | undefined,
-  ingestServer: string | null | undefined
+  gpsLock: boolean | null | undefined
 ): string {
   const addressValue = address === null ? 'Loading…' : escapeHtml(address);
   const gpsRow =
     gpsLock != null
       ? `<div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_GPS}</span><span class="map-popup__label">GPS lock</span><span class="map-popup__value">${gpsLock ? 'Yes' : 'No'}</span></div>`
-      : '';
-  const serverRow =
-    ingestServer != null && ingestServer !== ''
-      ? `<div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_SERVER}</span><span class="map-popup__label">Server</span><span class="map-popup__value">${escapeHtml(ingestServer)}</span></div>`
       : '';
   return `
   <div class="map-popup">
@@ -159,7 +152,6 @@ function buildPopupHtml(
         <span class="map-popup__value">${escapeHtml(lastSeenText)}</span>
       </div>
       ${gpsRow}
-      ${serverRow}
     </div>
   </div>
 `;
@@ -251,7 +243,7 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
                   : m.offline
                     ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
                     : '';
-          const popupContent = buildPopupHtml(name, powerRowsHtml, lastSeenText, statusLine, null, m.gpsLock, m.ingestServer);
+          const popupContent = buildPopupHtml(name, powerRowsHtml, lastSeenText, statusLine, null, m.gpsLock);
           const popup = new mapboxgl.Popup({ anchor: 'bottom', offset: [-8, -24], closeButton: true })
             .setLngLat([m.lng, m.lat])
             .setHTML(popupContent)
@@ -263,7 +255,7 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
           });
           reverseGeocode(m.lng, m.lat).then((address) => {
             if (currentPopup !== popup) return;
-            const updated = buildPopupHtml(name, powerRowsHtml, lastSeenText, statusLine, address ?? '—', m.gpsLock, m.ingestServer);
+            const updated = buildPopupHtml(name, powerRowsHtml, lastSeenText, statusLine, address ?? '—', m.gpsLock);
             popup.setHTML(updated);
           });
         });

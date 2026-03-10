@@ -2,32 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { computeDeviceState } from '@/lib/device-state';
 import { getDeviceCapabilities, getWiredPowerFromExtra } from '@/lib/device-capabilities';
-
-const SIMBASE_API_BASE = process.env.SIMBASE_API_URL ?? 'https://api.simbase.com/v2';
-const SIMBASE_API_KEY = process.env.SIMBASE_API_KEY ?? '';
-
-/** Fetch Simbase SIM details for one ICCID; returns connection.carrier or null. */
-async function fetchSimbaseCarrier(iccid: string): Promise<string | null> {
-  if (!SIMBASE_API_KEY) return null;
-  try {
-    const base = SIMBASE_API_BASE.replace(/\/$/, '');
-    const url = `${base}/simcards/${encodeURIComponent(iccid)}`;
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${SIMBASE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { connection?: { carrier?: string } };
-    const carrier = data?.connection?.carrier;
-    return typeof carrier === 'string' && carrier.trim() ? carrier.trim() : null;
-  } catch {
-    return null;
-  }
-}
+import { getSimbaseCarrier } from '@/lib/simbase';
 
 export async function GET(request: Request) {
   const supabase = await createServerSupabaseClient(request);
@@ -208,7 +183,7 @@ export async function GET(request: Request) {
   const carrierByIccid: Record<string, string | null> = {};
   await Promise.all(
     uniqueIccids.map(async (iccid) => {
-      carrierByIccid[iccid] = await fetchSimbaseCarrier(iccid);
+      carrierByIccid[iccid] = await getSimbaseCarrier(iccid);
     })
   );
   const { data: nightGuardRules } = await supabase

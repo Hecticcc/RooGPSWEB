@@ -103,6 +103,34 @@ export async function listSimbaseSimcards(): Promise<SimbaseSim[]> {
 }
 
 /**
+ * Fetch carrier name for a SIM from Simbase (GET /simcards/{iccid} -> connection.carrier).
+ * Used for device list and device detail network bar/tooltip.
+ */
+export async function getSimbaseCarrier(iccid: string): Promise<string | null> {
+  if (!SIMBASE_API_KEY) return null;
+  const trimmed = String(iccid ?? '').trim();
+  if (!trimmed) return null;
+  try {
+    const base = SIMBASE_API_BASE.replace(/\/$/, '');
+    const url = `${base}/simcards/${encodeURIComponent(trimmed)}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${SIMBASE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { connection?: { carrier?: string } };
+    const carrier = data?.connection?.carrier;
+    return typeof carrier === 'string' && carrier.trim() ? carrier.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Set SIM state in Simbase (POST /simcards/{iccid}/state).
  * Used when a customer activates their device so the SIM is enabled for data.
  */

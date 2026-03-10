@@ -24,7 +24,7 @@ export async function GET(
   }
   let q = supabase
     .from('locations')
-    .select('id, latitude, longitude, gps_time, received_at, gps_valid, speed_kph, course_deg, event_code')
+    .select('id, latitude, longitude, gps_time, received_at, gps_valid, speed_kph, course_deg, event_code, extra')
     .eq('device_id', id)
     .order('received_at', { ascending: false })
     .limit(limit);

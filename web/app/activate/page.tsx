@@ -5,7 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
-import { KeyRound, Check } from 'lucide-react';
+import Logo from '@/components/Logo';
+import { Check } from 'lucide-react';
 
 export default function ActivatePage() {
   const searchParams = useSearchParams();
@@ -77,8 +78,8 @@ export default function ActivatePage() {
     return (
       <div className="activate-page">
         <div className="activate-card">
-          <div className="activate-icon-wrap">
-            <KeyRound size={28} strokeWidth={2} aria-hidden />
+          <div className="activate-icon-wrap activate-logo-wrap">
+            <Logo size={48} wide />
           </div>
           <h1 className="activate-title">Activate your tracker</h1>
           <p className="activate-subtitle">
@@ -124,8 +125,8 @@ export default function ActivatePage() {
   return (
     <div className="activate-page">
       <div className="activate-card">
-        <div className="activate-icon-wrap">
-          <KeyRound size={28} strokeWidth={2} aria-hidden />
+        <div className="activate-icon-wrap activate-logo-wrap">
+          <Logo size={48} wide />
         </div>
         <h1 className="activate-title">Activate your tracker</h1>
         <p className="activate-subtitle">

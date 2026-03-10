@@ -39,17 +39,18 @@ export async function GET(request: Request) {
   const emailByUser = new Map((authData?.users ?? []).map((u) => [u.id, u.email ?? null]));
 
   const deviceIds = deviceList.map((d) => d.id);
-  const latestLocations: Record<string, { battery_percent?: number; extra?: unknown; received_at?: string }> = {};
+  const latestLocations: Record<string, { battery_percent?: number; extra?: unknown; received_at?: string; ingest_server?: string | null }> = {};
   if (deviceIds.length > 0) {
     const { data: locs } = await admin
       .from('locations')
-      .select('device_id, extra, received_at')
+      .select('device_id, extra, received_at, ingest_server')
       .in('device_id', deviceIds)
       .order('received_at', { ascending: false });
-    const byDevice = new Map<string, { extra: unknown; received_at?: string }>();
+    const byDevice = new Map<string, { extra: unknown; received_at?: string; ingest_server?: string | null }>();
     for (const loc of locs ?? []) {
       if (!byDevice.has(loc.device_id)) {
-        byDevice.set(loc.device_id, { extra: loc.extra, received_at: (loc as { received_at?: string }).received_at });
+        const row = loc as { received_at?: string; ingest_server?: string | null };
+        byDevice.set(loc.device_id, { extra: loc.extra, received_at: row.received_at, ingest_server: row.ingest_server });
       }
     }
     Array.from(byDevice.entries()).forEach(([did, v]) => {
@@ -58,6 +59,7 @@ export async function GET(request: Request) {
         battery_percent: extra?.battery?.percent,
         extra: v.extra,
         received_at: v.received_at,
+        ingest_server: v.ingest_server,
       };
     });
   }
@@ -158,6 +160,7 @@ export async function GET(request: Request) {
     const sim_status = sim_iccid ? (rawSimState ?? 'unknown') : null;
     return {
       id: d.id,
+      ingest_server: latestLocations[d.id]?.ingest_server ?? null,
       user_id: d.user_id,
       user_email: d.user_id ? emailByUser.get(d.user_id) ?? null : null,
       user_role: d.user_id ? roleByUser.get(d.user_id) ?? null : null,

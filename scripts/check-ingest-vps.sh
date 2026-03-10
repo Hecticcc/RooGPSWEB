@@ -9,7 +9,7 @@ INGEST_PORT="${INGEST_PORT:-8011}"
 HEALTH_PORT="${HEALTH_PORT:-8090}"
 
 echo "=============================================="
-echo "  RooGPS Ingest – VPS check"
+echo "  RooGPS Ingest - VPS check"
 echo "=============================================="
 echo ""
 
@@ -54,7 +54,7 @@ echo "-------------------"
 journalctl -u "$SERVICE_NAME" -n 20 --no-pager 2>/dev/null || echo "   (journalctl not available or no logs)"
 echo ""
 
-echo "5) Firewall (ufw) – ingest and health ports should be allowed"
+echo "5) Firewall (ufw) - ingest and health ports should be allowed"
 echo "-------------------"
 if command -v ufw &>/dev/null; then
   ufw status 2>/dev/null | grep -E "Status|$INGEST_PORT|$HEALTH_PORT" || ufw status

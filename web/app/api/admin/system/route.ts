@@ -29,11 +29,26 @@ export async function GET(request: Request) {
   }
 
   const s = settings as Record<string, unknown> | null;
+
+  // Ingest server usage (last 24h): count locations by ingest_server so admin can see which server is getting traffic
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: locRows } = await admin
+    .from('locations')
+    .select('ingest_server')
+    .gte('received_at', since24h)
+    .limit(10000);
+  const ingest_server_usage_24h: Record<string, number> = {};
+  for (const row of locRows ?? []) {
+    const server = (row as { ingest_server?: string | null }).ingest_server ?? '(none)';
+    ingest_server_usage_24h[server] = (ingest_server_usage_24h[server] ?? 0) + 1;
+  }
+
   return NextResponse.json({
     supabase_connected: !!admin,
     ingest_health_url_configured: !!INGEST_HEALTH_URL,
     ingest_status: ingestStatus,
     ingest_uptime_seconds: ingestUptimeSeconds,
+    ingest_server_usage_24h,
     maintenance_mode: s?.maintenance_mode ?? false,
     ingest_accept: s?.ingest_accept ?? true,
     stripe_trial_enabled: s?.stripe_trial_enabled ?? false,

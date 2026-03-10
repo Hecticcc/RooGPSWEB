@@ -117,6 +117,19 @@ assert(c3.tier === 'weak', `sats=10 hdop=6.5 tier weak: ${c3.tier}`);
 const c4 = computeSatelliteConnectivity(false, 5, 2.0);
 assert(c4.barPercent === 0 && c4.tier === 'poor', `fix invalid -> 0 poor: ${c4.barPercent} ${c4.tier}`);
 
+// Ford Ranger-style: optional empty token at 4, time at 5, fix at 6 (alternate layout)
+const FORD_RANGER_STYLE =
+  '&&h126,866069069149704,000,23,,260310032517,A,-38.093815,145.175653,15,0.7,0,41,24,21918,505|2|D070|0152CF0A,18,0037,00,00,0003|01A24D';
+const pFord = parseIStartekLine(FORD_RANGER_STYLE);
+const signalFord = pFord.extra.signal as SignalExtra | undefined;
+assert(signalFord != null, 'Ford Ranger-style packet must have extra.signal (alternate layout)');
+assert(pFord.gpsValid === true, 'Ford Ranger gps_valid from fix A');
+assert(pFord.latitude === -38.093815 && pFord.longitude === 145.175653, 'Ford Ranger lat/lon');
+assert(signalFord!.gps.valid === true && signalFord!.gps.has_signal === true, 'Ford Ranger signal.gps valid');
+assert(signalFord!.gps.sats === 20, 'Ford Ranger sats (41 clamped to 20)');
+assert(signalFord!.gps.hdop === 24, 'Ford Ranger hdop 24');
+assert(signalFord!.gsm.csq === 18, 'Ford Ranger CSQ from token 16');
+
 console.log('All parser tests passed.');
 console.log(
   JSON.stringify(

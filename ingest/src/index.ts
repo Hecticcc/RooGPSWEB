@@ -10,6 +10,7 @@ const appRoot = path.resolve(__dirname, '..');       // ingest/
 const repoRoot = path.resolve(__dirname, '..', '..');
 const envInApp = path.join(appRoot, '.env');
 const envInRepo = path.join(repoRoot, '.env');
+const envLoadedFrom = fs.existsSync(envInApp) ? envInApp : fs.existsSync(envInRepo) ? envInRepo : 'cwd';
 if (fs.existsSync(envInApp)) config({ path: envInApp });
 else if (fs.existsSync(envInRepo)) config({ path: envInRepo });
 else config();
@@ -378,7 +379,10 @@ function closeAllSockets() {
 
 server.listen(INGEST_PORT, INGEST_HOST, () => {
   log('info', `TCP ingest listening on ${INGEST_HOST}:${INGEST_PORT}`);
-  log('info', 'ingest_server name for locations', { ingest_server: INGEST_SERVER_NAME ?? '(not set)' });
+  log('info', 'ingest_server name for locations', {
+    ingest_server: INGEST_SERVER_NAME ?? '(not set)',
+    env_loaded_from: envLoadedFrom,
+  });
   initNightGuard(supabase);
 });
 

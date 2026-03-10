@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 /** Mapbox CSS loaded here so the dynamic DashboardMap chunk does not create a separate CSS chunk (avoids dev chunk load errors). */
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { Car, Clock, Plus, ChevronRight, ChevronDown, Settings, Check, Loader2, AlertCircle, AlertTriangle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin, ShieldAlert, KeyRound } from 'lucide-react';
+import { Car, Clock, Plus, ChevronRight, ChevronDown, Settings, Check, Loader2, AlertCircle, AlertTriangle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin, ShieldAlert, KeyRound, Battery, Server } from 'lucide-react';
 import { FaShieldDog } from 'react-icons/fa6';
 import { AppContainer } from '@/components/layout';
 
@@ -341,6 +341,8 @@ export default function DevicesListView(props: Props) {
             isWired: caps.isWired,
             externalPowerConnected: d.latest_external_power_connected ?? null,
             backupBatteryPercent: d.latest_backup_battery_percent ?? null,
+            gpsLock: d.gps_lock_last ?? null,
+            ingestServer: d.ingest_server ?? null,
           };
         }),
     [devices]
@@ -817,7 +819,10 @@ export default function DevicesListView(props: Props) {
               </div>
               <div className="tracker-settings-modal-status" aria-label="Device status (last packet)">
                 <div className="tracker-settings-modal-status-row">
-                  <span className="tracker-settings-modal-status-label">Last seen</span>
+                  <span className="tracker-settings-modal-status-label">
+                    <Clock size={14} strokeWidth={2} aria-hidden className="tracker-settings-modal-status-icon" />
+                    Last seen
+                  </span>
                   <span className="tracker-settings-modal-status-value">
                     {device.last_seen_at
                       ? new Date(device.last_seen_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
@@ -825,13 +830,17 @@ export default function DevicesListView(props: Props) {
                   </span>
                 </div>
                 <div className="tracker-settings-modal-status-row">
-                  <span className="tracker-settings-modal-status-label">GPS lock (last packet)</span>
+                  <span className="tracker-settings-modal-status-label">
+                    <Crosshair size={14} strokeWidth={2} aria-hidden className="tracker-settings-modal-status-icon" />
+                    GPS lock (last packet)
+                  </span>
                   <span className="tracker-settings-modal-status-value">
                     {device.gps_lock_last == null ? '—' : device.gps_lock_last ? 'Yes' : 'No'}
                   </span>
                 </div>
                 <div className="tracker-settings-modal-status-row">
                   <span className="tracker-settings-modal-status-label">
+                    <Battery size={14} strokeWidth={2} aria-hidden className="tracker-settings-modal-status-icon" />
                     {device.capabilities?.isWired ? 'Backup battery (last packet)' : 'Battery (last packet)'}
                   </span>
                   <span className="tracker-settings-modal-status-value">
@@ -845,7 +854,10 @@ export default function DevicesListView(props: Props) {
                   </span>
                 </div>
                 <div className="tracker-settings-modal-status-row">
-                  <span className="tracker-settings-modal-status-label">Server</span>
+                  <span className="tracker-settings-modal-status-label">
+                    <Server size={14} strokeWidth={2} aria-hidden className="tracker-settings-modal-status-icon" />
+                    Server
+                  </span>
                   <span className="tracker-settings-modal-status-value">
                     {device.ingest_server ?? '—'}
                   </span>
@@ -1338,6 +1350,38 @@ export default function DevicesListView(props: Props) {
                             </div>
                           )}
                         </div>
+                        </>
+                      ) : device.gps_lock_last != null ? (
+                        <>
+                          <p className="tracker-settings-signal-empty" style={{ marginBottom: 12 }}>
+                            Your last packet reported GPS lock but did not include detailed signal (satellites, cellular). Showing what we know from that update:
+                          </p>
+                          <div className="tracker-settings-signal-simple">
+                            <div className="tracker-settings-signal-row">
+                              <div className="tracker-settings-signal-row-head">
+                                <span>Location Signal (from last packet)</span>
+                                <span className="tracker-settings-signal-help" data-tooltip="Derived from GPS lock in the last packet. Detailed signal was not reported." aria-label="Derived from GPS lock in the last packet."><HelpCircle size={16} aria-hidden /></span>
+                              </div>
+                              <div
+                                className={`tracker-settings-signal-block tracker-settings-signal-block--${device.gps_lock_last ? 'good' : 'none'}`}
+                                aria-label={device.gps_lock_last ? 'GPS lock: Yes' : 'GPS lock: No'}
+                              >
+                                {device.gps_lock_last ? (
+                                  <><Check size={18} strokeWidth={2.5} aria-hidden /><span>GPS lock</span></>
+                                ) : (
+                                  <><X size={18} strokeWidth={2.5} aria-hidden /><span>No GPS lock</span></>
+                                )}
+                              </div>
+                              {!device.gps_lock_last && (
+                                <p className="tracker-settings-signal-location-warning">
+                                  Ensure the tracker has a clear view of the sky for the best GPS signal.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <p className="tracker-settings-signal-empty tracker-settings-signal-empty--hint" style={{ marginTop: 12, fontSize: 13, opacity: 0.9 }}>
+                            Satellite and cellular details will appear here when your tracker sends a packet that includes them.
+                          </p>
                         </>
                       ) : (
                         <>

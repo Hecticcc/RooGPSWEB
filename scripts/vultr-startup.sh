@@ -18,6 +18,9 @@ GITHUB_PAT_B64="${GITHUB_PAT_B64:-}"
 GIT_REPO_OWNER="${GIT_REPO_OWNER:-Hecticcc}"
 GIT_REPO_NAME="${GIT_REPO_NAME:-RooGPSWEB}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
+# Ingest server name (e.g. Skippy, Joey). Defaults to first part of hostname with capital (e.g. skippy-roogps -> Skippy).
+# Set in Vultr startup script if your hostname doesn't match (e.g. INGEST_SERVER_NAME=Joey).
+INGEST_SERVER_NAME="${INGEST_SERVER_NAME:-}"
 # =======================================================
 
 if [[ -z "$CODE_ZIP_URL" ]]; then
@@ -41,6 +44,14 @@ HEALTH_PORT="${HEALTH_PORT:-8090}"
 SERVICE_USER="root"
 if id -u ubuntu &>/dev/null; then
   SERVICE_USER="ubuntu"
+fi
+
+# Default INGEST_SERVER_NAME from hostname (e.g. skippy-roogps -> Skippy)
+if [[ -z "$INGEST_SERVER_NAME" ]]; then
+  HOST_FIRST=$(hostname -s 2>/dev/null | cut -d'-' -f1)
+  if [[ -n "$HOST_FIRST" ]]; then
+    INGEST_SERVER_NAME="$(echo "${HOST_FIRST:0:1}" | tr '[:lower:]' '[:upper:]')${HOST_FIRST:1}"
+  fi
 fi
 
 export SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY
@@ -93,7 +104,8 @@ npm install
 npm run build:ingest
 
 echo "[5/7] Creating ingest/.env..."
-cat > "$INGEST_DIR/.env" << EOF
+{
+  cat << EOF
 SUPABASE_URL=$SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
 INGEST_HOST=0.0.0.0
@@ -106,6 +118,8 @@ LOG_MAX_PER_SEC=20
 SUPABASE_RETRIES=3
 DEVICE_TIMEZONE=Australia/Melbourne
 EOF
+  [[ -n "$INGEST_SERVER_NAME" ]] && echo "INGEST_SERVER_NAME=$INGEST_SERVER_NAME"
+} > "$INGEST_DIR/.env"
 chmod 600 "$INGEST_DIR/.env"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$REPO_DIR"
 
@@ -120,11 +134,16 @@ ufw status
 
 echo "[7/7] Creating systemd service..."
 NODE_PATH=$(command -v node)
-tee /etc/systemd/system/roogps-ingest.service > /dev/null << EOF
+# StartLimit* in [Unit] for older systemd; INGEST_SERVER_NAME so dashboard shows which server received the packet
+SVC_ENV_LINE=""
+[[ -n "$INGEST_SERVER_NAME" ]] && SVC_ENV_LINE="Environment=INGEST_SERVER_NAME=$INGEST_SERVER_NAME"
+tee /etc/systemd/system/roogps-ingest.service > /dev/null << SVCEOF
 [Unit]
 Description=RooGPS TCP Ingest
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -132,13 +151,14 @@ User=$SERVICE_USER
 WorkingDirectory=$INGEST_DIR
 Environment=NODE_ENV=production
 EnvironmentFile=$INGEST_DIR/.env
+$SVC_ENV_LINE
 ExecStart=$NODE_PATH dist/index.js
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SVCEOF
 
 systemctl daemon-reload
 systemctl enable roogps-ingest
@@ -147,5 +167,6 @@ systemctl start roogps-ingest
 echo ""
 echo "=== RooGPS Ingest ready ==="
 echo "Ingest:  0.0.0.0:$INGEST_PORT (TCP)"
+echo "Server:  ${INGEST_SERVER_NAME:-(not set)}"
 echo "Health:  http://$(curl -s ifconfig.me 2>/dev/null || echo 'SERVER_IP'):$HEALTH_PORT"
 echo "Check:   systemctl status roogps-ingest"

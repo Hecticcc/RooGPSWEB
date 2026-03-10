@@ -19,6 +19,7 @@ function formatDate(iso: string | null): string {
 
 type DeviceRow = {
   id: string;
+  ingest_server: string | null;
   user_id: string | null;
   user_email: string | null;
   user_role: string | null;
@@ -178,6 +179,7 @@ export default function AdminDevicesPage() {
           <thead>
             <tr>
               <th>Device ID</th>
+              <th>Server</th>
               <th>Model</th>
               <th>Name</th>
               <th>Assigned user</th>
@@ -193,6 +195,7 @@ export default function AdminDevicesPage() {
             {devices.map((d) => (
               <tr key={d.id}>
                 <td className="admin-mono">{d.id}</td>
+                <td>{d.ingest_server ?? '—'}</td>
                 <td>{d.model_name ? <span>{d.model_name}</span> : <span className="admin-time">—</span>}</td>
                 <td>{d.name ? <span>{d.name}</span> : <span className="admin-time">—</span>}</td>
                 <td>{d.user_email ?? (d.user_id ? '—' : 'Unassigned')}</td>

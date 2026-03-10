@@ -1,15 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { useAdminAuth } from '../AdminAuthContext';
-import { MessageSquare } from 'lucide-react';
+import { MessageSquare, Info } from 'lucide-react';
+
+const RETENTION_TOOLTIP_TEXT = 'Deletes locations older than ADMIN_RETENTION_DAYS (default 90).';
+const TOOLTIP_SHOW_DELAY_MS = 80;
 
 type SystemData = {
   supabase_connected: boolean;
   ingest_health_url_configured: boolean;
   ingest_status: string;
   ingest_uptime_seconds: number | null;
+  /** Count of locations in last 24h by ingest_server (e.g. { Skippy: 1234, Joey: 567 }) */
+  ingest_server_usage_24h?: Record<string, number>;
   maintenance_mode: boolean;
   ingest_accept: boolean;
   stripe_trial_enabled?: boolean;
@@ -36,6 +41,25 @@ export default function AdminSystemPage() {
   const [trialMonths, setTrialMonths] = useState<string>('');
   const [trialSaving, setTrialSaving] = useState(false);
   const [trialToast, setTrialToast] = useState<string | null>(null);
+  const [retentionTooltipVisible, setRetentionTooltipVisible] = useState(false);
+  const retentionTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (retentionTooltipTimerRef.current) clearTimeout(retentionTooltipTimerRef.current);
+    };
+  }, []);
+
+  function showRetentionTooltip() {
+    retentionTooltipTimerRef.current = setTimeout(() => setRetentionTooltipVisible(true), TOOLTIP_SHOW_DELAY_MS);
+  }
+  function hideRetentionTooltip() {
+    if (retentionTooltipTimerRef.current) {
+      clearTimeout(retentionTooltipTimerRef.current);
+      retentionTooltipTimerRef.current = null;
+    }
+    setRetentionTooltipVisible(false);
+  }
 
   useEffect(() => {
     const headers = getAuthHeaders();
@@ -187,48 +211,119 @@ export default function AdminSystemPage() {
         </table>
       </div>
 
-      {isAdmin && (
-        <div className="admin-card admin-system-actions">
-          <h3>Actions (Administrator only)</h3>
-          <div className="admin-system-toggles">
-            <label className="admin-system-toggle">
-              <input
-                type="checkbox"
-                checked={data.maintenance_mode}
-                onChange={(e) => updateSystem({ maintenance_mode: e.target.checked })}
-                disabled={acting}
-              />
-              <span className="admin-system-toggle-label">Maintenance mode</span>
-            </label>
-            <label className="admin-system-toggle">
-              <input
-                type="checkbox"
-                checked={data.ingest_accept}
-                onChange={(e) => updateSystem({ ingest_accept: e.target.checked })}
-                disabled={acting}
-              />
-              <span className="admin-system-toggle-label">Ingest accept</span>
-              <span className="admin-system-toggle-hint">Uncheck to reject new data</span>
-            </label>
+      <div className="admin-card admin-system-ingest-card">
+        <h3>Ingest server usage (24h)</h3>
+        {data.ingest_server_usage_24h && Object.keys(data.ingest_server_usage_24h).length > 0 ? (
+          <div className="admin-system-ingest-usage-block">
+            {(() => {
+              const entries = Object.entries(data.ingest_server_usage_24h)
+                .sort(([, a], [, b]) => b - a);
+              const total = entries.reduce((s, [, n]) => s + n, 0);
+              return (
+                <>
+                  <div className="admin-system-ingest-usage-total">
+                    <strong>{total.toLocaleString()}</strong> location packets in last 24h
+                  </div>
+                  <div className="admin-system-ingest-usage-bars">
+                    {entries.map(([server, count]) => {
+                      const pct = total > 0 ? (100 * count) / total : 0;
+                      const isLeader = entries[0][0] === server;
+                      return (
+                        <div key={server} className="admin-system-ingest-usage-row">
+                          <div className="admin-system-ingest-usage-row-head">
+                            <span className="admin-system-ingest-usage-server">
+                              {server === '(none)' ? 'Unknown' : server}
+                              {isLeader && <span className="admin-system-ingest-usage-leader"> (most traffic)</span>}
+                            </span>
+                            <span className="admin-system-ingest-usage-meta">
+                              {count.toLocaleString()} ({pct.toFixed(0)}%)
+                            </span>
+                          </div>
+                          <div className="admin-system-ingest-usage-bar-bg">
+                            <div
+                              className="admin-system-ingest-usage-bar-fill"
+                              style={{ width: `${Math.max(2, pct)}%` }}
+                              role="presentation"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
           </div>
-          <div className="admin-system-retention">
-            <button
-              type="button"
-              className="admin-btn admin-btn--primary"
-              onClick={runRetention}
-              disabled={acting}
-            >
-              Trigger retention cleanup
-            </button>
-            <p className="admin-system-retention-hint">Deletes locations older than ADMIN_RETENTION_DAYS (default 90).</p>
-          </div>
+        ) : (
+          <p className="admin-system-ingest-usage-empty">—</p>
+        )}
+      </div>
 
-          <div className="admin-system-trial" style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
-            <h3 style={{ marginBottom: '0.75rem' }}>Subscription Trial Settings</h3>
-            <p className="admin-system-retention-hint" style={{ marginBottom: '1rem' }}>
+      {isAdmin && (
+        <div className="admin-system-actions-grid">
+          <section className="admin-system-card">
+            <h3 className="admin-system-card-title">Actions (Administrator only)</h3>
+            <div className="admin-system-toggles">
+              <label className="admin-system-toggle">
+                <input
+                  type="checkbox"
+                  checked={data.maintenance_mode}
+                  onChange={(e) => updateSystem({ maintenance_mode: e.target.checked })}
+                  disabled={acting}
+                />
+                <span className="admin-system-toggle-label">Maintenance mode</span>
+              </label>
+              <label className="admin-system-toggle">
+                <input
+                  type="checkbox"
+                  checked={data.ingest_accept}
+                  onChange={(e) => updateSystem({ ingest_accept: e.target.checked })}
+                  disabled={acting}
+                />
+                <span className="admin-system-toggle-label">Ingest accept</span>
+                <span className="admin-system-toggle-hint">Uncheck to reject new data</span>
+              </label>
+            </div>
+            <div className="admin-system-retention">
+              <div className="admin-system-retention-row">
+                <button
+                  type="button"
+                  className="admin-btn admin-btn--primary"
+                  onClick={runRetention}
+                  disabled={acting}
+                >
+                  Trigger retention cleanup
+                </button>
+                <span
+                  className="admin-system-retention-info-wrap"
+                  onMouseEnter={showRetentionTooltip}
+                  onMouseLeave={hideRetentionTooltip}
+                  onFocus={showRetentionTooltip}
+                  onBlur={hideRetentionTooltip}
+                >
+                  <span
+                    className="admin-system-retention-info"
+                    aria-label={RETENTION_TOOLTIP_TEXT}
+                    tabIndex={0}
+                  >
+                    <Info size={16} strokeWidth={2} aria-hidden />
+                  </span>
+                  {retentionTooltipVisible && (
+                    <span className="admin-system-retention-tooltip" role="tooltip">
+                      {RETENTION_TOOLTIP_TEXT}
+                    </span>
+                  )}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <section className="admin-system-card">
+            <h3 className="admin-system-card-title">Subscription Trial Settings</h3>
+            <p className="admin-system-card-desc">
               Applies to new subscriptions only. Existing subscriptions keep the trial they were created with.
             </p>
-            <div className="admin-system-toggles" style={{ marginBottom: '0.75rem' }}>
+            <div className="admin-system-toggles">
               <label className="admin-system-toggle">
                 <input
                   type="checkbox"
@@ -239,71 +334,69 @@ export default function AdminSystemPage() {
                 <span className="admin-system-toggle-label">Enable free trial</span>
               </label>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ fontSize: '0.875rem' }}>Default trial length (months)</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={24}
-                  value={trialMonths}
-                  onChange={(e) => setTrialMonths(e.target.value)}
-                  className="admin-input"
-                  style={{ width: '4rem' }}
-                  placeholder="e.g. 6"
-                  disabled={trialSaving}
-                />
+            <div className="admin-system-field">
+              <label className="admin-system-field-label">
+                Default trial length (months) <span className="admin-system-field-hint">0–24</span>
               </label>
-              <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>0–24</span>
+              <input
+                type="number"
+                min={0}
+                max={24}
+                value={trialMonths}
+                onChange={(e) => setTrialMonths(e.target.value)}
+                className="admin-input admin-system-input-narrow"
+                placeholder="e.g. 6"
+                disabled={trialSaving}
+              />
             </div>
-            <button
-              type="button"
-              className="admin-btn admin-btn--primary"
-              onClick={saveTrialSettings}
-              disabled={trialSaving}
-            >
-              {trialSaving ? 'Saving…' : 'Save trial settings'}
-            </button>
-            {trialToast && (
-              <p style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: trialToast.startsWith('Trial') && trialToast.includes('saved') ? 'var(--success)' : 'var(--error)' }}>
-                {trialToast}
-              </p>
-            )}
-          </div>
+            <div className="admin-system-card-footer">
+              <button
+                type="button"
+                className="admin-btn admin-btn--primary"
+                onClick={saveTrialSettings}
+                disabled={trialSaving}
+              >
+                {trialSaving ? 'Saving…' : 'Save trial settings'}
+              </button>
+              {trialToast && (
+                <p className={`admin-system-toast ${trialToast.startsWith('Trial') && trialToast.includes('saved') ? 'admin-system-toast--success' : 'admin-system-toast--error'}`}>
+                  {trialToast}
+                </p>
+              )}
+            </div>
+          </section>
 
-          <div className="admin-system-sms-test" style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
-            <h4 style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <section className="admin-system-card">
+            <h3 className="admin-system-card-title admin-system-card-title--with-icon">
               <MessageSquare size={18} aria-hidden /> SMS testing
-            </h4>
-            <p className="admin-system-retention-hint" style={{ marginBottom: '0.75rem' }}>
+            </h3>
+            <p className="admin-system-card-desc">
               Send a test SMS via SMSPortal. Does not count against user usage.
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: '24rem' }}>
-              <label>
-                <span style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem' }}>Phone number</span>
+            <div className="admin-system-form">
+              <div className="admin-system-field">
+                <label className="admin-system-field-label">Phone number</label>
                 <input
                   type="text"
                   value={smsTestTo}
                   onChange={(e) => setSmsTestTo(e.target.value)}
                   placeholder="04xxxxxxxx or +61..."
                   className="admin-input"
-                  style={{ width: '100%' }}
                   disabled={smsTestStatus === 'sending'}
                 />
-              </label>
-              <label>
-                <span style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem' }}>Message</span>
+              </div>
+              <div className="admin-system-field">
+                <label className="admin-system-field-label">Message</label>
                 <textarea
                   value={smsTestMessage}
                   onChange={(e) => setSmsTestMessage(e.target.value)}
                   placeholder="Test message..."
                   className="admin-input"
                   rows={3}
-                  style={{ width: '100%', resize: 'vertical' }}
                   disabled={smsTestStatus === 'sending'}
                 />
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              </div>
+              <div className="admin-system-actions-row">
                 <button
                   type="button"
                   className="admin-btn admin-btn--primary"
@@ -312,15 +405,11 @@ export default function AdminSystemPage() {
                 >
                   {smsTestStatus === 'sending' ? 'Sending…' : 'Send test SMS'}
                 </button>
-                {smsTestStatus === 'ok' && (
-                  <span style={{ color: 'var(--success)', fontSize: '0.875rem' }}>Sent successfully.</span>
-                )}
-                {smsTestStatus === 'err' && smsTestError && (
-                  <span style={{ color: 'var(--error)', fontSize: '0.875rem' }}>{smsTestError}</span>
-                )}
+                {smsTestStatus === 'ok' && <span className="admin-system-status admin-system-status--success">Sent successfully.</span>}
+                {smsTestStatus === 'err' && smsTestError && <span className="admin-system-status admin-system-status--error">{smsTestError}</span>}
               </div>
             </div>
-          </div>
+          </section>
         </div>
       )}
     </>

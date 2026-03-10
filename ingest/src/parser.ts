@@ -265,6 +265,72 @@ function parsePositionBasedFields(
   empty.extra.signal = signal;
 }
 
+/** Alternate layout: optional empty token before time (e.g. event 23) so time at 5, fix at 6, lat 7, lon 8, speed 9, course 10; sats/hdop/CSQ in following tokens. */
+const FIX_IDX_ALT = 6;
+const LAT_IDX_ALT = 7;
+const LON_IDX_ALT = 8;
+const SPEED_IDX_ALT = 9;
+const COURSE_IDX_ALT = 10;
+const SAT_QUANTITY_IDX_ALT = 12;
+const HDOP_IDX_ALT = 13;
+const CSQ_IDX_ALT = 16;
+const MIN_TOKENS_ALT = 17;
+
+function parsePositionBasedFieldsAlternate(
+  tokens: string[],
+  empty: IStartekParsed,
+  deviceId: string | null
+): void {
+  if (tokens.length < MIN_TOKENS_ALT) return;
+  const cmd = empty.msgType ?? '';
+  if (!PT60_CMD_POSITION_PARSED.includes(cmd as (typeof PT60_CMD_POSITION_PARSED)[number])) return;
+  const timeToken = tokens[DATE_TIME_IDX + 1];
+  if (!timeToken || !/^\d{12}$/.test(timeToken)) return;
+  const fixFlag = tokens[FIX_IDX_ALT];
+  if (fixFlag !== 'A' && fixFlag !== 'V') return;
+  const lat = parseFloat(tokens[LAT_IDX_ALT]);
+  const lon = parseFloat(tokens[LON_IDX_ALT]);
+  if (isNaN(lat) || isNaN(lon)) return;
+  const latParsed = parseLatLon(lat, false);
+  const lonParsed = parseLatLon(lon, true);
+  if (latParsed < -90 || latParsed > 90 || lonParsed < -180 || lonParsed > 180) return;
+  const speedKmh = parseFloat(tokens[SPEED_IDX_ALT]);
+  const courseDeg = parseFloat(tokens[COURSE_IDX_ALT]);
+  const satQuantity = parseInt(tokens[SAT_QUANTITY_IDX_ALT], 10);
+  const hdop = parseFloat(tokens[HDOP_IDX_ALT]);
+  const csqRaw = parseInt(tokens[CSQ_IDX_ALT], 10);
+  const gpsFixValid = fixFlag === 'A';
+  empty.gpsValid = gpsFixValid;
+  empty.latitude = latParsed;
+  empty.longitude = lonParsed;
+  if (!isNaN(speedKmh) && speedKmh >= 0 && speedKmh <= 500) empty.speedKph = speedKmh;
+  if (!isNaN(courseDeg) && courseDeg >= 0 && courseDeg <= 360) empty.courseDeg = courseDeg;
+  const satsNum = isNaN(satQuantity) ? 0 : Math.max(0, Math.min(20, satQuantity));
+  const hdopNum = isNaN(hdop) ? 0 : hdop;
+  const connectivity = computeSatelliteConnectivity(gpsFixValid, satsNum, hdopNum);
+  const gsmCsq = isNaN(csqRaw) ? 99 : Math.max(0, Math.min(99, csqRaw));
+  const gsmPercent = gsmCsq >= 0 && gsmCsq <= 31 ? Math.round((gsmCsq / 31) * 100) : null;
+  const gsmQuality = gsmQualityLabel(gsmCsq);
+  const signal: SignalExtra = {
+    gps: {
+      fix_flag: fixFlag,
+      valid: gpsFixValid,
+      sats: satsNum,
+      hdop: hdopNum,
+      speed_kmh: isNaN(speedKmh) ? 0 : speedKmh,
+      course_deg: isNaN(courseDeg) ? 0 : courseDeg,
+      has_signal: gpsFixValid && satsNum >= 3,
+      connectivity,
+    },
+    gsm: {
+      csq: gsmCsq,
+      percent: gsmPercent,
+      quality: gsmQuality,
+    },
+  };
+  empty.extra.signal = signal;
+}
+
 // --- Parsed message type ---
 
 export type IStartekParsed = {
@@ -348,6 +414,9 @@ export function parseIStartekLine(rawLine: string): IStartekParsed {
 
     // Protocol v2.2 position-based parse for cmd 000/010/020 (exact field order)
     parsePositionBasedFields(tokens, empty, empty.deviceId);
+    if (empty.extra.signal == null) {
+      parsePositionBasedFieldsAlternate(tokens, empty, empty.deviceId);
+    }
     const usedPositionBased = empty.extra.signal != null;
 
     if (!usedPositionBased) {

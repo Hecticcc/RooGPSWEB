@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
 import { Menu, X } from 'lucide-react';
@@ -19,6 +19,8 @@ const MOBILE_BREAKPOINT = 768;
 export default function MarketingHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [logoSize, setLogoSize] = useState(LOGO_SIZE_DESKTOP);
+  const navRef = useRef<HTMLElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const updateLogoSize = () => {
@@ -31,19 +33,32 @@ export default function MarketingHeader() {
 
   useEffect(() => {
     if (!menuOpen) return;
-    const handleResize = () => {
-      if (window.innerWidth > 768) setMenuOpen(false);
+
+    const handleResize = () => { if (window.innerWidth > 768) setMenuOpen(false); };
+    const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+
+    // Close when tapping/clicking anywhere outside the nav panel
+    // Ignore the toggle button itself — it handles open/close via onClick
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (toggleRef.current?.contains(target)) return;
+      if (navRef.current && !navRef.current.contains(target)) {
+        setMenuOpen(false);
+      }
     };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
-    };
+
     document.body.style.overflow = 'hidden';
     window.addEventListener('resize', handleResize);
     window.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside, { passive: true });
+
     return () => {
       document.body.style.overflow = '';
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
     };
   }, [menuOpen]);
 
@@ -61,6 +76,7 @@ export default function MarketingHeader() {
           <Link href="/login" className="marketing-cta-header">Dashboard</Link>
         </nav>
         <button
+          ref={toggleRef}
           type="button"
           className="marketing-nav-toggle"
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
@@ -76,7 +92,7 @@ export default function MarketingHeader() {
         onClick={() => setMenuOpen(false)}
         onTouchEnd={(e) => { e.preventDefault(); setMenuOpen(false); }}
       >
-        <nav className="marketing-nav-mobile" onClick={(e) => e.stopPropagation()}>
+        <nav ref={navRef} className="marketing-nav-mobile" onClick={(e) => e.stopPropagation()}>
           {NAV_LINKS.map(({ href, label }) => (
             <a key={href} href={href} onClick={() => setMenuOpen(false)}>{label}</a>
           ))}

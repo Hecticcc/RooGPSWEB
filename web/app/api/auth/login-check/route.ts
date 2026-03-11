@@ -22,13 +22,14 @@ export async function GET(request: Request) {
 
   const { data: settings } = await admin
     .from('system_settings')
-    .select('login_disabled')
+    .select('login_disabled, maintenance_mode')
     .eq('id', 'default')
     .single();
 
-  if (!settings?.login_disabled) return NextResponse.json({ allowed: true });
+  const blocked = settings?.login_disabled || settings?.maintenance_mode;
+  if (!blocked) return NextResponse.json({ allowed: true });
 
-  // Login disabled — check if user has elevated role
+  // Login disabled / maintenance — check if user has elevated role (staff_plus bypass)
   const { data: roleRow } = await admin
     .from('user_roles')
     .select('role')
@@ -39,6 +40,14 @@ export async function GET(request: Request) {
 
   if (hasMinRole(role, 'staff_plus')) {
     return NextResponse.json({ allowed: true });
+  }
+
+  if (settings?.maintenance_mode) {
+    return NextResponse.json({
+      allowed: false,
+      reason: 'maintenance_mode',
+      message: 'System is under maintenance. Please try again later.',
+    });
   }
 
   return NextResponse.json({

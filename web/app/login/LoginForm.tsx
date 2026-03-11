@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import Logo from '@/components/Logo';
+import { Wrench } from 'lucide-react';
 
 const REMEMBER_ME_KEY = 'roogps_remember_me';
 const REMEMBER_ME_COOKIE = 'roogps_remember_me';
@@ -51,7 +52,7 @@ function setRememberedEmail(email: string) {
   } catch {}
 }
 
-export default function LoginForm() {
+export default function LoginForm({ maintenanceMode = false }: { maintenanceMode?: boolean }) {
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get('redirect') || '/track';
   const [email, setEmail] = useState('');
@@ -124,6 +125,12 @@ export default function LoginForm() {
           <p className="auth-tagline">
             Sign in to view your trackers and live locations on the map.
           </p>
+          {maintenanceMode && (
+            <div className="auth-maintenance-banner">
+              <Wrench size={15} strokeWidth={2.5} />
+              <span>Sign in currently unavailable — please try again later.</span>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="auth-form">
             <div className="auth-field">
               <label className="auth-label" htmlFor="login-email">Email</label>

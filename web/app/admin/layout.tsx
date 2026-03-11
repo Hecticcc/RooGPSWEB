@@ -21,6 +21,7 @@ import {
   X,
   CreditCard,
   Headphones,
+  Megaphone,
 } from 'lucide-react';
 
 const NAV = [
@@ -32,6 +33,7 @@ const NAV = [
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/devices', label: 'Devices', icon: Smartphone },
   { href: '/admin/stock', label: 'Stock', icon: Package },
+  { href: '/admin/banners', label: 'Banners', icon: Megaphone },
   { href: '/admin/system', label: 'System', icon: Server },
 ];
 

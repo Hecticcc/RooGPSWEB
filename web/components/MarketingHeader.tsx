@@ -74,6 +74,7 @@ export default function MarketingHeader() {
         className={`marketing-nav-overlay ${menuOpen ? 'marketing-nav-overlay--open' : ''}`}
         aria-hidden={!menuOpen}
         onClick={() => setMenuOpen(false)}
+        onTouchEnd={(e) => { e.preventDefault(); setMenuOpen(false); }}
       >
         <nav className="marketing-nav-mobile" onClick={(e) => e.stopPropagation()}>
           {NAV_LINKS.map(({ href, label }) => (

@@ -90,6 +90,22 @@ export default function LoginForm() {
       setError(err.message);
       return;
     }
+    // Check if logins are disabled for this user's role
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const checkHeaders: HeadersInit = { 'Cache-Control': 'no-cache' };
+      if (session?.access_token) checkHeaders['Authorization'] = `Bearer ${session.access_token}`;
+      const check = await fetch('/api/auth/login-check', { credentials: 'include', headers: checkHeaders });
+      const checkData = check.ok ? await check.json() : { allowed: true };
+      if (!checkData.allowed) {
+        await supabase.auth.signOut();
+        setLoading(false);
+        setError(checkData.message ?? 'Logins are temporarily disabled. Please try again later.');
+        return;
+      }
+    } catch {
+      // Fail open — don't block login if check fails
+    }
     await new Promise((r) => setTimeout(r, 0));
     const safeRedirect = redirectTo.startsWith('/') && !redirectTo.startsWith('//') ? redirectTo : '/track';
     window.location.href = safeRedirect;

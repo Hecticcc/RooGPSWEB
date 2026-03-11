@@ -51,6 +51,7 @@ export async function GET(request: Request) {
     ingest_server_usage_24h,
     maintenance_mode: s?.maintenance_mode ?? false,
     ingest_accept: s?.ingest_accept ?? true,
+    login_disabled: s?.login_disabled ?? false,
     stripe_trial_enabled: s?.stripe_trial_enabled ?? false,
     stripe_trial_default_months: s?.stripe_trial_default_months ?? null,
     stripe_trial_updated_at: s?.stripe_trial_updated_at ?? null,
@@ -74,6 +75,7 @@ export async function PATCH(request: Request) {
   let body: {
     maintenance_mode?: boolean;
     ingest_accept?: boolean;
+    login_disabled?: boolean;
     stripe_trial_enabled?: boolean;
     stripe_trial_default_months?: number | null;
   } = {};
@@ -86,6 +88,7 @@ export async function PATCH(request: Request) {
   const updates: {
     maintenance_mode?: boolean;
     ingest_accept?: boolean;
+    login_disabled?: boolean;
     stripe_trial_enabled?: boolean;
     stripe_trial_default_months?: number | null;
     stripe_trial_updated_at?: string;
@@ -96,6 +99,7 @@ export async function PATCH(request: Request) {
   };
   if (typeof body.maintenance_mode === 'boolean') updates.maintenance_mode = body.maintenance_mode;
   if (typeof body.ingest_accept === 'boolean') updates.ingest_accept = body.ingest_accept;
+  if (typeof body.login_disabled === 'boolean') updates.login_disabled = body.login_disabled;
 
   if (typeof body.stripe_trial_enabled === 'boolean') {
     updates.stripe_trial_enabled = body.stripe_trial_enabled;

@@ -22,15 +22,15 @@ export type BatteryStatus = {
   icon: 'full' | 'half' | 'low' | 'alert' | 'unknown';
 };
 
-const VOLTAGE_HIGH = 4.0;
-const VOLTAGE_MEDIUM = 3.8;
-const VOLTAGE_LOW = 3.6;
+const VOLTAGE_HIGH = 3.9;    // ≈ 70%+ → High
+const VOLTAGE_MEDIUM = 3.7;  // ≈ 50%+ → Medium
+const VOLTAGE_LOW = 3.5;     // ≈ 20%+ → Low (below = Very Low)
 const VOLTAGE_CLAMP_MIN = 3.0;
 const VOLTAGE_CLAMP_MAX = 4.25;
 
-const PERCENT_HIGH = 75;
-const PERCENT_MEDIUM = 40;
-const PERCENT_LOW = 20;
+const PERCENT_HIGH = 65;
+const PERCENT_MEDIUM = 35;
+const PERCENT_LOW = 15;
 
 const RING_HIGH = 100;
 const RING_MEDIUM = 70;

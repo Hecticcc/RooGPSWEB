@@ -17,6 +17,7 @@ type SystemData = {
   ingest_server_usage_24h?: Record<string, number>;
   maintenance_mode: boolean;
   ingest_accept: boolean;
+  login_disabled: boolean;
   stripe_trial_enabled?: boolean;
   stripe_trial_default_months?: number | null;
   stripe_trial_updated_at?: string | null;
@@ -33,6 +34,8 @@ export default function AdminSystemPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
+  const [pendingActions, setPendingActions] = useState<{ maintenance_mode: boolean; ingest_accept: boolean; login_disabled: boolean } | null>(null);
+  const [actionsToast, setActionsToast] = useState<{ ok: boolean; msg: string } | null>(null);
   const [smsTestTo, setSmsTestTo] = useState('');
   const [smsTestMessage, setSmsTestMessage] = useState('');
   const [smsTestStatus, setSmsTestStatus] = useState<'idle' | 'sending' | 'ok' | 'err'>('idle');
@@ -73,6 +76,11 @@ export default function AdminSystemPage() {
       .then(([meData, sys]) => {
         setMe(meData ?? null);
         setData(sys);
+        setPendingActions({
+          maintenance_mode: sys?.maintenance_mode ?? false,
+          ingest_accept: sys?.ingest_accept ?? true,
+          login_disabled: sys?.login_disabled ?? false,
+        });
         setTrialEnabled(sys?.stripe_trial_enabled ?? false);
         setTrialMonths(sys?.stripe_trial_default_months != null ? String(sys.stripe_trial_default_months) : '');
       })
@@ -82,7 +90,7 @@ export default function AdminSystemPage() {
 
   const isAdmin = me?.role === 'administrator';
 
-  async function updateSystem(updates: { maintenance_mode?: boolean; ingest_accept?: boolean }) {
+  async function updateSystem(updates: { maintenance_mode?: boolean; ingest_accept?: boolean; login_disabled?: boolean; stripe_trial_enabled?: boolean; stripe_trial_default_months?: number | null }) {
     if (!isAdmin) return;
     setActing(true);
     try {
@@ -102,6 +110,36 @@ export default function AdminSystemPage() {
       setActing(false);
     }
   }
+
+  async function saveActions() {
+    if (!isAdmin || !pendingActions) return;
+    setActing(true);
+    setActionsToast(null);
+    try {
+      const res = await fetch('/api/admin/system', {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(pendingActions),
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setActionsToast({ ok: false, msg: (d as { error?: string }).error ?? 'Failed to save' });
+        return;
+      }
+      setData((prev) => (prev ? { ...prev, ...pendingActions } : null));
+      setActionsToast({ ok: true, msg: 'Saved.' });
+      setTimeout(() => setActionsToast(null), 3000);
+    } finally {
+      setActing(false);
+    }
+  }
+
+  const actionsDirty = pendingActions && data && (
+    pendingActions.maintenance_mode !== data.maintenance_mode ||
+    pendingActions.ingest_accept !== data.ingest_accept ||
+    pendingActions.login_disabled !== data.login_disabled
+  );
 
   async function runRetention() {
     if (!isAdmin) return;
@@ -138,10 +176,7 @@ export default function AdminSystemPage() {
       const res = await fetch('/api/admin/system', {
         method: 'PATCH',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          stripe_trial_enabled: trialEnabled,
-          stripe_trial_default_months: monthsVal,
-        }),
+        body: JSON.stringify({ stripe_trial_enabled: trialEnabled, stripe_trial_default_months: monthsVal }),
         credentials: 'include',
       });
       const d = await res.json().catch(() => ({}));
@@ -267,8 +302,8 @@ export default function AdminSystemPage() {
               <label className="admin-system-toggle">
                 <input
                   type="checkbox"
-                  checked={data.maintenance_mode}
-                  onChange={(e) => updateSystem({ maintenance_mode: e.target.checked })}
+                  checked={pendingActions?.maintenance_mode ?? data.maintenance_mode}
+                  onChange={(e) => setPendingActions((p) => p ? { ...p, maintenance_mode: e.target.checked } : p)}
                   disabled={acting}
                 />
                 <span className="admin-system-toggle-label">Maintenance mode</span>
@@ -276,19 +311,51 @@ export default function AdminSystemPage() {
               <label className="admin-system-toggle">
                 <input
                   type="checkbox"
-                  checked={data.ingest_accept}
-                  onChange={(e) => updateSystem({ ingest_accept: e.target.checked })}
+                  checked={pendingActions?.ingest_accept ?? data.ingest_accept}
+                  onChange={(e) => setPendingActions((p) => p ? { ...p, ingest_accept: e.target.checked } : p)}
                   disabled={acting}
                 />
                 <span className="admin-system-toggle-label">Ingest accept</span>
                 <span className="admin-system-toggle-hint">Uncheck to reject new data</span>
               </label>
+              <label className="admin-system-toggle">
+                <input
+                  type="checkbox"
+                  checked={pendingActions?.login_disabled ?? data.login_disabled}
+                  onChange={(e) => setPendingActions((p) => p ? { ...p, login_disabled: e.target.checked } : p)}
+                  disabled={acting}
+                />
+                <span className="admin-system-toggle-label admin-system-toggle-label--danger">
+                  Disable logins
+                </span>
+                <span className="admin-system-toggle-hint">
+                  Blocks customer logins. Staff+ and administrators can always log in.
+                </span>
+              </label>
+            </div>
+            <div className="admin-system-actions-row" style={{ marginTop: 14 }}>
+              <button
+                type="button"
+                className="admin-btn admin-btn--primary"
+                onClick={saveActions}
+                disabled={acting || !actionsDirty}
+              >
+                {acting ? 'Saving…' : 'Save'}
+              </button>
+              {actionsDirty && !acting && (
+                <span className="admin-system-dirty-hint">Unsaved changes</span>
+              )}
+              {actionsToast && (
+                <span className={`admin-system-status ${actionsToast.ok ? 'admin-system-status--success' : 'admin-system-status--error'}`}>
+                  {actionsToast.msg}
+                </span>
+              )}
             </div>
             <div className="admin-system-retention">
               <div className="admin-system-retention-row">
                 <button
                   type="button"
-                  className="admin-btn admin-btn--primary"
+                  className="admin-btn admin-btn--subtle"
                   onClick={runRetention}
                   disabled={acting}
                 >

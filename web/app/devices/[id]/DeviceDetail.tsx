@@ -938,7 +938,7 @@ export default function DeviceDetail() {
                                 <div>
                                   <span className="device-view-hero-stat-label">External Power</span>
                                   <span className="device-view-hero-stat-value" data-connected={latest.external_power_connected === true ? 'yes' : 'no'}>
-                                    {latest.external_power_connected === true ? 'Connected' : 'Lost'}
+                                    {latest.external_power_connected === true ? 'Connected' : 'Disconnected'}
                                   </span>
                                 </div>
                               </div>

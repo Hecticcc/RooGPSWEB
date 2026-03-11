@@ -579,7 +579,7 @@ export default function DevicesListView(props: Props) {
                             <>
                               <span
                                 className="tracker-card-chip tracker-card-wired-power"
-                                title={d.latest_external_power_connected === true ? 'External power connected' : d.latest_external_power_connected === false ? 'External power lost' : 'External power status unknown'}
+                                title={d.latest_external_power_connected === true ? 'External power connected' : d.latest_external_power_connected === false ? 'External power disconnected' : 'External power status unknown'}
                                 style={{ color: d.latest_external_power_connected === true ? 'var(--success)' : d.latest_external_power_connected === false ? 'var(--warn)' : 'var(--muted)' }}
                               >
                                 <span>{d.latest_external_power_connected === true ? 'Wired' : d.latest_external_power_connected === false ? 'On backup' : 'Wired'}</span>

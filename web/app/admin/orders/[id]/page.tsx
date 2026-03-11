@@ -7,6 +7,7 @@ import { useParams } from 'next/navigation';
 import { useAdminAuth } from '../../AdminAuthContext';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { getStatusBadgeClass, getStatusLabel } from '@/lib/order-status';
+import { ScanBarcode, AlertCircle, CheckCircle, Search } from 'lucide-react';
 
 const PAYLOAD_LABELS: Record<string, string> = {
   price_id: 'Price ID',
@@ -81,6 +82,136 @@ function PaymentLogDetails({ payload }: { payload: unknown }) {
   );
 }
 
+// ── Barcode scan input for fulfil ─────────────────────────────────────────────
+function ScanFulfilInput({
+  mode,
+  trackersAvailable,
+  simcardsAvailable,
+  itemSku,
+  onResolved,
+  disabled,
+}: {
+  mode: 'tracker' | 'sim';
+  trackersAvailable: TrackerOption[];
+  simcardsAvailable: SimOption[];
+  itemSku: string;
+  onResolved: (trackerId: string | undefined, simIccid: string | undefined) => void;
+  disabled: boolean;
+}) {
+  const [input, setInput] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [resolved, setResolved] = useState<{ display: string; trackerId?: string; simIccid?: string } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const raw = input.trim();
+    const digits = raw.replace(/\D/g, '');
+    setScanInput('');
+    setError(null);
+
+    if (mode === 'tracker') {
+      if (!/^\d{15}$/.test(digits)) {
+        setError(`"${raw}" is not a valid IMEI — must be 15 digits (got ${digits.length})`);
+        requestAnimationFrame(() => inputRef.current?.focus());
+        return;
+      }
+      const sku = (itemSku ?? '').trim().toLowerCase();
+      const tracker = trackersAvailable.find(
+        (t) => t.imei === digits && (t.product_sku ?? 'gps_tracker').trim().toLowerCase() === sku
+      );
+      if (!tracker) {
+        const anyTracker = trackersAvailable.find((t) => t.imei === digits);
+        if (anyTracker) {
+          setError(`IMEI ${digits} is in stock but as a different model — order requires ${sku}`);
+        } else {
+          setError(`IMEI ${digits} not found in available in-stock trackers`);
+        }
+        requestAnimationFrame(() => inputRef.current?.focus());
+        return;
+      }
+      setResolved({ display: digits, trackerId: tracker.id });
+    } else {
+      // SIM ICCID — typically 19–20 digits but can vary; just need some length
+      const iccid = raw; // keep as-is, Simbase may use non-digit chars
+      if (iccid.length < 10) {
+        setError(`"${iccid}" doesn't look like a valid ICCID`);
+        requestAnimationFrame(() => inputRef.current?.focus());
+        return;
+      }
+      const sim = simcardsAvailable.find((s) => getSimIccid(s) === iccid);
+      if (!sim) {
+        setError(`ICCID ${iccid} not found in the Simbase SIM list`);
+        requestAnimationFrame(() => inputRef.current?.focus());
+        return;
+      }
+      setResolved({ display: iccid, simIccid: iccid });
+    }
+  }
+
+  function setScanInput(val: string) {
+    setInput(val);
+  }
+
+  if (resolved) {
+    return (
+      <div className="admin-scan-fulfil-resolved">
+        <CheckCircle size={15} style={{ color: 'var(--success)', flexShrink: 0 }} />
+        <span className="admin-mono" style={{ fontSize: '13px' }}>{resolved.display}</span>
+        <button
+          type="button"
+          className="admin-btn admin-btn--primary admin-btn--small"
+          onClick={() => onResolved(resolved.trackerId, resolved.simIccid)}
+          disabled={disabled}
+        >
+          Confirm &amp; assign
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn--small"
+          onClick={() => { setResolved(null); requestAnimationFrame(() => inputRef.current?.focus()); }}
+          disabled={disabled}
+        >
+          Re-scan
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-scan-fulfil-wrap">
+      <div className="admin-scan-fulfil-input-row">
+        <ScanBarcode size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        <input
+          ref={inputRef}
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={mode === 'tracker' ? 'Scan IMEI barcode…' : 'Scan SIM ICCID barcode…'}
+          className="admin-scan-fulfil-input admin-mono"
+          disabled={disabled}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          inputMode="numeric"
+        />
+      </div>
+      {error && (
+        <p className="admin-scan-fulfil-error">
+          <AlertCircle size={13} /> {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 type SearchableSelectOption = { value: string; label: string };
 
 function SearchableSelect({
@@ -273,6 +404,8 @@ export default function AdminOrderDetailPage() {
   const [canEditAssignments, setCanEditAssignments] = useState(false);
   const [reassigning, setReassigning] = useState<'tracker' | 'sim' | null>(null);
   const [reassignItemId, setReassignItemId] = useState<string | null>(null);
+  // 'scan' = barcode input (default), 'search' = dropdown
+  const [fulfilMode, setFulfilMode] = useState<Record<string, 'scan' | 'search'>>({});
   const [paymentLog, setPaymentLog] = useState<{ id: string; event_type: string; stripe_event_id: string | null; stripe_object_id: string | null; payload: unknown; created_at: string }[]>([]);
   const [paymentLogLoading, setPaymentLogLoading] = useState(false);
 
@@ -334,6 +467,36 @@ export default function AdminOrderDetailPage() {
     } else {
       if (!trackerId) return;
     }
+    setActionError(null);
+    setActing(true);
+    const body: { action: string; order_item_id: string; tracker_stock_id?: string; sim_iccid?: string } = {
+      action: 'fulfil',
+      order_item_id: itemId,
+      sim_iccid: simIccid ?? undefined,
+    };
+    if (!simOnly && trackerId) body.tracker_stock_id = trackerId;
+    fetch(`/api/admin/orders/${id}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        setActivationCode(data.activation_code ?? null);
+        return fetch(`/api/admin/orders/${id}`, { credentials: 'include', cache: 'no-store', headers: getAuthHeaders() });
+      })
+      .then((r) => r.json())
+      .then((data) => {
+        setOrder(data.order);
+        setTrackersAvailable(data.trackers_available ?? []);
+      })
+      .catch((e) => setActionError(e.message))
+      .finally(() => setActing(false));
+  }
+
+  function handleScanFulfil(itemId: string, simOnly: boolean, trackerId: string | undefined, simIccid: string | undefined) {
     setActionError(null);
     setActing(true);
     const body: { action: string; order_item_id: string; tracker_stock_id?: string; sim_iccid?: string } = {
@@ -629,34 +792,88 @@ export default function AdminOrderDetailPage() {
                     </td>
                     <td className="admin-order-items-action">
                       {showTrackerFulfil && (
-                        <form onSubmit={(e) => handleFulfil(e, item.id, false)} className="admin-order-items-action-form">
-                          <SearchableSelect
-                            name="tracker"
-                            options={trackersAvailable
-                              .filter((t) => (t.product_sku ?? 'gps_tracker') === (item.product_sku ?? '').trim().toLowerCase())
-                              .map((t) => ({ value: t.id, label: t.imei }))}
-                            placeholder="Search tracker (IMEI)…"
-                            required
-                            minWidth={200}
-                          />
-                          <button type="submit" className="admin-btn admin-btn--primary" disabled={acting}>
-                            Fulfil
-                          </button>
-                        </form>
+                        <div className="admin-fulfil-cell">
+                          <div className="admin-fulfil-mode-tabs">
+                            <button
+                              type="button"
+                              className={`admin-fulfil-tab ${(fulfilMode[item.id] ?? 'scan') === 'scan' ? 'admin-fulfil-tab--active' : ''}`}
+                              onClick={() => setFulfilMode((p) => ({ ...p, [item.id]: 'scan' }))}
+                            >
+                              <ScanBarcode size={13} /> Scan
+                            </button>
+                            <button
+                              type="button"
+                              className={`admin-fulfil-tab ${fulfilMode[item.id] === 'search' ? 'admin-fulfil-tab--active' : ''}`}
+                              onClick={() => setFulfilMode((p) => ({ ...p, [item.id]: 'search' }))}
+                            >
+                              <Search size={13} /> Search
+                            </button>
+                          </div>
+                          {(fulfilMode[item.id] ?? 'scan') === 'scan' ? (
+                            <ScanFulfilInput
+                              mode="tracker"
+                              trackersAvailable={trackersAvailable}
+                              simcardsAvailable={[]}
+                              itemSku={item.product_sku}
+                              onResolved={(trackerId) => handleScanFulfil(item.id, false, trackerId, undefined)}
+                              disabled={acting}
+                            />
+                          ) : (
+                            <form onSubmit={(e) => handleFulfil(e, item.id, false)} className="admin-order-items-action-form">
+                              <SearchableSelect
+                                name="tracker"
+                                options={trackersAvailable
+                                  .filter((t) => (t.product_sku ?? 'gps_tracker') === (item.product_sku ?? '').trim().toLowerCase())
+                                  .map((t) => ({ value: t.id, label: t.imei }))}
+                                placeholder="Search tracker (IMEI)…"
+                                required
+                                minWidth={200}
+                              />
+                              <button type="submit" className="admin-btn admin-btn--primary" disabled={acting}>Fulfil</button>
+                            </form>
+                          )}
+                        </div>
                       )}
                       {showSimOnlyFulfil && (
-                        <form onSubmit={(e) => handleFulfil(e, item.id, true)} className="admin-order-items-action-form">
-                          <SearchableSelect
-                            name="sim_iccid"
-                            options={simcardsAvailable.map((sim) => getSimIccid(sim)).filter(Boolean).map((iccid) => ({ value: iccid, label: iccid }))}
-                            placeholder="Search SIM (ICCID)…"
-                            required
-                            minWidth={220}
-                          />
-                          <button type="submit" className="admin-btn admin-btn--primary" disabled={acting}>
-                            Fulfil
-                          </button>
-                        </form>
+                        <div className="admin-fulfil-cell">
+                          <div className="admin-fulfil-mode-tabs">
+                            <button
+                              type="button"
+                              className={`admin-fulfil-tab ${(fulfilMode[item.id] ?? 'scan') === 'scan' ? 'admin-fulfil-tab--active' : ''}`}
+                              onClick={() => setFulfilMode((p) => ({ ...p, [item.id]: 'scan' }))}
+                            >
+                              <ScanBarcode size={13} /> Scan
+                            </button>
+                            <button
+                              type="button"
+                              className={`admin-fulfil-tab ${fulfilMode[item.id] === 'search' ? 'admin-fulfil-tab--active' : ''}`}
+                              onClick={() => setFulfilMode((p) => ({ ...p, [item.id]: 'search' }))}
+                            >
+                              <Search size={13} /> Search
+                            </button>
+                          </div>
+                          {(fulfilMode[item.id] ?? 'scan') === 'scan' ? (
+                            <ScanFulfilInput
+                              mode="sim"
+                              trackersAvailable={[]}
+                              simcardsAvailable={simcardsAvailable}
+                              itemSku={item.product_sku}
+                              onResolved={(_, simIccid) => handleScanFulfil(item.id, true, undefined, simIccid)}
+                              disabled={acting || simcardsLoading}
+                            />
+                          ) : (
+                            <form onSubmit={(e) => handleFulfil(e, item.id, true)} className="admin-order-items-action-form">
+                              <SearchableSelect
+                                name="sim_iccid"
+                                options={simcardsAvailable.map((sim) => getSimIccid(sim)).filter(Boolean).map((iccid) => ({ value: iccid, label: iccid }))}
+                                placeholder="Search SIM (ICCID)…"
+                                required
+                                minWidth={220}
+                              />
+                              <button type="submit" className="admin-btn admin-btn--primary" disabled={acting}>Fulfil</button>
+                            </form>
+                          )}
+                        </div>
                       )}
                       {showReassignTracker && (
                         isEditingTracker ? (

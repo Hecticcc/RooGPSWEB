@@ -4,28 +4,28 @@ import { redirect } from 'next/navigation';
 import Logo from '@/components/Logo';
 import MarketingHeader from '@/components/MarketingHeader';
 import MarketingPricing from '@/components/MarketingPricing';
+import MarketingDevicePrice from '@/components/MarketingDevicePrice';
+import MarketingFeaturesExpand from '@/components/MarketingFeaturesExpand';
 import { getTrialOffer } from '@/lib/get-trial-offer';
 import {
-  Car,
-  Bike,
-  Caravan,
   Shield,
   Server,
-  Settings,
-  CreditCard,
-  BadgeCheck,
-  LayoutDashboard,
-  MapPin,
-  Package,
   Check,
   X,
-  Battery,
+  BatteryFull,
   Droplets,
   Radio,
   Wifi,
   Monitor,
   Magnet,
   Headphones,
+  Route,
+  CircleDot,
+  Bell,
+  Link2,
+  MapPin,
+  BadgeCheck,
+  Package,
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -44,21 +44,7 @@ export default async function HomePage() {
     <main className="marketing-page">
       <MarketingHeader />
 
-      <div className="marketing-aussie-bar" role="region" aria-label="Australian business">
-        <img
-          src="https://flagcdn.com/w80/au.png"
-          srcSet="https://flagcdn.com/w160/au.png 2x"
-          width={40}
-          height={20}
-          alt=""
-          className="marketing-aussie-flag-img"
-          aria-hidden
-        />
-        <span className="marketing-aussie-text">
-          Australian Owned · Australian Support · For Australians
-        </span>
-      </div>
-
+      {/* ── Hero ── */}
       <section className="marketing-hero">
         <div className="marketing-hero-bg marketing-hero-bg--gps" aria-hidden="true">
           <svg className="marketing-hero-bg-svg" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
@@ -89,16 +75,30 @@ export default async function HomePage() {
         <div className="marketing-hero-overlay marketing-hero-overlay--gps" aria-hidden="true" />
         <div className="marketing-hero-inner">
           <div className="marketing-hero-content marketing-animate-in">
+            <div className="marketing-hero-eyebrow">
+              <img
+                src="https://flagcdn.com/w80/au.png"
+                srcSet="https://flagcdn.com/w160/au.png 2x"
+                width={20} height={12} alt="" aria-hidden
+                className="marketing-hero-eyebrow-flag"
+              />
+              Australian Owned &amp; Operated
+            </div>
             <h1 className="marketing-hero-title">
-              GPS Tracker Australia – Vehicle &amp; Bike Theft Prevention
+              Know where it is.<br />Always.
             </h1>
             <p className="marketing-hero-desc">
-              Australian owned GPS tracking solutions to prevent vehicle, bike, and caravan theft.
-              Everything pre-configured for your peace of mind. Includes SIM card with multi-network coverage.
+              GPS tracking for vehicles, bikes and caravans. Multi-network SIM included, pre-configured and ready in minutes.
             </p>
-            <a href="#pricing" className="marketing-btn marketing-btn-primary marketing-hero-cta">
-              View Pricing
-            </a>
+            <div className="marketing-hero-actions">
+              <a href="#pricing" className="marketing-btn marketing-btn-primary marketing-hero-cta">
+                View Pricing
+              </a>
+              <Link href="/features" className="marketing-btn marketing-btn-ghost">
+                See dashboard
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </Link>
+            </div>
             {showTrial && (
               <div className="marketing-hero-promo" role="region" aria-label="Free trial offer">
                 <span className="marketing-hero-promo-tag">Offer</span>
@@ -110,7 +110,6 @@ export default async function HomePage() {
             )}
           </div>
           <div className="marketing-hero-visual marketing-animate-in marketing-animate-in--delay">
-            {/* Plain img so the asset is served directly from public; avoids Next/Image optimization issues on deploy */}
             <img
               src="/hero-kangaroo.png"
               alt="RooGPS wireless GPS tracker – compact device for vehicles, bikes and caravans"
@@ -124,150 +123,248 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section id="benefits" className="marketing-section">
+      {/* ── Stats Strip ── */}
+      <div className="marketing-stats-strip" role="region" aria-label="Key product facts">
+        <div className="marketing-stats-inner">
+          <div className="marketing-stat">
+            <span className="marketing-stat-value">3</span>
+            <span className="marketing-stat-label">Mobile Networks</span>
+          </div>
+          <div className="marketing-stat-divider" aria-hidden="true" />
+          <div className="marketing-stat">
+            <span className="marketing-stat-value">6+</span>
+            <span className="marketing-stat-label">Month Battery</span>
+          </div>
+          <div className="marketing-stat-divider" aria-hidden="true" />
+          <div className="marketing-stat">
+            <span className="marketing-stat-value">IP65</span>
+            <span className="marketing-stat-label">Waterproof</span>
+          </div>
+          <div className="marketing-stat-divider" aria-hidden="true" />
+          <div className="marketing-stat">
+            <span className="marketing-stat-value">AU</span>
+            <span className="marketing-stat-label">Servers &amp; Support</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 3 Pillars ── */}
+      <section id="features" className="marketing-section">
         <div className="marketing-section-inner">
-          <h2 className="marketing-section-title">The RooGPS Tracking Benefits</h2>
-          <p className="marketing-section-subtitle">
-            Protect your valuable assets with our reliable tracking technology
-          </p>
-          <div className="marketing-benefits-grid">
+          <h2 className="marketing-section-title">Built different. Built better.</h2>
+          <p className="marketing-section-subtitle">Everything you need — nothing extra to buy.</p>
+          <div className="marketing-pillars">
+            <div className="marketing-pillar">
+              <div className="marketing-pillar-icon-wrap">
+                <Wifi size={30} strokeWidth={1.8} />
+              </div>
+              <h3 className="marketing-pillar-title">Multi-Network SIM Included</h3>
+              <p className="marketing-pillar-desc">Automatically switches between Telstra, Optus &amp; Vodafone for the best coverage — no BYO SIM required.</p>
+            </div>
+            <div className="marketing-pillar">
+              <div className="marketing-pillar-icon-wrap">
+                <Magnet size={30} strokeWidth={1.8} />
+              </div>
+              <h3 className="marketing-pillar-title">Wireless &amp; Hidden</h3>
+              <p className="marketing-pillar-desc">Heavy-duty magnet, 6+ month battery and IP65 waterproof rating. Mount it anywhere — no wires, no drilling, no fuss.</p>
+            </div>
+            <div className="marketing-pillar">
+              <div className="marketing-pillar-icon-wrap">
+                <Server size={30} strokeWidth={1.8} />
+              </div>
+              <h3 className="marketing-pillar-title">Australian Infrastructure</h3>
+              <p className="marketing-pillar-desc">Custom dashboard, Australian servers and a local support team. Not a rebadged overseas product.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Feature chips ── */}
+      <section id="benefits" className="marketing-section marketing-section-alt">
+        <div className="marketing-section-inner">
+          <h2 className="marketing-section-title">Everything included</h2>
+          <p className="marketing-section-subtitle">One device. One subscription. Complete peace of mind.</p>
+          <div className="marketing-chips-grid">
             {[
-              { icon: Car, title: 'Vehicle Theft Prevention', desc: 'Real-time tracking and instant alerts if your vehicle moves without authorization. Recover stolen vehicles quickly with precise location data.' },
-              { icon: Bike, title: 'Bike Security', desc: 'Protect your expensive bikes and motorcycles. Get notified immediately if they\'re moved or tampered with.' },
-              { icon: Caravan, title: 'Caravan Protection', desc: 'Keep your caravan safe from theft. Track its location and receive alerts for any unauthorized movement.' },
-              { icon: Shield, title: '24/7 Monitoring', desc: 'Round-the-clock surveillance with instant notifications. Our system never sleeps, ensuring your assets are always protected.' },
-              { icon: Server, title: 'Custom Dashboard & Australian Servers', desc: 'Our dashboard is completely custom. We run our own backend Australian servers – most other companies use third‑party services that are not in Australia.' },
-              { icon: Settings, title: 'Pre-Configured', desc: 'Everything is set up and ready to use. No technical knowledge required – just install and start tracking.' },
-              { icon: CreditCard, title: 'Multi-Network SIM Included', desc: 'Includes SIM card with automatic network selection between Telstra, Optus & Vodafone. No BYO SIM required – we handle the connectivity.' },
-              { icon: BadgeCheck, title: 'Insurance Benefits', desc: 'Many insurers offer discounts for GPS-protected vehicles, making tracking essential for lowering costs.' },
-            ].map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="marketing-card">
-                <div className="marketing-card-icon-wrap">
-                  <Icon size={24} strokeWidth={2} />
-                </div>
-                <h3 className="marketing-card-title">{title}</h3>
-                <p className="marketing-card-desc">{desc}</p>
+              { icon: MapPin,      text: 'Real-time live location' },
+              { icon: Route,       text: 'Trip history & replay' },
+              { icon: CircleDot,   text: 'Geofence alerts' },
+              { icon: Shield,      text: 'WatchDog & Night Guard' },
+              { icon: Bell,        text: 'SMS & battery alerts' },
+              { icon: Link2,       text: 'Shareable location links' },
+              { icon: BadgeCheck,  text: 'Insurance-friendly' },
+              { icon: Headphones,  text: 'Australian support' },
+              { icon: Package,     text: 'Pre-configured, ready to use' },
+              { icon: Monitor,     text: 'Works on any device' },
+              { icon: Radio,       text: 'Real-time tracking' },
+              { icon: BatteryFull, text: '6+ month battery' },
+            ].map(({ icon: Icon, text }) => (
+              <div key={text} className="marketing-chip">
+                <span className="marketing-chip-icon"><Icon size={16} strokeWidth={2} /></span>
+                <span>{text}</span>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section id="features" className="marketing-section marketing-section-alt">
+      {/* ── Dashboard CTA ── */}
+      <section className="marketing-dashboard-cta-section">
         <div className="marketing-section-inner">
-          <h2 className="marketing-section-title">Built for Simplicity</h2>
-          <div className="marketing-features-grid">
-            {[
-              { title: 'Powerful Dashboard', desc: 'Manage everything from one simple, intuitive dashboard. See real-time location updates, review trip history, and customize alerts with ease. Designed so anyone can use it without training.', icon: LayoutDashboard },
-              { title: 'Custom Dashboard & Australian Infrastructure', desc: 'Our dashboard is completely custom. We run our own backend Australian servers where most other companies use third‑party services that are not in Australia.', icon: Server },
-              { title: 'Completely Wireless & Hidden', desc: 'Fully wireless with a heavy-duty magnet so you can hide it anywhere – under the chassis, in a toolbox, or out of sight. Unlike wired GPS trackers, which are limited and often found by thieves.', icon: Magnet },
-              { title: 'Australian Support', desc: 'No need for long waits or overseas call centres. All our support is local – when you need help, you get it from someone here in Australia, in your time zone.', icon: Headphones },
-              { title: 'Hassle-Free Setup', desc: 'Our trackers are pre-configured and ready to go out of the box. Simply place the device, power it up, and start tracking immediately – no complicated setup required.', icon: Package },
-              { title: 'Built for Simplicity', desc: 'Technology should make life easier, not harder. That\'s why our system is designed to be clear, intuitive, and reliable, giving you peace of mind without the complexity.', icon: MapPin },
-            ].map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="marketing-feature-card">
-                <div className="marketing-feature-icon">
-                  <Icon size={28} strokeWidth={2} />
+          <div className="marketing-dashboard-cta-block">
+            <div className="marketing-dashboard-cta-left">
+              <span className="marketing-dashboard-cta-eyebrow">Built in-house</span>
+              <h2 className="marketing-dashboard-cta-title">
+                See our dashboard<br />in action
+              </h2>
+              <p className="marketing-dashboard-cta-desc">
+                Custom-built from the ground up. Real-time map, trip history, smart alerts, signal monitoring and more — all in one place.
+              </p>
+              <Link href="/features" className="marketing-dashboard-cta-btn">
+                Explore the dashboard
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </Link>
+            </div>
+            <div className="marketing-dashboard-cta-right" aria-hidden="true">
+              <div className="marketing-dashboard-cta-preview">
+                <div className="mktp-chrome">
+                  <div className="mktp-chrome-bar">
+                    <span className="mktp-chrome-dot" />
+                    <span className="mktp-chrome-dot" />
+                    <span className="mktp-chrome-dot" />
+                    <span className="mktp-chrome-url">track.roogps.com</span>
+                  </div>
+                  <div className="mktp-map-bg">
+                    <svg className="mktp-map-grid" viewBox="0 0 360 200" xmlns="http://www.w3.org/2000/svg">
+                      <defs>
+                        <pattern id="cta-grid" width="30" height="30" patternUnits="userSpaceOnUse">
+                          <path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(249,115,22,0.07)" strokeWidth="0.5"/>
+                        </pattern>
+                      </defs>
+                      <rect width="100%" height="100%" fill="#1a181e"/>
+                      <rect width="100%" height="100%" fill="url(#cta-grid)"/>
+                      <path d="M 20 160 Q 80 80 160 110 T 340 60" fill="none" stroke="rgba(249,115,22,0.35)" strokeWidth="2" strokeDasharray="6 5"/>
+                      <circle cx="160" cy="110" r="6" fill="#f97316" opacity="0.9"/>
+                      <circle cx="160" cy="110" r="12" fill="rgba(249,115,22,0.2)"/>
+                      <circle cx="160" cy="110" r="20" fill="rgba(249,115,22,0.08)"/>
+                      <rect x="100" y="130" width="120" height="36" rx="7" fill="rgba(30,28,34,0.95)" stroke="rgba(249,115,22,0.2)" strokeWidth="1"/>
+                      <rect x="108" y="138" width="60" height="5" rx="2" fill="#e4e4e7" opacity="0.7"/>
+                      <rect x="108" y="148" width="40" height="4" rx="2" fill="#71717a" opacity="0.6"/>
+                    </svg>
+                    <div className="mktp-status-chip">
+                      <span className="mktp-status-dot"/>Online · 2 min ago
+                    </div>
+                  </div>
                 </div>
-                <h3 className="marketing-feature-title">{title}</h3>
-                <p className="marketing-feature-desc">{desc}</p>
               </div>
-            ))}
+            </div>
           </div>
         </div>
       </section>
 
+      {/* ── Why RooGPS vs competitors ── */}
       <section id="why-choose" className="marketing-section">
         <div className="marketing-section-inner">
-          <h2 className="marketing-section-title">Why Choose RooGPS Over Competitors?</h2>
+          <h2 className="marketing-section-title">Why RooGPS?</h2>
           <p className="marketing-section-subtitle">
-            We provide complete solutions while others leave you with limitations
+            A complete solution — not a device with a bill of extras.
           </p>
-          <div className="marketing-compare">
-            <div className="marketing-compare-card marketing-compare-good">
-              <div className="marketing-compare-header">
-                <span className="marketing-compare-icon marketing-compare-icon-check">
-                  <Check size={20} strokeWidth={2.5} />
+          <div className="mkt-cmp-table">
+            {/* Header */}
+            <div className="mkt-cmp-head">
+              <div className="mkt-cmp-col-feat" />
+              <div className="mkt-cmp-col-head-us">
+                <span className="mkt-cmp-us-badge">
+                  <Logo size={18} wide />
                 </span>
-                <h3>RooGPS – Complete Solution</h3>
               </div>
-              <ul>
-                <li><span className="marketing-compare-li-icon check"><Check size={16} /></span>SIM card included – no extra purchase needed</li>
-                <li><span className="marketing-compare-li-icon check"><Check size={16} /></span>Multi-network coverage (Telstra, Optus & Vodafone)</li>
-                <li><span className="marketing-compare-li-icon check"><Check size={16} /></span>Automatic network selection for best coverage</li>
-                <li><span className="marketing-compare-li-icon check"><Check size={16} /></span>Custom web dashboard, website & unlimited data included</li>
-                <li><span className="marketing-compare-li-icon check"><Check size={16} /></span>Everything pre-configured and ready to use</li>
-              </ul>
+              <div className="mkt-cmp-col-head-them">Others</div>
             </div>
-            <div className="marketing-compare-card marketing-compare-bad">
-              <div className="marketing-compare-header">
-                <span className="marketing-compare-icon marketing-compare-icon-cross">
-                  <X size={20} strokeWidth={2.5} />
-                </span>
-                <h3>Other Companies – Limited Options</h3>
+            {/* Rows */}
+            {[
+              { feat: 'SIM card',         us: 'Included — no extra cost',       them: 'BYO SIM required' },
+              { feat: 'Network coverage', us: 'Telstra, Optus & Vodafone',       them: 'Single carrier only' },
+              { feat: 'Remote areas',     us: 'Auto-switch for best signal',     them: 'Dead zones' },
+              { feat: 'Dashboard',        us: 'Custom-built & unlimited',        them: 'Hidden fees for access' },
+              { feat: 'Setup',            us: 'Pre-configured, plug in & go',    them: 'Technical knowledge needed' },
+              { feat: 'Support',          us: 'Australian — same time zone',     them: 'Overseas call centres' },
+            ].map((row, i) => (
+              <div key={row.feat} className={`mkt-cmp-row${i % 2 !== 0 ? ' mkt-cmp-row--alt' : ''}`}>
+                <div className="mkt-cmp-col-feat">{row.feat}</div>
+                <div className="mkt-cmp-col-us">
+                  <span className="mkt-cmp-check"><Check size={13} strokeWidth={2.5} /></span>
+                  {row.us}
+                </div>
+                <div className="mkt-cmp-col-them">
+                  <span className="mkt-cmp-cross"><X size={13} strokeWidth={2.5} /></span>
+                  {row.them}
+                </div>
               </div>
-              <ul>
-                <li><span className="marketing-compare-li-icon cross"><X size={16} /></span>BYO SIM card required – additional cost</li>
-                <li><span className="marketing-compare-li-icon cross"><X size={16} /></span>Limited to single network coverage</li>
-                <li><span className="marketing-compare-li-icon cross"><X size={16} /></span>Poor coverage in remote areas</li>
-                <li><span className="marketing-compare-li-icon cross"><X size={16} /></span>Hidden fees for app access</li>
-                <li><span className="marketing-compare-li-icon cross"><X size={16} /></span>Complex setup and configuration</li>
-              </ul>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
+      {/* ── Pricing ── */}
       <section id="pricing" className="marketing-pricing-section">
         <div className="marketing-section-inner">
-          <h2 className="marketing-section-title">Wireless GPS Tracker</h2>
-          <p className="marketing-section-subtitle">
-            One device. Simple pricing. Everything included.
-          </p>
+          <div className="marketing-showcase">
 
-          <div className="marketing-product-block">
-            <div className="marketing-product-image-wrap">
-              <div className="marketing-product-image-placeholder">
-                <Package size={64} strokeWidth={1.5} />
-                <span>Product image</span>
+            {/* ── Left: product image + hardware specs ── */}
+            <div className="marketing-showcase-left">
+              <div className="marketing-showcase-img-wrap">
+                <div className="marketing-showcase-img-glow" aria-hidden="true" />
+                <img
+                  src="/images/product-wireless.png"
+                  alt="RooGPS Wireless Tracker"
+                  className="marketing-showcase-img"
+                />
               </div>
+              <div className="marketing-showcase-specs">
+                <div className="marketing-showcase-spec">
+                  <span className="marketing-showcase-spec-icon"><BatteryFull size={15} strokeWidth={2} /></span>
+                  <div><strong>6+ Month</strong><span>Battery life</span></div>
+                </div>
+                <div className="marketing-showcase-spec">
+                  <span className="marketing-showcase-spec-icon"><Droplets size={15} strokeWidth={2} /></span>
+                  <div><strong>IP65</strong><span>Waterproof</span></div>
+                </div>
+                <div className="marketing-showcase-spec">
+                  <span className="marketing-showcase-spec-icon"><Magnet size={15} strokeWidth={2} /></span>
+                  <div><strong>Wireless</strong><span>Magnetic mount</span></div>
+                </div>
+                <div className="marketing-showcase-spec">
+                  <span className="marketing-showcase-spec-icon"><Wifi size={15} strokeWidth={2} /></span>
+                  <div><strong>Multi-Carrier Connectivity</strong><span>Telstra · Optus · Vodafone</span></div>
+                </div>
+              </div>
+
+              {/* Expandable full feature list */}
+              <MarketingFeaturesExpand />
+
+              {/* Device price — connected to the image */}
+              <MarketingDevicePrice />
             </div>
-            <div className="marketing-product-detail">
-              <h3 className="marketing-product-title">RooGPS Tracker</h3>
-              <p className="marketing-product-desc">
-                Advanced wireless GPS tracker with long battery life and easy installation.
-                Perfect for vehicles, bikes, and caravans.
+
+            {/* ── Right: product info + pricing ── */}
+            <div className="marketing-showcase-right">
+              <div className="marketing-showcase-eyebrow">GPS Tracker</div>
+              <h2 className="marketing-showcase-title">RooGPS Wireless Tracker</h2>
+              <p className="marketing-showcase-desc">
+                Pre-configured and ready in minutes. Multi-network SIM card included — no extra cost.
               </p>
-              <ul className="marketing-product-features">
-                <li><Battery size={20} strokeWidth={2} /><span>6+ months battery life</span></li>
-                <li><Droplets size={20} strokeWidth={2} /><span>IP65 waterproof</span></li>
-                <li><Radio size={20} strokeWidth={2} /><span>Real-time tracking</span></li>
-              </ul>
+
+              <MarketingPricing />
             </div>
-          </div>
 
-          <p className="marketing-pricing-intro">Simple, transparent pricing</p>
-
-          <MarketingPricing />
-
-          <div className="marketing-included">
-            <div className="marketing-included-item"><Wifi size={20} strokeWidth={2} />Unlimited data</div>
-            <div className="marketing-included-item"><Radio size={20} strokeWidth={2} />Multi-carrier networks</div>
-            <div className="marketing-included-item"><Monitor size={20} strokeWidth={2} />Track Anywhere</div>
-          </div>
-
-          <div className="marketing-order-wrap">
-            <Link href="/order" className="marketing-btn marketing-btn-primary marketing-btn-order">
-              Order now
-            </Link>
-            <p className="marketing-order-note">No hidden fees. Cancel anytime. 1-year warranty included.</p>
           </div>
         </div>
       </section>
 
+      {/* ── Final CTA ── */}
       <section className="marketing-cta-section">
         <div className="marketing-section-inner">
-          <h2 className="marketing-cta-title">Ready to protect your assets?</h2>
+          <h2 className="marketing-cta-title">Ready to protect your gear?</h2>
           <p className="marketing-cta-desc">Sign in or create an account to access your dashboard.</p>
           <div className="marketing-cta-buttons">
             <Link href="/login" className="marketing-btn marketing-btn-primary">Log in</Link>

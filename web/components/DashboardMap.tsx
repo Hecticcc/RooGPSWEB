@@ -34,13 +34,20 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function batteryBarsHtml(percent: number | null | undefined): string {
+  if (percent == null) return '—';
+  return `${escapeHtml(String(percent))}%`;
+}
+
 /* Popup row icons (14×14, stroke currentColor) */
 const POPUP_ICON_CLOCK =
   '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
 const POPUP_ICON_GPS =
   '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="3"/></svg>';
 const POPUP_ICON_BATTERY =
-  '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="14" height="10" rx="2"/><path d="M16 10h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/></svg>';
+  '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="6" width="18" height="12" rx="2"/><line x1="23" y1="10" x2="23" y2="14"/></svg>';
+const POPUP_ICON_POWER =
+  '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>';
 
 export type MapMarker = {
   id: string;
@@ -226,9 +233,9 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
           }
           const name = m.name || m.id;
           const powerRowsHtml = m.isWired
-            ? `<div class="map-popup__row"><span class="map-popup__label">External Power</span><span class="map-popup__value">${m.externalPowerConnected === true ? 'Connected' : m.externalPowerConnected === false ? 'Lost' : '—'}</span></div>
-      <div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_BATTERY}</span><span class="map-popup__label">Backup Battery</span><span class="map-popup__value">${m.backupBatteryPercent != null ? escapeHtml(String(m.backupBatteryPercent)) + '%' : '—'}</span></div>`
-            : `<div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_BATTERY}</span><span class="map-popup__label">Battery</span><span class="map-popup__value">${m.batteryPercent != null ? escapeHtml(String(m.batteryPercent)) + '%' + (showVoltage && m.batteryVoltageV != null ? ' <span class="map-popup__voltage">(' + escapeHtml(String(m.batteryVoltageV)) + ' V)</span>' : '') : '—'}</span></div>`;
+            ? `<div class="map-popup__row map-popup__row--ext-power"><span class="map-popup__icon">${POPUP_ICON_POWER}</span><span class="map-popup__label">External Power</span><span class="map-popup__value">${m.externalPowerConnected === true ? 'Connected' : m.externalPowerConnected === false ? 'Disconnected' : '—'}</span></div>
+      <div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_BATTERY}</span><span class="map-popup__label">Backup Battery</span><span class="map-popup__value">${batteryBarsHtml(m.backupBatteryPercent)}</span></div>`
+            : `<div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_BATTERY}</span><span class="map-popup__label">Battery</span><span class="map-popup__value">${batteryBarsHtml(m.batteryPercent)}${showVoltage && m.batteryVoltageV != null ? ' <span class="map-popup__voltage">(' + escapeHtml(String(m.batteryVoltageV)) + ' V)</span>' : ''}</span></div>`;
           const lastSeenText = m.lastSeen
             ? new Date(m.lastSeen).toLocaleString()
             : 'Never';

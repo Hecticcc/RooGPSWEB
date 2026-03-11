@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 type PricingMap = Record<string, { label: string; price_cents: number; sale_price_cents: number | null; period: string }>;
@@ -8,12 +9,6 @@ type TrialOffer = { trial_enabled: boolean; trial_months: number | null };
 function effectiveCents(p: { price_cents: number; sale_price_cents: number | null }): number {
   return p.sale_price_cents != null && p.sale_price_cents <= p.price_cents ? p.sale_price_cents : p.price_cents;
 }
-
-const DEFAULTS = {
-  gps: 4900,
-  simMonthly: 2999,
-  simYearly: 24900,
-};
 
 export default function MarketingPricing() {
   const [pricing, setPricing] = useState<PricingMap | null>(null);
@@ -33,86 +28,78 @@ export default function MarketingPricing() {
       .catch(() => setTrialOffer(null));
   }, []);
 
-  const gps = pricing?.gps_tracker;
   const simMonthly = pricing?.sim_monthly;
   const simYearly = pricing?.sim_yearly;
-  const gpsCents = gps ? effectiveCents(gps) : DEFAULTS.gps;
-  const monthlyCents = simMonthly ? effectiveCents(simMonthly) : DEFAULTS.simMonthly;
-  const yearlyCents = simYearly ? effectiveCents(simYearly) : DEFAULTS.simYearly;
-  const gpsHasSale = gps && gps.sale_price_cents != null && gps.sale_price_cents < gps.price_cents;
-  const monthlyHasSale = simMonthly && simMonthly.sale_price_cents != null && simMonthly.sale_price_cents < simMonthly.price_cents;
+  const monthlyCents = simMonthly ? effectiveCents(simMonthly) : 599;
+  const yearlyCents = simYearly ? effectiveCents(simYearly) : 6000;
   const yearlyHasSale = simYearly && simYearly.sale_price_cents != null && simYearly.sale_price_cents < simYearly.price_cents;
+  const monthlyHasSale = simMonthly && simMonthly.sale_price_cents != null && simMonthly.sale_price_cents < simMonthly.price_cents;
 
   const yearlyPerMonth = Math.round(yearlyCents / 12);
   const saveVsMonthly = monthlyCents * 12 - yearlyCents;
 
-  const hardwareLabel = gps?.label?.trim() || 'Hardware';
   const monthlyLabel = simMonthly?.label?.trim() || 'Monthly';
   const yearlyLabel = simYearly?.label?.trim() || 'Yearly';
   const showTrial = trialOffer?.trial_enabled && (trialOffer?.trial_months ?? 0) > 0;
   const trialMonths = trialOffer?.trial_months ?? 0;
 
   return (
-    <div className="marketing-pricing-tray">
+    <div className="mkt-sim-section">
+
+      {/* Trial banner – shown above plans when active */}
       {showTrial && (
-        <div className="marketing-pricing-trial-badge">
-          {trialMonths === 1 ? '1 month' : `${trialMonths} months`} free trial on SIM subscription
+        <div className="mkt-trial-banner">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+          <strong>{trialMonths === 1 ? '1 month' : `${trialMonths} months`} free</strong>
+          <span>on SIM subscription — then standard rate</span>
         </div>
       )}
-      {/* GPS / hardware – main focus */}
-      <div className="marketing-price-hardware-block">
-        <div className="marketing-price-hardware-label">GPS Tracker</div>
-        <div className="marketing-price-hardware-amount">
-          {gpsHasSale && (
-            <span className="marketing-price-was marketing-price-was--hero">
-              ${(gps!.price_cents / 100).toFixed(0)}
-            </span>
-          )}
-          <span className="marketing-price-currency marketing-price-currency--hero">$</span>
-          <span className="marketing-price-hardware-number">
-            {(gpsCents / 100).toFixed(gpsCents % 100 === 0 ? 0 : 2)}
-          </span>
-        </div>
-        <div className="marketing-price-hardware-note">one-time · device included</div>
+
+      {/* Section header */}
+      <div className="mkt-sim-header">
+        <span className="mkt-sim-label">+ SIM plan required</span>
       </div>
 
-      {/* SIM plan – required, choose one (more subtle) */}
-      <div className="marketing-price-sim-group">
-        <p className="marketing-price-sim-heading">SIM plan required — choose one</p>
-        <div className="marketing-pricing-grid marketing-pricing-grid--sim">
-          <div className="marketing-price-card marketing-price-card--sim">
-            <div className="marketing-price-card-label">{monthlyLabel}</div>
-            <div className="marketing-price-card-amount marketing-price-card-amount--sim">
-              {monthlyHasSale && (
-                <span className="marketing-price-was">
-                  ${((simMonthly!.price_cents) / 100).toFixed(2)}
-                </span>
-              )}
-              <span className="marketing-price-currency">$</span>
-              {(monthlyCents / 100).toFixed(2)}
-              <span className="marketing-price-period">/month</span>
-            </div>
+      {/* Compact plan row */}
+      <div className="mkt-sim-plans">
+        <div className="mkt-sim-plan">
+          <div className="mkt-sim-plan-top">
+            <span className="mkt-sim-plan-name">{monthlyLabel}</span>
           </div>
-          <div className="marketing-price-card marketing-price-card--sim marketing-price-card-featured">
-            <div className="marketing-price-badge">Best value</div>
-            <div className="marketing-price-card-label">{yearlyLabel}</div>
-            <div className="marketing-price-card-amount marketing-price-card-amount--sim">
-              {yearlyHasSale && (
-                <span className="marketing-price-was">
-                  ${((simYearly!.price_cents) / 12 / 100).toFixed(2)}/mo
-                </span>
-              )}
-              <span className="marketing-price-currency">$</span>
-              {(yearlyPerMonth / 100).toFixed(2)}
-              <span className="marketing-price-period">/month</span>
-            </div>
-            <div className="marketing-price-card-note">${(yearlyCents / 100).toFixed(0)} billed yearly</div>
-            {saveVsMonthly > 0 && (
-              <div className="marketing-price-save">Save ${(saveVsMonthly / 100).toFixed(2)}</div>
+          <div className="mkt-sim-plan-price">
+            {monthlyHasSale && (
+              <s className="mkt-sim-plan-was">${((simMonthly!.price_cents) / 100).toFixed(2)}</s>
             )}
+            <span className="mkt-sim-plan-amount">${(monthlyCents / 100).toFixed(2)}</span>
+            <span className="mkt-sim-plan-period">/mo</span>
           </div>
         </div>
+
+        <div className="mkt-sim-plan mkt-sim-plan--best">
+          <div className="mkt-sim-plan-top">
+            <span className="mkt-sim-plan-name">{yearlyLabel}</span>
+            <span className="mkt-sim-best-badge">Best value</span>
+          </div>
+          <div className="mkt-sim-plan-price">
+            {yearlyHasSale && (
+              <s className="mkt-sim-plan-was">${(simYearly!.price_cents / 12 / 100).toFixed(2)}</s>
+            )}
+            <span className="mkt-sim-plan-amount">${(yearlyPerMonth / 100).toFixed(2)}</span>
+            <span className="mkt-sim-plan-period">/mo</span>
+          </div>
+          <div className="mkt-sim-plan-sub">${(yearlyCents / 100).toFixed(0)} billed yearly</div>
+          {saveVsMonthly > 0 && (
+            <div className="mkt-sim-plan-save">Save ${(saveVsMonthly / 100).toFixed(2)}</div>
+          )}
+        </div>
       </div>
+
+      {/* CTA */}
+      <Link href="/order" className="mkt-order-btn">
+        Order now
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </Link>
+      <p className="mkt-order-note">No hidden fees · Cancel anytime · 1-year warranty</p>
     </div>
   );
 }

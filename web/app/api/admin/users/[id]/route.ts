@@ -62,12 +62,13 @@ export async function GET(
     // auth.sessions may not be readable or column names may differ
   }
 
-  const [profileRow, roleRow, devicesRows, ordersRows, tokensRows] = await Promise.all([
+  const [profileRow, roleRow, devicesRows, ordersRows, tokensRows, smsUsageRows] = await Promise.all([
     admin.from('profiles').select('first_name, last_name, address_line1, address_line2, suburb, state, postcode, country, mobile').eq('user_id', userId).maybeSingle(),
     admin.from('user_roles').select('role, created_at').eq('user_id', userId).maybeSingle(),
     admin.from('devices').select('id, name, model_name, created_at, last_seen_at, ingest_disabled').eq('user_id', userId).order('created_at', { ascending: false }),
     admin.from('orders').select('id, order_number, status, total_cents, currency, created_at, subscription_next_billing_date, stripe_subscription_id').eq('user_id', userId).order('created_at', { ascending: false }),
     admin.from('activation_tokens').select('id, order_id, device_id, sim_iccid').eq('user_id', userId),
+    admin.from('sms_usage').select('period, count').eq('user_id', userId).order('period', { ascending: false }),
   ]);
 
   const profile = profileRow.data ?? null;
@@ -76,6 +77,14 @@ export async function GET(
   const devices = devicesRows.data ?? [];
   const orders = ordersRows.data ?? [];
   const tokens = tokensRows.data ?? [];
+  const smsRows = (smsUsageRows.data ?? []) as { period: string; count: number }[];
+  const currentPeriod = new Date().toISOString().slice(0, 7); // e.g. "2026-03"
+  const sms_usage = {
+    total: smsRows.reduce((s, r) => s + (r.count ?? 0), 0),
+    current_month: smsRows.find((r) => r.period === currentPeriod)?.count ?? 0,
+    current_period: currentPeriod,
+    by_period: smsRows,
+  };
 
   const orderIds = orders.map((o) => o.id);
   const { data: items } = orderIds.length > 0
@@ -195,5 +204,6 @@ export async function GET(
     total_paid_cents,
     overdue_cents,
     currency,
+    sms_usage,
   });
 }

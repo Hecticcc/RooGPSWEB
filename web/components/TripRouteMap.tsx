@@ -127,7 +127,38 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
           },
         });
       }
-      const pointsToShow = points.length >= 2 ? points : (markerStartLat != null && markerStartLon != null && markerEndLat != null && markerEndLon != null ? [{ lat: markerStartLat, lon: markerStartLon, occurred_at: undefined, speed_kph: undefined }, { lat: markerEndLat, lon: markerEndLon, occurred_at: undefined, speed_kph: undefined }] : []);
+      const allPoints = points.length >= 2 ? points : (markerStartLat != null && markerStartLon != null && markerEndLat != null && markerEndLon != null ? [{ lat: markerStartLat, lon: markerStartLon, occurred_at: undefined, speed_kph: undefined }, { lat: markerEndLat, lon: markerEndLon, occurred_at: undefined, speed_kph: undefined }] : []);
+
+      // Thin waypoint markers so the map stays readable.
+      // Route line always uses all coords (unaffected). End marker always sits at the
+      // stored parked position (endLat/endLon) regardless of which points are shown.
+      // Strategy: keep first + last; pick one intermediate point per MIN_INTERVAL_MS.
+      // No hard cap — long trips just get more markers spaced ~2 min apart.
+      const MIN_INTERVAL_MS = 2 * 60 * 1000;
+      function downsampleMarkers(pts: typeof allPoints): typeof allPoints {
+        if (pts.length <= 2) return pts;
+        const first = pts[0]!;
+        const last = pts[pts.length - 1]!;
+        const middle = pts.slice(1, -1);
+        const hasTimestamps = middle.some((p) => !!p.occurred_at);
+        let kept: typeof allPoints;
+        if (hasTimestamps) {
+          let lastTs = first.occurred_at ? new Date(first.occurred_at).getTime() : 0;
+          kept = middle.filter((p) => {
+            const ts = p.occurred_at ? new Date(p.occurred_at).getTime() : lastTs + MIN_INTERVAL_MS;
+            if (ts - lastTs >= MIN_INTERVAL_MS) { lastTs = ts; return true; }
+            return false;
+          });
+        } else {
+          // No timestamps: evenly pick up to 18 middle points
+          const want = Math.min(18, middle.length);
+          const step = (middle.length - 1) / Math.max(1, want - 1);
+          kept = Array.from({ length: want }, (_, i) => middle[Math.round(i * step)]!);
+        }
+        return [first, ...kept, last];
+      }
+
+      const pointsToShow = downsampleMarkers(allPoints);
       const CLOSE_DEG = 0.00025;
       const NUDGE_DEG = 0.00012;
       const total = pointsToShow.length;
@@ -197,8 +228,16 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
         addMarker(first, 0, true, pointsToShow.length === 1, first.lon, first.lat);
       }
       if (pointsToShow.length > 1) {
-        const last = pointsToShow[pointsToShow.length - 1];
-        addMarker(last, pointsToShow.length - 1, false, true, last.lon, last.lat);
+        const lastPt = pointsToShow[pointsToShow.length - 1];
+        // Use the stored parked position (endLat/endLon from the trips table) for the end
+        // marker if it exists — that's where the car actually stopped, not the last moving
+        // GPS ping (which can be mid-road if the vehicle was still in motion when the trip
+        // was last processed, e.g. on a freeway just before a coverage gap).
+        const endPt =
+          markerEndLat != null && markerEndLon != null
+            ? { ...lastPt, lat: markerEndLat, lon: markerEndLon }
+            : lastPt;
+        addMarker(endPt, pointsToShow.length - 1, false, true, endPt.lon, endPt.lat);
       }
       if (pointsToShow.length === 0 && markerStartLat != null && markerStartLon != null) {
         const el = document.createElement('div');

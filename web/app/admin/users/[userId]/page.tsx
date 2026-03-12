@@ -7,7 +7,7 @@ import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { useAdminAuth } from '../../AdminAuthContext';
 import { roleLabel } from '@/lib/roles';
 import type { UserRole } from '@/lib/roles';
-import { MessageSquare, User, Smartphone, CreditCard, Hash, FileText, Mail, DollarSign } from 'lucide-react';
+import { MessageSquare, User, Smartphone, CreditCard, Hash, FileText, Mail, DollarSign, RotateCcw } from 'lucide-react';
 
 const AU_TZ = 'Australia/Sydney';
 const PAGE_SIZE = 10;
@@ -80,6 +80,12 @@ type UserDetail = {
   total_paid_cents?: number;
   overdue_cents?: number;
   currency?: string;
+  sms_usage?: {
+    total: number;
+    current_month: number;
+    current_period: string;
+    by_period: { period: string; count: number }[];
+  };
 };
 
 export default function AdminUserViewPage() {
@@ -122,6 +128,8 @@ export default function AdminUserViewPage() {
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [emailDetail, setEmailDetail] = useState<{ id: string; subject: string; body_html: string | null; sent_at: string } | null>(null);
   const [emailDetailLoading, setEmailDetailLoading] = useState(false);
+  const [smsResetStatus, setSmsResetStatus] = useState<'idle' | 'resetting' | 'done' | 'err'>('idle');
+  const [smsResetError, setSmsResetError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -306,6 +314,49 @@ export default function AdminUserViewPage() {
       router.push('/admin/users');
     } finally {
       setActing(false);
+    }
+  }
+
+  async function handleResetSmsUsage(period?: string) {
+    if (!isAdmin || !data) return;
+    const label = period ? `the ${period} SMS count` : 'ALL SMS usage history';
+    if (!confirm(`Reset ${label} for this user? This cannot be undone.`)) return;
+    setSmsResetStatus('resetting');
+    setSmsResetError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${data.id}/sms-usage`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: period ? JSON.stringify({ period }) : undefined,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSmsResetStatus('err');
+        setSmsResetError((json as { error?: string }).error ?? 'Reset failed');
+        return;
+      }
+      // Update local state to reflect the reset
+      setData((prev) => {
+        if (!prev?.sms_usage) return prev;
+        const filtered = period
+          ? prev.sms_usage.by_period.filter((r) => r.period !== period)
+          : [];
+        return {
+          ...prev,
+          sms_usage: {
+            ...prev.sms_usage,
+            total: filtered.reduce((s, r) => s + r.count, 0),
+            current_month: filtered.find((r) => r.period === prev.sms_usage!.current_period)?.count ?? 0,
+            by_period: filtered,
+          },
+        };
+      });
+      setSmsResetStatus('done');
+      setTimeout(() => setSmsResetStatus('idle'), 3000);
+    } catch (e) {
+      setSmsResetStatus('err');
+      setSmsResetError(e instanceof Error ? e.message : 'Request failed');
     }
   }
 
@@ -527,12 +578,83 @@ export default function AdminUserViewPage() {
               </table>
             </div>
 
+            <div className="admin-card" style={{ flex: '1 1 280px', minWidth: 0 }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <MessageSquare size={18} aria-hidden /> SMS usage
+              </h3>
+              <table className="admin-table">
+                <tbody>
+                  <tr>
+                    <td>Total sent (all time)</td>
+                    <td><strong>{data.sms_usage?.total ?? 0}</strong></td>
+                  </tr>
+                  <tr>
+                    <td>This month ({data.sms_usage?.current_period ?? '—'})</td>
+                    <td><strong>{data.sms_usage?.current_month ?? 0}</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+              {(data.sms_usage?.by_period ?? []).length > 0 && (
+                <details style={{ marginTop: '0.75rem' }}>
+                  <summary className="admin-time" style={{ cursor: 'pointer', fontSize: '0.8125rem' }}>
+                    History by month
+                  </summary>
+                  <table className="admin-table" style={{ marginTop: '0.5rem' }}>
+                    <thead>
+                      <tr><th>Period</th><th>Count</th>{isAdmin && <th></th>}</tr>
+                    </thead>
+                    <tbody>
+                      {(data.sms_usage?.by_period ?? []).map((r) => (
+                        <tr key={r.period}>
+                          <td className="admin-mono">{r.period}</td>
+                          <td>{r.count}</td>
+                          {isAdmin && (
+                            <td>
+                              <button
+                                type="button"
+                                className="admin-btn admin-btn--small"
+                                onClick={() => handleResetSmsUsage(r.period)}
+                                disabled={smsResetStatus === 'resetting'}
+                                title={`Reset ${r.period} count`}
+                              >
+                                Reset
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
+              )}
+              {isAdmin && (
+                <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn--small"
+                    onClick={() => handleResetSmsUsage()}
+                    disabled={smsResetStatus === 'resetting' || (data.sms_usage?.total ?? 0) === 0}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}
+                  >
+                    <RotateCcw size={13} aria-hidden />
+                    {smsResetStatus === 'resetting' ? 'Resetting…' : 'Reset all usage'}
+                  </button>
+                  {smsResetStatus === 'done' && (
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--success)' }}>Reset.</span>
+                  )}
+                  {smsResetStatus === 'err' && smsResetError && (
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--error)' }}>{smsResetError}</span>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="admin-card" style={{ flex: '1 1 380px', minWidth: 0 }}>
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Mail size={18} aria-hidden /> Emails sent
               </h3>
             <p className="admin-time" style={{ marginBottom: '0.75rem' }}>
-              Emails sent to this user. Click a row to view the email content.
+              Emails sent via RooGPS (orders, billing, support, password reset). Click a row to preview.
             </p>
             {emailsLoading ? (
               <p className="admin-time">Loading…</p>

@@ -209,7 +209,8 @@ export default function AdminDeviceDetailPage() {
   const [acting, setActing] = useState(false);
   const [payloadPage, setPayloadPage] = useState(1);
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
-  const [exportingAll, setExportingAll] = useState(false);
+  const [exportDateFrom, setExportDateFrom] = useState('');
+  const [exportDateTo, setExportDateTo] = useState('');
   const [modelSelectValue, setModelSelectValue] = useState<string | undefined>(undefined);
   const exportWrapRef = useRef<HTMLDivElement>(null);
   const PAYLOAD_PAGE_SIZE = 20;
@@ -584,14 +585,14 @@ export default function AdminDeviceDetailPage() {
                   type="button"
                   className="admin-payloads-export"
                   onClick={() => setExportDropdownOpen((o) => !o)}
-                  disabled={exportingAll}
                   aria-expanded={exportDropdownOpen}
                   aria-haspopup="true"
                 >
-                  {exportingAll ? 'Exporting…' : 'Export CSV'}
+                  Export CSV ▾
                 </button>
                 {exportDropdownOpen && (
                   <div className="admin-payloads-export-menu" role="menu">
+                    {/* Current page: build CSV client-side from already-loaded data */}
                     <button
                       type="button"
                       role="menuitem"
@@ -601,37 +602,66 @@ export default function AdminDeviceDetailPage() {
                         setExportDropdownOpen(false);
                       }}
                     >
-                      Current page ({data.last_payloads.length})
+                      Current page ({data.last_payloads.length} rows)
                     </button>
-                    <button
-                      type="button"
+
+                    {/* All: stream direct from server — one request, no JS loop */}
+                    <a
                       role="menuitem"
                       className="admin-payloads-export-item"
-                      onClick={async () => {
-                        setExportDropdownOpen(false);
-                        setExportingAll(true);
-                        try {
-                          const headers = getAuthHeaders();
-                          const limit = 100;
-                          const total = data.total_payloads;
-                          const all: PayloadRow[] = [];
-                          for (let page = 1; (page - 1) * limit < total; page++) {
-                            const res = await fetch(
-                              `/api/admin/devices/${encodeURIComponent(deviceId)}?page=${page}&limit=${limit}`,
-                              { credentials: 'include', cache: 'no-store', headers }
-                            );
-                            if (!res.ok) throw new Error('Failed to fetch');
-                            const json = await res.json();
-                            all.push(...(json.last_payloads ?? []));
-                          }
-                          downloadCsv(payloadsToCsv(all), `payloads-all-${data.total_payloads}.csv`);
-                        } finally {
-                          setExportingAll(false);
-                        }
-                      }}
+                      href={`/api/admin/devices/${encodeURIComponent(deviceId)}/export-csv`}
+                      download
+                      onClick={() => setExportDropdownOpen(false)}
                     >
-                      All ({data.total_payloads})
-                    </button>
+                      All ({data.total_payloads.toLocaleString()} rows)
+                    </a>
+
+                    {/* Date range: show inline pickers, then stream */}
+                    <div className="admin-payloads-export-daterange" role="group" aria-label="Date range export">
+                      <span className="admin-payloads-export-daterange-label">Date range</span>
+                      <div className="admin-payloads-export-daterange-fields">
+                        <label className="admin-payloads-export-daterange-field">
+                          <span>From</span>
+                          <input
+                            type="date"
+                            value={exportDateFrom}
+                            onChange={(e) => setExportDateFrom(e.target.value)}
+                            className="admin-payloads-export-date-input"
+                            max={exportDateTo || undefined}
+                          />
+                        </label>
+                        <label className="admin-payloads-export-daterange-field">
+                          <span>To</span>
+                          <input
+                            type="date"
+                            value={exportDateTo}
+                            onChange={(e) => setExportDateTo(e.target.value)}
+                            className="admin-payloads-export-date-input"
+                            min={exportDateFrom || undefined}
+                          />
+                        </label>
+                      </div>
+                      <a
+                        className={`admin-payloads-export-item admin-payloads-export-item--action${!exportDateFrom && !exportDateTo ? ' admin-payloads-export-item--disabled' : ''}`}
+                        href={
+                          (exportDateFrom || exportDateTo)
+                            ? `/api/admin/devices/${encodeURIComponent(deviceId)}/export-csv?${new URLSearchParams(
+                                Object.fromEntries(
+                                  [exportDateFrom && ['from', exportDateFrom], exportDateTo && ['to', exportDateTo]].filter(Boolean) as [string, string][]
+                                )
+                              )}`
+                            : '#'
+                        }
+                        download={exportDateFrom || exportDateTo ? true : undefined}
+                        onClick={(e) => {
+                          if (!exportDateFrom && !exportDateTo) { e.preventDefault(); return; }
+                          setExportDropdownOpen(false);
+                        }}
+                        aria-disabled={!exportDateFrom && !exportDateTo}
+                      >
+                        Export date range
+                      </a>
+                    </div>
                   </div>
                 )}
               </div>

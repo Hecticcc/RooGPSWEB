@@ -163,6 +163,37 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ── Duplicate-packet deduplication ────────────────────────────────────────────
+// The PT60 tracker sends 2+ packets per GPS fix with different message-type
+// prefixes (&&K, &&W, &&J, &&V …). All carry identical gps_time + coordinates.
+// Storing every packet doubles (or more) the location count and inflates trip
+// waypoint totals. We deduplicate by (device_id, gps_time) within a 60-second
+// window — the second packet is silently dropped and the device's last_seen_at
+// is still updated so the live-map "seen X ago" counter stays accurate.
+// PT60 sends duplicate message types (&&K, &&W, &&J, &&V) for the same GPS fix within
+// milliseconds of each other. 10 s is more than enough to catch those, while NOT catching
+// legitimate late-arriving pings (e.g. buffered packets flushed after a coverage gap) which
+// arrive minutes later and have different gps_time values anyway.
+const DEDUP_WINDOW_MS = 10_000;
+const dedupCache = new Map<string, number>(); // key → inserted_at ms
+let dedupSkipped = 0;
+
+function isDuplicatePacket(deviceId: string, gpsTime: string): boolean {
+  const key = `${deviceId}:${gpsTime}`;
+  const now = Date.now();
+  const last = dedupCache.get(key);
+  if (last !== undefined && now - last < DEDUP_WINDOW_MS) return true;
+  dedupCache.set(key, now);
+  // Prune stale entries so the map doesn't grow unboundedly
+  if (dedupCache.size > 5000) {
+    const cutoff = now - DEDUP_WINDOW_MS;
+    for (const [k, v] of dedupCache) {
+      if (v < cutoff) dedupCache.delete(k);
+    }
+  }
+  return false;
+}
+
 type ParsedLocationLike = { device_id: string; gps_time: string | null; gps_valid: boolean | null; latitude: number | null; longitude: number | null; speed_kph: number | null; course_deg: number | null; event_code: string | null; raw_payload: string; extra: Record<string, unknown> };
 
 async function insertLocation(parsed: ParsedLocationLike | null): Promise<boolean> {
@@ -170,6 +201,17 @@ async function insertLocation(parsed: ParsedLocationLike | null): Promise<boolea
   const accept = await getIngestAccept();
   if (!accept) {
     log('info', 'ingest accept disabled, skipping insert');
+    return false;
+  }
+
+  // Drop duplicate packets (same device + same GPS timestamp seen within DEDUP_WINDOW_MS).
+  // Still update last_seen_at so the device shows as online even when the location row is skipped.
+  if (parsed.gps_time && isDuplicatePacket(parsed.device_id, parsed.gps_time)) {
+    dedupSkipped++;
+    log('debug', 'dedup: skipping duplicate packet', { device_id: parsed.device_id, gps_time: parsed.gps_time });
+    supabase.from('devices').update({ last_seen_at: new Date().toISOString() }).eq('id', parsed.device_id).then(
+      ({ error }) => { if (error) log('debug', 'last_seen_at update (dedup path) failed', { err: error.message }); }
+    );
     return false;
   }
   const row: Record<string, unknown> = {
@@ -444,6 +486,7 @@ const healthServer = http.createServer((req, res) => {
       connections,
       parsed_lines: parsedLines,
       inserted_rows: insertedRows,
+      dedup_skipped: dedupSkipped,
       deadletter_writes: deadletterWrites,
       fallback_writes: fallbackWrites,
       rejected_unknown_device: rejectedUnknownDevice,

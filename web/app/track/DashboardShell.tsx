@@ -7,6 +7,7 @@ import { Inter } from 'next/font/google';
 import AppHeader from '@/components/AppHeader';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
 import { createClient } from '@/lib/supabase';
+import { useUser } from '@/lib/UserContext';
 import { LayoutDashboard, Bell, Settings, Shield, LogOut, ShoppingBag, CreditCard, Headphones, Info, AlertTriangle, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { isStaffOrAbove, roleLabel } from '@/lib/roles';
 import type { UserRole } from '@/lib/roles';
@@ -28,6 +29,7 @@ export default function DashboardShell({ children }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+  const { role: contextRole } = useUser();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userFirstName, setUserFirstName] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -53,6 +55,11 @@ export default function DashboardShell({ children }: Props) {
     return null;
   }
 
+  // Sync role from UserContext (shared fetch — avoids a duplicate /api/me call)
+  useEffect(() => {
+    if (contextRole !== null) setUserRole(contextRole);
+  }, [contextRole]);
+
   useEffect(() => {
     let cancelled = false;
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -64,20 +71,17 @@ export default function DashboardShell({ children }: Props) {
       setUserEmail(user.email ?? null);
       setUserFirstName(getFirstName(user));
       setAuthChecked(true);
-      // Use same session as client so API sees correct user (avoids cookie/session mismatch)
       const { data: { session } } = await supabase.auth.getSession();
       const headers: HeadersInit = { 'Cache-Control': 'no-cache' };
       if (session?.access_token) {
         headers['Authorization'] = `Bearer ${session.access_token}`;
       }
-      Promise.all([
-        fetch('/api/me', { credentials: 'include', cache: 'no-store', headers }).then((r) => r.ok ? r.json() : null),
-        fetch('/api/banners', { credentials: 'include', cache: 'no-store', headers }).then((r) => r.ok ? r.json() : { banners: [] }),
-      ]).then(([meData, bannerData]) => {
-        if (cancelled) return;
-        setUserRole((meData?.role ?? 'customer') as UserRole);
-        setBanners(bannerData?.banners ?? []);
-      });
+      fetch('/api/banners', { credentials: 'include', cache: 'no-store', headers })
+        .then((r) => r.ok ? r.json() : { banners: [] })
+        .then((bannerData) => {
+          if (cancelled) return;
+          setBanners(bannerData?.banners ?? []);
+        });
     });
     return () => { cancelled = true; };
   }, [router, supabase.auth]);

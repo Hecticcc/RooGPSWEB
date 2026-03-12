@@ -102,14 +102,26 @@ export async function listSimbaseSimcards(): Promise<SimbaseSim[]> {
   return all;
 }
 
+// Module-level cache so carrier data is reused across requests within a Node.js worker.
+// TTL of 5 minutes — carrier rarely changes and avoids blocking the device list response
+// with one outbound HTTP call per ICCID.
+const CARRIER_CACHE_TTL_MS = 5 * 60 * 1000;
+const carrierCache = new Map<string, { carrier: string | null; fetchedAt: number }>();
+
 /**
  * Fetch carrier name for a SIM from Simbase (GET /simcards/{iccid} -> connection.carrier).
- * Used for device list and device detail network bar/tooltip.
+ * Results are cached per-ICCID for 5 minutes to avoid blocking /api/devices with N outbound HTTP calls.
  */
 export async function getSimbaseCarrier(iccid: string): Promise<string | null> {
   if (!SIMBASE_API_KEY) return null;
   const trimmed = String(iccid ?? '').trim();
   if (!trimmed) return null;
+
+  const cached = carrierCache.get(trimmed);
+  if (cached && Date.now() - cached.fetchedAt < CARRIER_CACHE_TTL_MS) {
+    return cached.carrier;
+  }
+
   try {
     const base = SIMBASE_API_BASE.replace(/\/$/, '');
     const url = `${base}/simcards/${encodeURIComponent(trimmed)}`;
@@ -121,10 +133,15 @@ export async function getSimbaseCarrier(iccid: string): Promise<string | null> {
       },
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      carrierCache.set(trimmed, { carrier: null, fetchedAt: Date.now() });
+      return null;
+    }
     const data = (await res.json()) as { connection?: { carrier?: string } };
     const carrier = data?.connection?.carrier;
-    return typeof carrier === 'string' && carrier.trim() ? carrier.trim() : null;
+    const result = typeof carrier === 'string' && carrier.trim() ? carrier.trim() : null;
+    carrierCache.set(trimmed, { carrier: result, fetchedAt: Date.now() });
+    return result;
   } catch {
     return null;
   }

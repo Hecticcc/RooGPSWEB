@@ -35,57 +35,66 @@ export async function GET(
   }
 
   const pointIds = (points ?? []).map((p) => (p as { point_id?: string }).point_id).filter(Boolean) as string[];
+
+  // Fetch speed + gps_valid for each trip_point via its source location row.
+  let speedByPointId: Record<string, number | undefined> = {};
   let gpsValidByPointId: Record<string, boolean> = {};
   if (pointIds.length > 0) {
     const { data: locs } = await supabase
       .from('locations')
-      .select('id, gps_valid')
+      .select('id, speed_kph, gps_valid')
       .in('id', pointIds);
     for (const loc of locs ?? []) {
-      if (loc.id != null && loc.gps_valid != null) {
-        gpsValidByPointId[loc.id] = loc.gps_valid;
+      if (loc.id != null) {
+        if (loc.speed_kph != null) speedByPointId[loc.id] = Number(loc.speed_kph);
+        if (loc.gps_valid != null) gpsValidByPointId[loc.id] = loc.gps_valid;
       }
     }
   }
 
-  const list = (points ?? []).map((p) => {
+  // Build the enriched trip_points list.
+  const listWithSpeed = (points ?? []).map((p) => {
     const row = p as { lat: number; lon: number; occurred_at: string | null; point_id?: string };
     return {
       lat: Number(row.lat),
       lon: Number(row.lon),
       occurred_at: row.occurred_at ?? undefined,
-      speed_kph: undefined as number | undefined,
+      speed_kph: row.point_id != null ? speedByPointId[row.point_id] : undefined,
       gps_valid: row.point_id != null ? (gpsValidByPointId[row.point_id] ?? undefined) : undefined,
     };
   });
 
-  let fromLocs: { lat: number; lon: number; occurred_at?: string; speed_kph?: number; gps_valid?: boolean }[] = [];
+  // If trip_points exist (recompute has run), use them — they are the canonical, clean waypoints.
+  if (listWithSpeed.length >= 2) {
+    return NextResponse.json(listWithSpeed);
+  }
+
+  // Fallback: trip_points not yet populated (e.g. recompute hasn't run yet).
+  // Return raw locations within the trip window so the route is still visible.
   if (trip.device_id && trip.started_at && trip.ended_at) {
-    const endMs = new Date(trip.ended_at).getTime();
-    const endWindowIso = new Date(endMs + 20 * 60 * 1000).toISOString();
     const { data: locs } = await supabase
       .from('locations')
       .select('latitude, longitude, received_at, speed_kph, gps_valid')
       .eq('device_id', trip.device_id)
       .gte('received_at', trip.started_at)
-      .lte('received_at', endWindowIso)
+      .lte('received_at', trip.ended_at)
       .not('latitude', 'is', null)
       .not('longitude', 'is', null)
       .order('received_at', { ascending: true })
       .limit(5000);
-    if (locs && locs.length > 0) {
-      fromLocs = locs.map((l) => ({
-        lat: Number(l.latitude),
-        lon: Number(l.longitude),
-        occurred_at: l.received_at ?? undefined,
-        speed_kph: l.speed_kph != null ? Number(l.speed_kph) : undefined,
-        gps_valid: l.gps_valid ?? undefined,
-      }));
+
+    if (locs && locs.length >= 2) {
+      return NextResponse.json(
+        locs.map((l) => ({
+          lat: Number(l.latitude),
+          lon: Number(l.longitude),
+          occurred_at: l.received_at ?? undefined,
+          speed_kph: l.speed_kph != null ? Number(l.speed_kph) : undefined,
+          gps_valid: l.gps_valid ?? undefined,
+        }))
+      );
     }
   }
 
-  // Use whichever source has more points so the route line has maximum detail (follows path better).
-  // Raw locations can include where the car stopped; trip_points is the segment used for the trip.
-  const result = fromLocs.length > list.length ? fromLocs : list;
-  return NextResponse.json(result);
+  return NextResponse.json(listWithSpeed);
 }

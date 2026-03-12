@@ -41,85 +41,88 @@ export async function GET(request: Request) {
       latestErrorByDevice[row.device_id] = { error_message: row.error_message, created_at: row.created_at };
     }
   }
-  const withLocation = await Promise.all(
-    devicesWithOpt.map(async (d) => {
-      const caps = getDeviceCapabilities((d as { model_name?: string | null }).model_name);
-      // Fetch multiple recent locations so we can show last-known signal/GPS even when the latest packet (e.g. sleep ping) has no telemetry
-      const limit = 8;
-      const { data: locs } = await supabase
-        .from('locations')
-        .select('latitude, longitude, received_at, extra, ingest_server')
-        .eq('device_id', d.id)
-        .order('received_at', { ascending: false })
-        .limit(limit);
-      const list = (locs ?? []) as { latitude: number | null; longitude: number | null; received_at: string; extra: Record<string, unknown> | null; ingest_server?: string | null }[];
-      const loc = list[0] ?? null;
-      const extra = (loc?.extra as Record<string, unknown> | null) ?? null;
-      const hasBatteryData = (e: Record<string, unknown> | null) => {
-        if (!e) return false;
-        if (e.wired_power != null) return true;
-        const bat = e.battery as { percent?: number; voltage_v?: number } | undefined;
-        const pow = e.power as { battery_voltage_v?: number } | undefined;
-        return bat?.percent != null || bat?.voltage_v != null || pow?.battery_voltage_v != null;
-      };
-      const hasSignal = (e: Record<string, unknown> | null) => e?.signal != null;
-      const locForBattery = list.length > 1 && !hasBatteryData(extra)
-        ? list.find((l) => hasBatteryData(l.extra as Record<string, unknown> | null)) ?? loc
-        : loc;
-      const locForSignal = list.length > 1 && !hasSignal(extra)
-        ? list.find((l) => hasSignal(l.extra as Record<string, unknown> | null)) ?? loc
-        : loc;
-      const extraForBattery = (locForBattery?.extra as Record<string, unknown> | null) ?? null;
-      const extraForSignal = (locForSignal?.extra as Record<string, unknown> | null) ?? null;
-      const extraTelemetry = extraForBattery;
-      const connError = latestErrorByDevice[d.id] ?? null;
-      const batt = extra?.battery as { voltage_v?: number } | undefined;
-      const pwr = extra?.power as { battery_voltage_v?: number } | undefined;
-      const internalV = (extra as { internal_battery_voltage_v?: number })?.internal_battery_voltage_v;
-      const lastBatteryV = batt?.voltage_v ?? pwr?.battery_voltage_v ?? (typeof internalV === 'number' ? internalV : null);
-      const lastIsStopped = (extra?.pt60_state as { is_stopped?: boolean })?.is_stopped ?? null;
-      const gpsLockFromExtra = (e: Record<string, unknown> | null) =>
-        (e?.gps_lock as boolean) ?? (e?.signal as { gps?: { valid?: boolean } })?.gps?.valid ?? null;
-      const gpsLockLast = gpsLockFromExtra(extraForSignal ?? extra);
-      // Use the latest of: most recent location received_at (heartbeats count) or devices.last_seen_at.
-      // This fixes devices showing offline when ingest wrote locations but devices.last_seen_at wasn't updated.
-      const locReceivedAt = loc?.received_at ?? null;
-      const dbLastSeen = d.last_seen_at ?? null;
-      const lastSeenAt =
-        locReceivedAt && (!dbLastSeen || new Date(locReceivedAt) > new Date(dbLastSeen))
-          ? locReceivedAt
-          : dbLastSeen;
-      const stateResult = computeDeviceState({
-        last_seen_at: lastSeenAt,
-        moving_interval_seconds: d.moving_interval_seconds ?? null,
-        heartbeat_minutes: d.heartbeat_minutes ?? null,
-        last_known_is_stopped: lastIsStopped,
-        last_known_battery_voltage: lastBatteryV,
-      });
-      const wiredPower = getWiredPowerFromExtra(caps.isWired ? extraForBattery : extra);
-      return {
-        ...d,
-        last_seen_at: lastSeenAt,
-        latest_lat: loc?.latitude ?? null,
-        latest_lng: loc?.longitude ?? null,
-        latest_battery_percent: (extraForBattery?.battery as { percent?: number })?.percent ?? null,
-        latest_battery_voltage_v: (extraForBattery?.battery as { voltage_v?: number })?.voltage_v ?? null,
-        latest_signal: extraForSignal?.signal ?? extraTelemetry?.signal ?? null,
-        marker_color: d.marker_color ?? '#f97316',
-        connection_error: connError,
-        device_state: stateResult.device_state,
-        offline_reason: stateResult.offline_reason,
-        gps_lock_last: gpsLockLast,
-        last_battery_voltage: lastBatteryV,
-        capabilities: caps,
-        latest_external_power_connected: caps.isWired ? wiredPower.external_power_connected : undefined,
-        latest_backup_battery_percent: caps.isWired ? wiredPower.backup_battery_percent : undefined,
-        latest_acc_status: caps.isWired ? wiredPower.acc_status : undefined,
-        latest_power_source: caps.isWired ? wiredPower.power_source : undefined,
-        ingest_server: loc?.ingest_server ?? null,
-      };
-    })
-  );
+  // Single query: fetch latest 8 locations for ALL devices in one round-trip
+  // instead of one query per device (N+1 pattern).
+  type LocRow = { device_id: string; latitude: number | null; longitude: number | null; received_at: string; extra: Record<string, unknown> | null; ingest_server?: string | null };
+  const { data: allLocsRaw } = await supabase.rpc('get_latest_locations_per_device', {
+    p_device_ids: deviceIds,
+    p_n: 8,
+  });
+  const locsByDevice: Record<string, LocRow[]> = {};
+  for (const row of (allLocsRaw ?? []) as LocRow[]) {
+    if (!locsByDevice[row.device_id]) locsByDevice[row.device_id] = [];
+    locsByDevice[row.device_id].push(row);
+  }
+
+  const withLocation = devicesWithOpt.map((d) => {
+    const caps = getDeviceCapabilities((d as { model_name?: string | null }).model_name);
+    const list = (locsByDevice[d.id] ?? []) as { latitude: number | null; longitude: number | null; received_at: string; extra: Record<string, unknown> | null; ingest_server?: string | null }[];
+    const loc = list[0] ?? null;
+    const extra = (loc?.extra as Record<string, unknown> | null) ?? null;
+    const hasBatteryData = (e: Record<string, unknown> | null) => {
+      if (!e) return false;
+      if (e.wired_power != null) return true;
+      const bat = e.battery as { percent?: number; voltage_v?: number } | undefined;
+      const pow = e.power as { battery_voltage_v?: number } | undefined;
+      return bat?.percent != null || bat?.voltage_v != null || pow?.battery_voltage_v != null;
+    };
+    const hasSignal = (e: Record<string, unknown> | null) => e?.signal != null;
+    const locForBattery = list.length > 1 && !hasBatteryData(extra)
+      ? list.find((l) => hasBatteryData(l.extra as Record<string, unknown> | null)) ?? loc
+      : loc;
+    const locForSignal = list.length > 1 && !hasSignal(extra)
+      ? list.find((l) => hasSignal(l.extra as Record<string, unknown> | null)) ?? loc
+      : loc;
+    const extraForBattery = (locForBattery?.extra as Record<string, unknown> | null) ?? null;
+    const extraForSignal = (locForSignal?.extra as Record<string, unknown> | null) ?? null;
+    const extraTelemetry = extraForBattery;
+    const connError = latestErrorByDevice[d.id] ?? null;
+    const batt = extra?.battery as { voltage_v?: number } | undefined;
+    const pwr = extra?.power as { battery_voltage_v?: number } | undefined;
+    const internalV = (extra as { internal_battery_voltage_v?: number })?.internal_battery_voltage_v;
+    const lastBatteryV = batt?.voltage_v ?? pwr?.battery_voltage_v ?? (typeof internalV === 'number' ? internalV : null);
+    const lastIsStopped = (extra?.pt60_state as { is_stopped?: boolean })?.is_stopped ?? null;
+    const gpsLockFromExtra = (e: Record<string, unknown> | null) =>
+      (e?.gps_lock as boolean) ?? (e?.signal as { gps?: { valid?: boolean } })?.gps?.valid ?? null;
+    const gpsLockLast = gpsLockFromExtra(extraForSignal ?? extra);
+    // Use the latest of: most recent location received_at (heartbeats count) or devices.last_seen_at.
+    // This fixes devices showing offline when ingest wrote locations but devices.last_seen_at wasn't updated.
+    const locReceivedAt = loc?.received_at ?? null;
+    const dbLastSeen = d.last_seen_at ?? null;
+    const lastSeenAt =
+      locReceivedAt && (!dbLastSeen || new Date(locReceivedAt) > new Date(dbLastSeen))
+        ? locReceivedAt
+        : dbLastSeen;
+    const stateResult = computeDeviceState({
+      last_seen_at: lastSeenAt,
+      moving_interval_seconds: d.moving_interval_seconds ?? null,
+      heartbeat_minutes: d.heartbeat_minutes ?? null,
+      last_known_is_stopped: lastIsStopped,
+      last_known_battery_voltage: lastBatteryV,
+    });
+    const wiredPower = getWiredPowerFromExtra(caps.isWired ? extraForBattery : extra);
+    return {
+      ...d,
+      last_seen_at: lastSeenAt,
+      latest_lat: loc?.latitude ?? null,
+      latest_lng: loc?.longitude ?? null,
+      latest_battery_percent: (extraForBattery?.battery as { percent?: number })?.percent ?? null,
+      latest_battery_voltage_v: (extraForBattery?.battery as { voltage_v?: number })?.voltage_v ?? null,
+      latest_signal: extraForSignal?.signal ?? extraTelemetry?.signal ?? null,
+      marker_color: d.marker_color ?? '#f97316',
+      connection_error: connError,
+      device_state: stateResult.device_state,
+      offline_reason: stateResult.offline_reason,
+      gps_lock_last: gpsLockLast,
+      last_battery_voltage: lastBatteryV,
+      capabilities: caps,
+      latest_external_power_connected: caps.isWired ? wiredPower.external_power_connected : undefined,
+      latest_backup_battery_percent: caps.isWired ? wiredPower.backup_battery_percent : undefined,
+      latest_acc_status: caps.isWired ? wiredPower.acc_status : undefined,
+      latest_power_source: caps.isWired ? wiredPower.power_source : undefined,
+      ingest_server: loc?.ingest_server ?? null,
+    };
+  });
 
   const { data: tokens } = await supabase
     .from('activation_tokens')

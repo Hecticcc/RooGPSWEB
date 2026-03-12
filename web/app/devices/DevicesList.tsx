@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { getAuthHeaders } from '@/lib/api-auth';
 import { validateTrackerName } from '@/lib/device-constants';
-import type { UserRole } from '@/lib/roles';
+import { useUser } from '@/lib/UserContext';
 import DevicesListView from './DevicesListView';
 
 type Device = {
@@ -48,6 +48,7 @@ function isOnline(device: Device): boolean {
 }
 
 export default function DevicesList() {
+  const { role: contextRole } = useUser();
   const [devices, setDevices] = useState<Device[]>([]);
   const [newId, setNewId] = useState('');
   const [newName, setNewName] = useState('');
@@ -57,11 +58,17 @@ export default function DevicesList() {
   const [addFormOpen, setAddFormOpen] = useState(false);
   const [colorSaveStatus, setColorSaveStatus] = useState<{ deviceId: string; status: 'saving' | 'saved' | 'error' } | null>(null);
   const [highlightedTrackerId, setHighlightedTrackerId] = useState<string | null>(null);
-  const [canShowMap, setCanShowMap] = useState<boolean | null>(null);
-  const [isStaffOrAdmin, setIsStaffOrAdmin] = useState(false);
+  const [subHasActive, setSubHasActive] = useState<boolean | null>(null);
   const router = useRouter();
   const supabase = createClient();
   const colorSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Derived from context role — updates automatically when UserContext resolves
+  const isStaffOrAdmin = contextRole === 'staff' || contextRole === 'staff_plus' || contextRole === 'administrator';
+  // Keep null (spinner) until BOTH role AND subscription data have resolved.
+  // Using `subHasActive` directly (not `?? false`) avoids a false→true flash
+  // when contextRole arrives before the /api/subscription fetch completes.
+  const canShowMap: boolean | null = contextRole === null || subHasActive === null ? null : (isStaffOrAdmin ? true : subHasActive);
 
   useEffect(() => {
     return () => {
@@ -78,10 +85,9 @@ export default function DevicesList() {
       }
       let authHeaders = await getAuthHeaders(supabase);
 
-      const [devicesRes, subRes, meRes] = await Promise.all([
+      const [devicesRes, subRes] = await Promise.all([
         fetch('/api/devices', { credentials: 'include', headers: authHeaders }),
         fetch('/api/subscription', { credentials: 'include', headers: authHeaders }),
-        fetch('/api/me', { credentials: 'include', cache: 'no-store', headers: authHeaders }),
       ]);
 
       let devicesResponse = devicesRes;
@@ -102,15 +108,11 @@ export default function DevicesList() {
       setDevices(Array.isArray(data) ? data : []);
       setError(null);
 
-      const role: UserRole = meRes.ok ? ((await meRes.json())?.role ?? 'customer') : 'customer';
-      setIsStaffOrAdmin(role === 'staff' || role === 'staff_plus' || role === 'administrator');
-      const isCustomerOnly = role === 'customer';
       if (subRes.ok) {
         const subData = await subRes.json();
-        const hasActive = subData.hasActiveSimSubscription === true;
-        setCanShowMap(isCustomerOnly ? hasActive : true);
+        setSubHasActive(subData.hasActiveSimSubscription === true);
       } else {
-        setCanShowMap(isCustomerOnly ? false : true);
+        setSubHasActive(false);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load devices');

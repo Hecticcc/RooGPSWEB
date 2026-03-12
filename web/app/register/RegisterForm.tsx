@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { User, MapPin, Mail, Package, Smartphone, Check, AlertCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import Logo from '@/components/Logo';
+import AddressAutocomplete from '@/components/AddressAutocomplete';
 
 const MIN_PASSWORD_LENGTH = 6;
 const AU_STATES = ['ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA'];
@@ -35,8 +36,6 @@ export default function RegisterForm() {
   const [suburb, setSuburb] = useState('');
   const [state, setState] = useState('');
   const [postcode, setPostcode] = useState('');
-  const [country, setCountry] = useState('Australia');
-
   const [mobile, setMobile] = useState('');
 
   const firstNameId = useId();
@@ -103,10 +102,6 @@ export default function RegisterForm() {
       setError('Please enter your postcode.');
       return;
     }
-    if (!country.trim()) {
-      setError('Please enter your country.');
-      return;
-    }
     if (!mobile.trim()) {
       setError('Please enter your mobile number.');
       return;
@@ -145,7 +140,7 @@ export default function RegisterForm() {
         suburb: suburb.trim(),
         state: state.trim(),
         postcode: postcode.trim(),
-        country: country.trim(),
+        country: 'Australia',
       });
       if (profileError) {
         console.warn('Profile insert failed (non-blocking):', profileError);
@@ -296,14 +291,18 @@ export default function RegisterForm() {
               <div className="register-address-grid">
                 <div className="auth-field register-field-full">
                   <label className="auth-label" htmlFor={addr1Id}>Address line 1</label>
-                  <input
+                  <AddressAutocomplete
                     id={addr1Id}
-                    type="text"
                     value={addressLine1}
-                    onChange={(e) => setAddressLine1(e.target.value)}
-                    autoComplete="address-line1"
+                    onChange={setAddressLine1}
+                    onSelect={(parts) => {
+                      setAddressLine1(parts.addressLine1);
+                      if (parts.suburb) setSuburb(parts.suburb);
+                      if (parts.state) setState(parts.state);
+                      if (parts.postcode) setPostcode(parts.postcode);
+                    }}
                     className="auth-input"
-                    placeholder="Street number and name"
+                    placeholder="Start typing your address…"
                     required
                     disabled={loading}
                   />
@@ -372,11 +371,10 @@ export default function RegisterForm() {
                   <input
                     id={countryId}
                     type="text"
-                    value={country}
-                    onChange={(e) => setCountry(e.target.value)}
+                    value="Australia"
+                    readOnly
                     autoComplete="country-name"
-                    className="auth-input"
-                    required
+                    className="auth-input auth-input--readonly"
                     disabled={loading}
                   />
                 </div>

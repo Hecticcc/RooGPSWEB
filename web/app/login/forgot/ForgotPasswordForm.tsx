@@ -24,6 +24,13 @@ export default function ForgotPasswordForm() {
       setError(err.message);
       return;
     }
+    // Log the send so it appears in the admin "Emails sent" view.
+    // Fire-and-forget — don't block the success state on this.
+    fetch('/api/auth/record-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient_email: email, event_name: 'account.password_reset' }),
+    }).catch(() => {});
     setSuccess(true);
   }
 

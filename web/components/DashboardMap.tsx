@@ -179,6 +179,7 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
       style: STYLE_DARK,
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
+      maxBounds: [[112, -44], [154, -10]],
     });
     mapRef.current = map;
     return () => {

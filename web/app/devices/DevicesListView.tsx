@@ -150,6 +150,154 @@ type Props = {
   isStaffOrAdmin?: boolean;
 };
 
+// ── Network history bar (used in Signal tab) ──────────────────────────────────
+
+const NET_CARRIER_COLORS: Record<string, string> = {
+  Telstra: '#3b82f6',
+  Optus: '#fecd07',
+  Vodafone: '#ef4444',
+};
+const NET_CARRIER_LOGOS: Record<string, string> = {
+  Telstra: '/images/carriers/telstra.png',
+  Optus: '/images/carriers/optus.png',
+  Vodafone: '/images/carriers/vodafone.png',
+};
+function netCarrierColor(name: string | null | undefined): string {
+  if (!name) return 'var(--primary)';
+  const key = Object.keys(NET_CARRIER_COLORS).find((k) => k.toLowerCase() === name.trim().toLowerCase());
+  return key ? NET_CARRIER_COLORS[key]! : 'var(--primary)';
+}
+
+/**
+ * Carrier data is logged by the ingest carrier-poller into `device_carrier_log`.
+ * The API returns pre-merged segments: { from, to, carrier, type }.
+ * type='gap'  → device was silent for >4 h (rendered grey).
+ * type='data' → device was active; carrier may be null if poller hasn't run yet
+ *               (falls back to deviceCarrier so the bar is always coloured).
+ */
+type NetSeg = { from: string; to: string; carrier: string | null; type: 'data' | 'gap' };
+
+function NetworkHistoryBar({ segments, loading, deviceCarrier }: {
+  segments: NetSeg[];
+  loading: boolean;
+  deviceCarrier?: string | null;
+}) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [tooltipLeft, setTooltipLeft] = useState<number | null>(null);
+  const segRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  const segMs = React.useMemo(
+    () => segments.map((s) => ({ from: new Date(s.from).getTime(), to: new Date(s.to).getTime(), carrier: s.carrier, type: s.type })),
+    [segments]
+  );
+
+  // Unique data carriers present in these segments (for the legend)
+  const carriers = React.useMemo(() => {
+    const seen = new Set<string>();
+    for (const s of segMs) { if (s.carrier) seen.add(s.carrier); }
+    // If no carrier history yet (poller hasn't run) fall back to current carrier
+    if (seen.size === 0 && deviceCarrier) seen.add(deviceCarrier);
+    return Array.from(seen);
+  }, [segMs, deviceCarrier]);
+
+  useLayoutEffect(() => {
+    if (hoverIdx == null) { setTooltipLeft(null); return; }
+    const el = segRefs.current[hoverIdx];
+    if (!el || !wrapRef.current) return;
+    const center = el.offsetLeft + el.offsetWidth / 2;
+    const w = wrapRef.current.offsetWidth;
+    setTooltipLeft(Math.min(Math.max(80, center), w - 80));
+  }, [hoverIdx, segMs.length]);
+
+  if (loading) {
+    return (
+      <div className="net-history-loading">
+        <Loader2 size={16} className="animate-spin" style={{ flexShrink: 0 }} />
+        <span>Loading network history…</span>
+      </div>
+    );
+  }
+  if (segMs.length === 0) {
+    return <p className="tracker-settings-signal-empty" style={{ marginTop: 0 }}>No network history in the last 30 days.</p>;
+  }
+
+  const tMin = segMs[0]!.from;
+  const tMax = segMs[segMs.length - 1]!.to;
+  const range = tMax - tMin || 1;
+  const fmtDate = (ms: number) => new Date(ms).toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'short', hour12: true });
+  const fmtDur  = (ms: number) => ms < 3_600_000 ? `${Math.round(ms / 60_000)}m` : ms < 86_400_000 ? `${(ms / 3_600_000).toFixed(1)}h` : `${(ms / 86_400_000).toFixed(1)}d`;
+
+  return (
+    <div className="net-history-wrap">
+      {/* Bar */}
+      <div ref={wrapRef} className="net-history-bar-wrap" style={{ position: 'relative' }}>
+        <div className="net-history-bar">
+          {segMs.map((seg, i) => {
+            const w = ((seg.to - seg.from) / range) * 100;
+            // Gap segments are grey. Data segments use the per-segment carrier;
+            // if the poller hasn't run yet (carrier=null), fall back to the
+            // device's current carrier so the bar is always coloured.
+            const color = seg.type === 'gap'
+              ? 'rgba(255,255,255,0.06)'
+              : netCarrierColor(seg.carrier ?? deviceCarrier);
+            return (
+              <div
+                key={i}
+                ref={(el) => { segRefs.current[i] = el; }}
+                className="net-history-segment"
+                data-gap={seg.type === 'gap' ? 'true' : undefined}
+                style={{ width: `${Math.max(w, 0.5)}%`, minWidth: seg.type === 'gap' ? 2 : 4, backgroundColor: color }}
+                onMouseEnter={() => seg.type !== 'gap' && setHoverIdx(i)}
+                onMouseLeave={() => setHoverIdx(null)}
+              />
+            );
+          })}
+        </div>
+        {/* Date labels */}
+        <div className="net-history-dates">
+          <span>{new Date(tMin).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</span>
+          <span>Now</span>
+        </div>
+        {/* Tooltip */}
+        {hoverIdx != null && tooltipLeft != null && segMs[hoverIdx] && (() => {
+          const seg = segMs[hoverIdx]!;
+          const name = seg.carrier ?? deviceCarrier ?? 'Network';
+          const carrierKey = (['Telstra', 'Optus', 'Vodafone'] as const).find(
+            (k) => k.toLowerCase() === name.toLowerCase()
+          );
+          const logoSrc = carrierKey ? NET_CARRIER_LOGOS[carrierKey] : null;
+          return (
+            <div className="net-history-tooltip" style={{ left: tooltipLeft, transform: 'translateX(-50%)' }}>
+              <div className="net-history-tooltip-head">
+                {logoSrc
+                  ? <img src={logoSrc} alt={name} className="net-history-tooltip-logo" />
+                  : <span style={{ fontWeight: 600, color: netCarrierColor(name) }}>{name}</span>
+                }
+              </div>
+              <div className="net-history-tooltip-line">{fmtDate(seg.from)}</div>
+              <div className="net-history-tooltip-line net-history-tooltip-line--muted">Active {fmtDur(seg.to - seg.from)}</div>
+              <div className="net-history-tooltip-arrow" />
+            </div>
+          );
+        })()}
+      </div>
+      {/* Carrier legend */}
+      {carriers.length > 0 && (
+        <div className="net-history-carriers">
+          {carriers.map((c) => {
+            const key = (['Telstra', 'Optus', 'Vodafone'] as const).find((k) => k.toLowerCase() === c.toLowerCase());
+            const logoSrc = key ? NET_CARRIER_LOGOS[key] : null;
+            return logoSrc
+              ? <img key={c} src={logoSrc} alt={c} className="net-history-carrier-logo" />
+              : <span key={c} style={{ fontWeight: 600, fontSize: 13, color: netCarrierColor(c) }}>{c}</span>;
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DevicesListView(props: Props) {
   const {
     isStaffOrAdmin = false,
@@ -183,6 +331,8 @@ export default function DevicesListView(props: Props) {
 
   const [settingsOpenId, setSettingsOpenId] = useState<string | null>(null);
   const [settingsTab, setSettingsTab] = useState<'appearance' | 'alerts' | 'signal' | 'settings'>('appearance');
+  const [networkHistory, setNetworkHistory] = useState<{ from: string; to: string; carrier: string | null }[]>([]);
+  const [networkHistoryLoading, setNetworkHistoryLoading] = useState(false);
   const [pendingAppearance, setPendingAppearance] = useState<{ deviceId: string; marker_icon: string; marker_color: string } | null>(null);
   const [trackingIntervalStatus, setTrackingIntervalStatus] = useState<{ deviceId: string; status: 'sending' | 'sent' | 'error'; message?: string } | null>(null);
   const [trackingIntervalSeconds, setTrackingIntervalSeconds] = useState<number>(300);
@@ -215,8 +365,7 @@ export default function DevicesListView(props: Props) {
       setNightGuardRule(null);
       setNightGuardSetupExpanded(false);
       return;
-    }
-    setNightGuardRuleLoading(true);
+    }    setNightGuardRuleLoading(true);
     onFetchNightGuardRule(settingsOpenId).then((rule) => {
       if (!rule) {
         setNightGuardRule(null);
@@ -235,6 +384,38 @@ export default function DevicesListView(props: Props) {
       setNightGuardRuleLoading(false);
     }).catch(() => setNightGuardRuleLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only refetch when device or tab changes
+  }, [settingsOpenId, settingsTab]);
+
+  // Fetch 30-day ping-timestamp history when the signal tab is opened.
+  // Carrier info is NOT stored per-ping (it comes from the Simbase API / current
+  // carrier), so we only need timestamps — the new lightweight endpoint returns
+  // just received_at strings and supports up to 20 000 rows, covering a full 30
+  // days even for active trackers.
+  useEffect(() => {
+    if (!settingsOpenId || settingsTab !== 'signal') {
+      setNetworkHistory([]);
+      return;
+    }
+    const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const to = new Date().toISOString();
+    setNetworkHistoryLoading(true);
+    (async () => {
+      try {
+        const supabase = createClient();
+        const headers = await getAuthHeaders(supabase);
+        const res = await fetch(
+          `/api/devices/${settingsOpenId}/network-history?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=20000`,
+          { credentials: 'include', headers }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setNetworkHistory(Array.isArray(data) ? data : []);
+        }
+      } finally {
+        setNetworkHistoryLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsOpenId, settingsTab]);
 
   useEffect(() => {
@@ -1402,6 +1583,17 @@ export default function DevicesListView(props: Props) {
                           )}
                         </>
                       )}
+                    </div>
+                    {/* Network carrier history — 30 days */}
+                    <div className="tracker-settings-modal-section" style={{ marginTop: 0, borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+                      <div className="tracker-settings-signal-row-head" style={{ marginBottom: 10 }}>
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>Network History <span style={{ fontWeight: 400, color: 'var(--muted)', fontSize: 12 }}>(last 30 days)</span></span>
+                      </div>
+                      <NetworkHistoryBar
+                        segments={networkHistory}
+                        loading={networkHistoryLoading}
+                        deviceCarrier={device.sim_carrier ?? undefined}
+                      />
                     </div>
                   </div>
                 )}

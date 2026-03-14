@@ -17,6 +17,7 @@ else config();
 import { parseIStartekLine, parsePT60Line } from './parser';
 import { parsePacket133Line } from './packet-133';
 import { initNightGuard, runNightGuard, shutdownNightGuard } from './night-guard';
+import { initCarrierPoller, shutdownCarrierPoller } from './carrier-poller';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -426,6 +427,7 @@ server.listen(INGEST_PORT, INGEST_HOST, () => {
     env_loaded_from: envLoadedFrom,
   });
   initNightGuard(supabase);
+  if (supabase) initCarrierPoller(supabase, log);
 });
 
 const DEADLETTER_MAX_LINES = parseInt(process.env.DEADLETTER_MAX_LINES ?? '200', 10) || 200;
@@ -505,6 +507,7 @@ function gracefulShutdown(signal: string) {
   shuttingDown = true;
   log('info', `received ${signal}, shutting down`);
   shutdownNightGuard();
+  shutdownCarrierPoller();
   closeAllSockets();
   server.close(() => {
     healthServer.close(() => {

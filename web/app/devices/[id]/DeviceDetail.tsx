@@ -94,12 +94,19 @@ type SignalSegment = {
   receivedAt: string;
   carrier?: string | null;
   csq?: number | null;
+  /** 'gap' segments fill silence between active periods (shown muted). */
+  type?: 'data' | 'gap';
 };
+
+/** Max gap between consecutive same-carrier pings to still be merged into one segment. */
+const MERGE_GAP_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 function buildSignalSegments(history: HistoryRow[]): SignalSegment[] {
   if (history.length === 0) return [];
   const sorted = [...history].sort((a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime());
-  const segments: SignalSegment[] = [];
+
+  // Build one raw segment per ping.
+  const raw: SignalSegment[] = [];
   for (let i = 0; i < sorted.length; i++) {
     const row = sorted[i];
     const t = new Date(row.received_at).getTime();
@@ -112,9 +119,29 @@ function buildSignalSegments(history: HistoryRow[]): SignalSegment[] {
     } | undefined;
     const carrier = (extra?.carrier ?? extra?.connection?.carrier ?? null)?.trim() || null;
     const csq = extra?.signal?.gsm?.csq ?? null;
-    segments.push({ from: t, to: tEnd, receivedAt: row.received_at, carrier, csq });
+    raw.push({ from: t, to: tEnd, receivedAt: row.received_at, carrier, csq, type: 'data' });
   }
-  return segments;
+
+  // Merge consecutive same-carrier segments that are close together (≤ MERGE_GAP_MS),
+  // inserting a grey gap segment whenever there is a longer silence.
+  const merged: SignalSegment[] = [];
+  for (const seg of raw) {
+    const prev = merged[merged.length - 1];
+    const gap = prev ? seg.from - prev.to : 0;
+
+    if (prev && prev.type === 'data' && prev.carrier === seg.carrier && gap <= MERGE_GAP_MS) {
+      // Extend the previous data segment to cover this ping.
+      prev.to = seg.to;
+      if (seg.csq != null) prev.csq = seg.csq;
+    } else {
+      // Insert a gap segment for any silence > threshold so the bar shows quiet periods.
+      if (prev && gap > MERGE_GAP_MS) {
+        merged.push({ from: prev.to, to: seg.from, receivedAt: new Date(prev.to).toISOString(), carrier: null, csq: null, type: 'gap' });
+      }
+      merged.push({ ...seg });
+    }
+  }
+  return merged;
 }
 
 const CARRIER_COLORS: Record<string, string> = {
@@ -215,7 +242,7 @@ function SignalBarChart({
         >
           {segments.map((seg, i) => {
             const w = ((seg.to - seg.from) / range) * 100;
-            const color = signalSegmentColor(seg, latest?.carrier);
+            const color = seg.type === 'gap' ? 'rgba(255,255,255,0.06)' : signalSegmentColor(seg, latest?.carrier);
             const isHover = hoverIdx === i;
             return (
               <div
@@ -223,12 +250,13 @@ function SignalBarChart({
                 ref={(el) => { segmentRefs.current[i] = el; }}
                 className="device-view-network-segment"
                 data-hover={isHover ? 'true' : undefined}
+                data-gap={seg.type === 'gap' ? 'true' : undefined}
                 style={{
-                  width: `${Math.max(w, 2)}%`,
-                  minWidth: 4,
+                  width: `${Math.max(w, 0.5)}%`,
+                  minWidth: seg.type === 'gap' ? 2 : 4,
                   backgroundColor: color,
                 }}
-                onMouseEnter={() => setHoverIdx(i)}
+                onMouseEnter={() => seg.type !== 'gap' && setHoverIdx(i)}
                 onMouseLeave={() => setHoverIdx(null)}
               />
             );
@@ -246,6 +274,12 @@ function SignalBarChart({
               const carrierKey = (['Telstra', 'Optus', 'Vodafone'] as const).find((k) => k.toLowerCase() === (carrierName ?? '').trim().toLowerCase());
               const tooltipLogoSrc = carrierKey ? CARRIER_LOGOS[carrierKey] : null;
               const carrierColor = carrierColorFor(carrierName) ?? 'var(--muted)';
+              const fmtShort = (ms: number) => new Date(ms).toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'short', hour12: true });
+              const durationMs = seg.to - seg.from;
+              const durationStr = durationMs < 60_000 ? 'just now'
+                : durationMs < 3_600_000 ? `${Math.round(durationMs / 60_000)}m`
+                : durationMs < 86_400_000 ? `${(durationMs / 3_600_000).toFixed(1)}h`
+                : `${(durationMs / 86_400_000).toFixed(1)}d`;
               return (
                 <>
                   <div className="device-view-network-tooltip-carrier-row">
@@ -257,8 +291,9 @@ function SignalBarChart({
                       </span>
                     )}
                   </div>
-                  <div className="device-view-network-tooltip-line">
-                    Connected {formatRelative(seg.receivedAt)}
+                  <div className="device-view-network-tooltip-line">{fmtShort(seg.from)}</div>
+                  <div className="device-view-network-tooltip-line" style={{ color: 'var(--muted)', fontSize: 11 }}>
+                    Active for {durationStr}
                   </div>
                   {seg.csq != null ? (
                     <div className="device-view-network-tooltip-line">
@@ -378,10 +413,10 @@ export default function DeviceDetail() {
   const [latest, setLatest] = useState<Latest | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [tab, setTab] = useState<TabId>('live');
-  const [rangePreset, setRangePreset] = useState<RangePreset>('24h');
+  const [rangePreset, setRangePreset] = useState<RangePreset>('7d');
   const [from, setFrom] = useState(() => {
     const d = new Date();
-    d.setHours(d.getHours() - 24, 0, 0, 0);
+    d.setDate(d.getDate() - 7);
     return toLocalDatetimeLocal(d);
   });
   const [to, setTo] = useState(() => {
@@ -992,10 +1027,10 @@ export default function DeviceDetail() {
                             </div>
                           </div>
                         )}
-                        {buildSignalSegments(history.slice(-100)).length > 0 && (
+                        {buildSignalSegments(history).length > 0 && (
                           <SignalBarChart
                             className="device-view-hero-signal-chart"
-                            segments={buildSignalSegments(history.slice(-100))}
+                            segments={buildSignalSegments(history)}
                             latest={latest}
                           />
                         )}

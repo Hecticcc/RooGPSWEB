@@ -34,6 +34,7 @@ export default function MapboxMap({ lat, lng, history, markerVariant = 'pin', ma
       style: MAP_STYLES[mapStyle],
       center: [lng, lat],
       zoom: 14,
+      maxBounds: [[112, -44], [154, -10]],
     });
     mapRef.current = map;
     const marker =

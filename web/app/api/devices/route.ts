@@ -61,7 +61,10 @@ export async function GET(request: Request) {
     const extra = (loc?.extra as Record<string, unknown> | null) ?? null;
     const hasBatteryData = (e: Record<string, unknown> | null) => {
       if (!e) return false;
-      if (e.wired_power != null) return true;
+      // wired_power is written on every PT60 packet (even alarm-only ones with no battery voltage),
+      // so we must check the values — not just the key's presence — to find a useful location.
+      const wp = e.wired_power as { backup_battery_percent?: number | null; backup_battery_voltage_v?: number | null } | undefined;
+      if (wp?.backup_battery_percent != null || wp?.backup_battery_voltage_v != null) return true;
       const bat = e.battery as { percent?: number; voltage_v?: number } | undefined;
       const pow = e.power as { battery_voltage_v?: number } | undefined;
       return bat?.percent != null || bat?.voltage_v != null || pow?.battery_voltage_v != null;
@@ -101,6 +104,9 @@ export async function GET(request: Request) {
       last_known_battery_voltage: lastBatteryV,
     });
     const wiredPower = getWiredPowerFromExtra(caps.isWired ? extraForBattery : extra);
+    // For wired devices: battery data comes from locForBattery (which may be older),
+    // but the live power-connection status must always come from the most recent packet.
+    const latestWiredPower = caps.isWired && extraForBattery !== extra ? getWiredPowerFromExtra(extra) : null;
     return {
       ...d,
       last_seen_at: lastSeenAt,
@@ -116,10 +122,10 @@ export async function GET(request: Request) {
       gps_lock_last: gpsLockLast,
       last_battery_voltage: lastBatteryV,
       capabilities: caps,
-      latest_external_power_connected: caps.isWired ? wiredPower.external_power_connected : undefined,
+      latest_external_power_connected: caps.isWired ? (latestWiredPower?.external_power_connected ?? wiredPower.external_power_connected) : undefined,
       latest_backup_battery_percent: caps.isWired ? wiredPower.backup_battery_percent : undefined,
-      latest_acc_status: caps.isWired ? wiredPower.acc_status : undefined,
-      latest_power_source: caps.isWired ? wiredPower.power_source : undefined,
+      latest_acc_status: caps.isWired ? (latestWiredPower?.acc_status ?? wiredPower.acc_status) : undefined,
+      latest_power_source: caps.isWired ? (latestWiredPower?.power_source ?? wiredPower.power_source) : undefined,
       ingest_server: loc?.ingest_server ?? null,
     };
   });

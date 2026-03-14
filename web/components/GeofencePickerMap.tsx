@@ -120,6 +120,7 @@ export default function GeofencePickerMap({
       style: 'mapbox://styles/mapbox/dark-v11',
       center,
       zoom: DEFAULT_ZOOM,
+      maxBounds: [[112, -44], [154, -10]],
     });
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     mapRef.current = map;

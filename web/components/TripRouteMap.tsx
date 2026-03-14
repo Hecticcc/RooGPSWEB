@@ -46,6 +46,7 @@ export default function TripRouteMap({ points, startLat, startLon, endLat, endLo
       style: STYLE_MAP,
       center: startLon != null && startLat != null ? [startLon, startLat] : [145, -37.8],
       zoom: 12,
+      maxBounds: [[112, -44], [154, -10]],
     });
     mapRef.current = map;
     return () => {

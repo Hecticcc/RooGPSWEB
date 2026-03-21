@@ -150,52 +150,56 @@ export default function DashboardShell({ children }: Props) {
       )}
       <div className="dashboard-body">
         <aside className="dashboard-sidebar">
-          <nav className="dashboard-nav">
-            {nav.map(({ href, label, icon: Icon }) => {
-              const isActive =
-                href === '/track'
-                  ? pathname === '/track' || (pathname.startsWith('/track/') && !pathname.startsWith('/track/alerts') && !pathname.startsWith('/track/settings'))
-                  :                 href === '/account/subscription'
-                    ? pathname === '/account/subscription'
-                    : href === '/account/support'
-                      ? pathname.startsWith('/account/support')
-                      : pathname.startsWith(href);
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`dashboard-nav-link ${isActive ? 'dashboard-nav-link--active' : ''}`}
-                  title={label}
-                  aria-label={label}
-                >
-                  <Icon size={20} strokeWidth={2} />
-                  <span>{label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-          <div className="dashboard-sidebar-footer">
-            <div className="dashboard-sidebar-greeting">
-              <p className="dashboard-sidebar-hello">
-                Hello{userFirstName ? `, ${userFirstName}` : ''}
-              </p>
-              {userRole && (
-                <span className="dashboard-sidebar-role-badge" title={userEmail ?? undefined}>
-                  {roleLabel(userRole)}
-                </span>
-              )}
+          <div className="dashboard-sidebar-inner">
+            <div className="dashboard-nav-scroll">
+              <nav className="dashboard-nav">
+                {nav.map(({ href, label, icon: Icon }) => {
+                  const isActive =
+                    href === '/track'
+                      ? pathname === '/track' || (pathname.startsWith('/track/') && !pathname.startsWith('/track/alerts') && !pathname.startsWith('/track/settings'))
+                      : href === '/account/subscription'
+                        ? pathname === '/account/subscription'
+                        : href === '/account/support'
+                          ? pathname.startsWith('/account/support')
+                          : pathname.startsWith(href);
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={`dashboard-nav-link ${isActive ? 'dashboard-nav-link--active' : ''}`}
+                      title={label}
+                      aria-label={label}
+                    >
+                      <Icon size={20} strokeWidth={2} />
+                      <span>{label}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
             </div>
-            <div className="dashboard-sidebar-actions">
-              {showAdmin && (
-                <Link href="/admin" className="dashboard-sidebar-admin" title="Admin">
-                  <Shield size={16} />
-                  <span>Admin</span>
-                </Link>
-              )}
-              <button type="button" onClick={handleSignOut} className="dashboard-sidebar-logout">
-                <LogOut size={16} />
-                <span>Log out</span>
-              </button>
+            <div className="dashboard-sidebar-footer">
+              <div className="dashboard-sidebar-greeting">
+                <p className="dashboard-sidebar-hello">
+                  Hello{userFirstName ? `, ${userFirstName}` : ''}
+                </p>
+                {userRole && (
+                  <span className="dashboard-sidebar-role-badge" title={userEmail ?? undefined}>
+                    {roleLabel(userRole)}
+                  </span>
+                )}
+              </div>
+              <div className="dashboard-sidebar-actions">
+                {showAdmin && (
+                  <Link href="/admin" className="dashboard-sidebar-admin" title="Admin">
+                    <Shield size={16} />
+                    <span>Admin</span>
+                  </Link>
+                )}
+                <button type="button" onClick={handleSignOut} className="dashboard-sidebar-logout">
+                  <LogOut size={16} />
+                  <span>Log out</span>
+                </button>
+              </div>
             </div>
           </div>
         </aside>

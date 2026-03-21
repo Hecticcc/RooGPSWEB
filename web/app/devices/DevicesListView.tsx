@@ -7,8 +7,15 @@ import Link from 'next/link';
 /** Mapbox CSS loaded here so the dynamic DashboardMap chunk does not create a separate CSS chunk (avoids dev chunk load errors). */
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Car, Clock, Plus, ChevronRight, ChevronDown, Settings, Check, Loader2, AlertCircle, AlertTriangle, X, Palette, Signal, Pencil, Crosshair, Satellite, Radio, HelpCircle, Moon, MapPin, ShieldAlert, KeyRound, Battery, Server } from 'lucide-react';
-import { FaShieldDog } from 'react-icons/fa6';
 import { AppContainer } from '@/components/layout';
+
+function ShieldDog({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 512 512" width={size} height={size} fill="currentColor" aria-hidden style={style} xmlns="http://www.w3.org/2000/svg">
+      <path d="M269.4 2.9C265.2 1 260.7 0 256 0s-9.2 1-13.4 2.9L54.3 82.8c-22 9.3-38.4 31-38.3 57.2c.5 99.2 41.3 280.7 213.6 363.2c16.7 8 36.1 8 52.8 0C454.7 420.7 495.5 239.2 496 140c.1-26.2-16.3-47.9-38.3-57.2L269.4 2.9zM160.9 286.2c4.8 1.2 9.9 1.8 15.1 1.8c35.3 0 64-28.7 64-64l0-64 44.2 0c12.1 0 23.2 6.8 28.6 17.7L320 192l64 0c8.8 0 16 7.2 16 16l0 32c0 44.2-35.8 80-80 80l-48 0 0 50.7c0 7.3-5.9 13.3-13.3 13.3c-1.8 0-3.6-.4-5.2-1.1l-98.7-42.3c-6.6-2.8-10.8-9.3-10.8-16.4c0-2.8 .6-5.5 1.9-8l15-30zM160 160l40 0 8 0 0 32 0 32c0 17.7-14.3 32-32 32s-32-14.3-32-32l0-48c0-8.8 7.2-16 16-16zm128 48a16 16 0 1 0 -32 0 16 16 0 1 0 32 0z"/>
+    </svg>
+  );
+}
 
 const DashboardMap = dynamic(() => import('@/components/DashboardMap'), {
   ssr: false,
@@ -331,7 +338,7 @@ export default function DevicesListView(props: Props) {
 
   const [settingsOpenId, setSettingsOpenId] = useState<string | null>(null);
   const [settingsTab, setSettingsTab] = useState<'appearance' | 'alerts' | 'signal' | 'settings'>('appearance');
-  const [networkHistory, setNetworkHistory] = useState<{ from: string; to: string; carrier: string | null }[]>([]);
+  const [networkHistory, setNetworkHistory] = useState<{ from: string; to: string; carrier: string | null; type: 'data' | 'gap' }[]>([]);
   const [networkHistoryLoading, setNetworkHistoryLoading] = useState(false);
   const [pendingAppearance, setPendingAppearance] = useState<{ deviceId: string; marker_icon: string; marker_color: string } | null>(null);
   const [trackingIntervalStatus, setTrackingIntervalStatus] = useState<{ deviceId: string; status: 'sending' | 'sent' | 'error'; message?: string } | null>(null);
@@ -761,26 +768,26 @@ export default function DevicesListView(props: Props) {
                               <span
                                 className="tracker-card-chip tracker-card-wired-power"
                                 title={d.latest_external_power_connected === true ? 'External power connected' : d.latest_external_power_connected === false ? 'External power disconnected' : 'External power status unknown'}
-                                style={{ color: d.latest_external_power_connected === true ? 'var(--success)' : d.latest_external_power_connected === false ? 'var(--warn)' : 'var(--muted)' }}
+                                style={{ color: state === 'OFFLINE' ? 'var(--muted)' : d.latest_external_power_connected === true ? 'var(--success)' : d.latest_external_power_connected === false ? 'var(--warn)' : 'var(--muted)' }}
                               >
                                 <span>{d.latest_external_power_connected === true ? 'Wired' : d.latest_external_power_connected === false ? 'On backup' : 'Wired'}</span>
                               </span>
                               <span
                                 className="tracker-card-chip tracker-card-battery"
-                                title={`Backup battery: ${batteryStatus.label}${d.latest_backup_battery_percent != null ? ` (${d.latest_backup_battery_percent}%)` : ''} — ${batteryStatus.microcopy}`}
-                                style={{ color: batteryStatus.color.text }}
+                                title={`Backup battery: ${batteryStatus.label}${d.latest_backup_battery_percent != null ? ` (${d.latest_backup_battery_percent}%)` : ''} — ${batteryStatus.microcopy}${state === 'OFFLINE' ? ' (last known)' : ''}`}
+                                style={{ color: state === 'OFFLINE' ? 'var(--muted)' : batteryStatus.color.text }}
                               >
-                                <BatteryLevelIcon tier={batteryStatus.tier} size={12} color={batteryStatus.color.text} aria-hidden />
+                                <BatteryLevelIcon tier={batteryStatus.tier} size={12} color={state === 'OFFLINE' ? 'var(--muted)' : batteryStatus.color.text} aria-hidden />
                                 <span>{batteryStatus.label}</span>
                               </span>
                             </>
                           ) : (
                             <span
                               className="tracker-card-chip tracker-card-battery"
-                              title={`Battery: ${batteryStatus.label} — ${batteryStatus.microcopy}`}
-                              style={{ color: batteryStatus.color.text }}
+                              title={`Battery: ${batteryStatus.label} — ${batteryStatus.microcopy}${state === 'OFFLINE' ? ' (last known)' : ''}`}
+                              style={{ color: state === 'OFFLINE' ? 'var(--muted)' : batteryStatus.color.text }}
                             >
-                              <BatteryLevelIcon tier={batteryStatus.tier} size={12} color={batteryStatus.color.text} aria-hidden />
+                              <BatteryLevelIcon tier={batteryStatus.tier} size={12} color={state === 'OFFLINE' ? 'var(--muted)' : batteryStatus.color.text} aria-hidden />
                               <span>{batteryStatus.label}</span>
                             </span>
                           )}
@@ -802,7 +809,7 @@ export default function DevicesListView(props: Props) {
                               <span>Error</span>
                             </span>
                           )}
-                          {(d.gps_lock_last != null || d.latest_signal?.gps != null) && (
+                          {state !== 'OFFLINE' && (d.gps_lock_last != null || d.latest_signal?.gps != null) && (
                             <>
                               <span
                                 className="tracker-card-chip tracker-card-signal-gpsfix"
@@ -824,7 +831,7 @@ export default function DevicesListView(props: Props) {
                               </span>
                             </>
                           )}
-                          {d.latest_signal?.gsm != null && (() => {
+                          {state !== 'OFFLINE' && d.latest_signal?.gsm != null && (() => {
                             const q = d.latest_signal!.gsm!.quality;
                             const friendly = q === 'great' ? 'Great' : q === 'good' ? 'Good' : q === 'ok' ? 'Okay' : q === 'poor' ? 'Weak' : 'None';
                             return (
@@ -840,7 +847,7 @@ export default function DevicesListView(props: Props) {
                             </span>
                             );
                           })()}
-                          {d.sim_carrier && (
+                          {state !== 'OFFLINE' && d.sim_carrier && (
                             <span className="tracker-card-chip tracker-card-provider" title="Current network provider">
                               <Signal size={12} strokeWidth={2} aria-hidden />
                               <span>{d.sim_carrier}</span>
@@ -851,7 +858,7 @@ export default function DevicesListView(props: Props) {
                             title={d.watchdog_armed ? 'WatchDog armed – open settings to disarm' : 'WatchDog off – open settings to arm'}
                             aria-label={d.watchdog_armed ? 'WatchDog armed' : 'WatchDog off'}
                           >
-                            <FaShieldDog size={12} aria-hidden />
+                            <ShieldDog size={12} />
                             <span>{d.watchdog_armed ? 'Armed' : 'Off'}</span>
                           </span>
                           <span
@@ -1192,7 +1199,7 @@ export default function DevicesListView(props: Props) {
                   <div id="tracker-settings-panel-alerts" role="tabpanel" aria-labelledby="tracker-settings-tab-alerts" className="tracker-settings-modal-panel">
                     <div className="tracker-settings-modal-section tracker-settings-modal-guard-section">
                       <h3 className="tracker-settings-modal-section-title tracker-settings-modal-section-title--with-icon">
-                            <FaShieldDog size={18} aria-hidden />
+                            <ShieldDog size={18} />
                             <span>WatchDog</span>
                           </h3>
                       <p className="tracker-settings-modal-description">
@@ -1207,7 +1214,7 @@ export default function DevicesListView(props: Props) {
                             className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--arm${device.watchdog_armed ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
                             title="Arm: alert if tracker moves"
                           >
-                            {colorSaveStatus?.deviceId === device.id && !device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <FaShieldDog size={18} aria-hidden />}
+                            {colorSaveStatus?.deviceId === device.id && !device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <ShieldDog size={18} />}
                             <span>Arm</span>
                           </button>
                           <button
@@ -1217,7 +1224,7 @@ export default function DevicesListView(props: Props) {
                             className={`tracker-settings-modal-watchdog-btn tracker-settings-modal-watchdog-btn--disarm${!device.watchdog_armed ? ' tracker-settings-modal-watchdog-btn--active' : ''}`}
                             title="Disarm"
                           >
-                            {colorSaveStatus?.deviceId === device.id && device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <FaShieldDog size={18} style={{ opacity: 0.6 }} aria-hidden />}
+                            {colorSaveStatus?.deviceId === device.id && device.watchdog_armed ? <Loader2 size={18} className="animate-spin" /> : <ShieldDog size={18} style={{ opacity: 0.6 }} />}
                             <span>Disarm</span>
                           </button>
                         </div>

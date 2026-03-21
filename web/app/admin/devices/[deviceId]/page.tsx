@@ -211,8 +211,40 @@ export default function AdminDeviceDetailPage() {
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [exportDateFrom, setExportDateFrom] = useState('');
   const [exportDateTo, setExportDateTo] = useState('');
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [modelSelectValue, setModelSelectValue] = useState<string | undefined>(undefined);
   const exportWrapRef = useRef<HTMLDivElement>(null);
+
+  async function downloadCsv(from?: string, to?: string) {
+    if (exportingCsv) return;
+    setExportingCsv(true);
+    setExportDropdownOpen(false);
+    try {
+      const qs = new URLSearchParams();
+      if (from) qs.set('from', from);
+      if (to) qs.set('to', to);
+      const url = `/api/admin/devices/${encodeURIComponent(deviceId)}/export-csv${qs.toString() ? `?${qs}` : ''}`;
+      const res = await fetch(url, { credentials: 'include', headers: getAuthHeaders() });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert((body as { error?: string }).error ?? `Export failed (${res.status})`);
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const nameMatch = disposition.match(/filename="([^"]+)"/);
+      const filename = nameMatch ? nameMatch[1] : `payloads-${deviceId}.csv`;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename!;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+    } finally {
+      setExportingCsv(false);
+    }
+  }
   const PAYLOAD_PAGE_SIZE = 20;
 
   useEffect(() => {
@@ -606,15 +638,15 @@ export default function AdminDeviceDetailPage() {
                     </button>
 
                     {/* All: stream direct from server — one request, no JS loop */}
-                    <a
+                    <button
+                      type="button"
                       role="menuitem"
                       className="admin-payloads-export-item"
-                      href={`/api/admin/devices/${encodeURIComponent(deviceId)}/export-csv`}
-                      download
-                      onClick={() => setExportDropdownOpen(false)}
+                      onClick={() => downloadCsv()}
+                      disabled={exportingCsv}
                     >
-                      All ({data.total_payloads.toLocaleString()} rows)
-                    </a>
+                      {exportingCsv ? 'Exporting…' : `All (${data.total_payloads.toLocaleString()} rows)`}
+                    </button>
 
                     {/* Date range: show inline pickers, then stream */}
                     <div className="admin-payloads-export-daterange" role="group" aria-label="Date range export">
@@ -641,26 +673,18 @@ export default function AdminDeviceDetailPage() {
                           />
                         </label>
                       </div>
-                      <a
+                      <button
+                        type="button"
                         className={`admin-payloads-export-item admin-payloads-export-item--action${!exportDateFrom && !exportDateTo ? ' admin-payloads-export-item--disabled' : ''}`}
-                        href={
-                          (exportDateFrom || exportDateTo)
-                            ? `/api/admin/devices/${encodeURIComponent(deviceId)}/export-csv?${new URLSearchParams(
-                                Object.fromEntries(
-                                  [exportDateFrom && ['from', exportDateFrom], exportDateTo && ['to', exportDateTo]].filter(Boolean) as [string, string][]
-                                )
-                              )}`
-                            : '#'
-                        }
-                        download={exportDateFrom || exportDateTo ? true : undefined}
-                        onClick={(e) => {
-                          if (!exportDateFrom && !exportDateTo) { e.preventDefault(); return; }
-                          setExportDropdownOpen(false);
+                        onClick={() => {
+                          if (!exportDateFrom && !exportDateTo) return;
+                          downloadCsv(exportDateFrom || undefined, exportDateTo || undefined);
                         }}
+                        disabled={(!exportDateFrom && !exportDateTo) || exportingCsv}
                         aria-disabled={!exportDateFrom && !exportDateTo}
                       >
-                        Export date range
-                      </a>
+                        {exportingCsv ? 'Exporting…' : 'Export date range'}
+                      </button>
                     </div>
                   </div>
                 )}

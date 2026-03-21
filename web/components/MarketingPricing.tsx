@@ -82,14 +82,17 @@ export default function MarketingPricing() {
           </div>
           <div className="mkt-sim-plan-price">
             {yearlyHasSale && (
-              <s className="mkt-sim-plan-was">${(simYearly!.price_cents / 12 / 100).toFixed(2)}</s>
+              <s className="mkt-sim-plan-was">${(simYearly!.price_cents / 100).toFixed(0)}</s>
             )}
-            <span className="mkt-sim-plan-amount">${(yearlyPerMonth / 100).toFixed(2)}</span>
-            <span className="mkt-sim-plan-period">/mo</span>
+            <span className="mkt-sim-plan-amount">${(yearlyCents / 100).toFixed(0)}</span>
+            <span className="mkt-sim-plan-period">/yr</span>
           </div>
-          <div className="mkt-sim-plan-sub">${(yearlyCents / 100).toFixed(0)} billed yearly</div>
+          <div className="mkt-sim-plan-sub">Just ${(yearlyPerMonth / 100).toFixed(2)}/mo</div>
           {saveVsMonthly > 0 && (
-            <div className="mkt-sim-plan-save">Save ${(saveVsMonthly / 100).toFixed(2)}</div>
+            <div className="mkt-sim-plan-save">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+              Save ${(saveVsMonthly / 100).toFixed(2)} a year
+            </div>
           )}
         </div>
       </div>

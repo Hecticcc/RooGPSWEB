@@ -126,8 +126,8 @@ assert(signalFord != null, 'Ford Ranger-style packet must have extra.signal (alt
 assert(pFord.gpsValid === true, 'Ford Ranger gps_valid from fix A');
 assert(pFord.latitude === -38.093815 && pFord.longitude === 145.175653, 'Ford Ranger lat/lon');
 assert(signalFord!.gps.valid === true && signalFord!.gps.has_signal === true, 'Ford Ranger signal.gps valid');
-assert(signalFord!.gps.sats === 20, 'Ford Ranger sats (41 clamped to 20)');
-assert(signalFord!.gps.hdop === 24, 'Ford Ranger hdop 24');
+assert(signalFord!.gps.sats === 15, 'Ford Ranger sats 15');
+assert(signalFord!.gps.hdop === 0.7, 'Ford Ranger hdop 0.7');
 assert(signalFord!.gsm.csq === 18, 'Ford Ranger CSQ from token 16');
 
 console.log('All parser tests passed.');

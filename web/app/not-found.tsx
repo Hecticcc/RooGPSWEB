@@ -1,8 +1,9 @@
 import Link from 'next/link';
 
 export const metadata = {
-  title: 'Page not found',
-  description: 'The page you’re looking for doesn’t exist.',
+  title: 'Page Not Found — RooGPS',
+  description: "The page you're looking for doesn't exist.",
+  robots: { index: false, follow: false },
 };
 
 export default function NotFound() {
@@ -14,7 +15,7 @@ export default function NotFound() {
         </div>
         <h1 className="not-found-title">Page not found</h1>
         <p className="not-found-text">
-          The page you’re looking for doesn’t exist or has been moved.
+          The page you&apos;re looking for doesn&apos;t exist or has been moved.
         </p>
         <div className="not-found-actions">
           <Link href="/" className="not-found-btn not-found-btn--primary">

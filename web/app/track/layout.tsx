@@ -15,8 +15,14 @@ export default function TrackLayout({
   children: React.ReactNode;
 }) {
   return (
-    <UserProvider>
-      <DashboardShell>{children}</DashboardShell>
-    </UserProvider>
+    <>
+      {/* Scoped here so marketing pages don't pay the preconnect cost */}
+      <link rel="preconnect" href="https://api.mapbox.com" />
+      <link rel="preconnect" href="https://events.mapbox.com" />
+      <link rel="dns-prefetch" href="https://api.mapbox.com" />
+      <UserProvider>
+        <DashboardShell>{children}</DashboardShell>
+      </UserProvider>
+    </>
   );
 }

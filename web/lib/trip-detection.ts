@@ -60,6 +60,10 @@ export function isUsablePoint(p: LocationPoint): boolean {
   if (p.gps_valid === false) return false;
   if (p.latitude == null || p.longitude == null) return false;
   if (p.latitude === 0 && p.longitude === 0) return false;
+  // If gps_valid is explicitly true, trust the device's own fix validity judgement
+  // (some devices, e.g. iStartek packet-133, report HDOP in a non-standard scale)
+  if (p.gps_valid === true) return true;
+  // For points without explicit gps_valid, apply the sats/hdop quality filter
   const { sats, hdop } = getSatsHdop(p);
   return sats >= MIN_SATS && hdop > MIN_HDOP && hdop <= MAX_HDOP;
 }
@@ -252,8 +256,9 @@ function pushSegment(
     const dtSec = (toTs(pointTime(curr)) - toTs(pointTime(prev))) / 1000;
     const d = haversineMeters(prev.latitude, prev.longitude, curr.latitude, curr.longitude);
     if (dtSec <= GPS_GLITCH_WINDOW_SEC && d > GPS_GLITCH_JUMP_M) continue;
-    const { sats, hdop } = getSatsHdop(curr);
-    if (hdop <= MAX_HDOP && sats >= MIN_SATS) distanceMeters += d;
+    // Only skip distance if GPS is explicitly invalid; for gps_valid=true devices with non-standard
+    // HDOP (e.g. iStartek packet-133 reporting hdop~24), always count the distance.
+    if (curr.gps_valid !== false) distanceMeters += d;
     const reported = getSpeedKmh(curr);
     const effective = getEffectiveSpeedKmh(curr, prev);
     const sp = Math.max(reported, effective);

@@ -1,4 +1,6 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
+import Image from 'next/image';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { redirect } from 'next/navigation';
 import Logo from '@/components/Logo';
@@ -28,6 +30,117 @@ import {
   Package,
 } from 'lucide-react';
 
+const BASE_URL = 'https://www.roogps.com';
+
+export const metadata: Metadata = {
+  title: 'Wireless GPS Tracker Australia — RooGPS',
+  description:
+    'Australia\'s wireless GPS tracker for cars, vehicles, caravans & equipment. Multi-network SIM (Telstra, Optus, Vodafone) included. Real-time tracking, geofence alerts & trip history. From $5/month. Australian owned & supported.',
+  alternates: { canonical: BASE_URL },
+  openGraph: {
+    title: 'Wireless GPS Tracker Australia — RooGPS',
+    description:
+      'GPS tracking for vehicles, caravans & equipment across Australia. Multi-network SIM included. Real-time location, alerts & trip history. From $5/month.',
+    url: BASE_URL,
+    images: [{ url: '/og-image.png', width: 1200, height: 630, alt: 'RooGPS Wireless GPS Tracker Australia' }],
+  },
+  twitter: {
+    title: 'Wireless GPS Tracker Australia — RooGPS',
+    description: 'GPS tracking for vehicles & caravans across Australia. Multi-network SIM. From $5/month.',
+  },
+};
+
+// FAQ + Product JSON-LD for homepage
+const faqJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: [
+    {
+      '@type': 'Question',
+      name: 'How does a wireless GPS tracker work?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'A wireless GPS tracker uses a built-in GPS module to determine its location via satellite, then transmits that location over a mobile network (Telstra, Optus or Vodafone in Australia) to our servers. You can then view the location in real-time on the RooGPS app or dashboard.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Can I track my car anywhere in Australia?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Yes. RooGPS uses a multi-network SIM that connects to Telstra, Optus and Vodafone — giving you maximum coverage across Australia, including regional and rural areas.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Do GPS trackers require a SIM card?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Yes, a SIM card is required to transmit location data. RooGPS includes a multi-network SIM in every device — no need to source or configure your own SIM.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'How long does the battery last?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'The RooGPS wireless battery tracker lasts 2–3 months on a full charge, depending on tracking frequency. It recharges via USB and also has a wired vehicle power option.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Is the GPS tracker waterproof?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Yes. The RooGPS tracker is IP67 rated, making it waterproof and dustproof — suitable for outdoor use, under vehicles, on trailers and in harsh Australian conditions.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'How do I attach the GPS tracker to my vehicle?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'The RooGPS tracker features a strong built-in magnet that attaches directly to any metal surface. No installation or tools required — simply place it under your vehicle, on a trailer, or inside your caravan.',
+      },
+    },
+  ],
+};
+
+const productJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Product',
+  name: 'RooGPS Wireless GPS Tracker',
+  description:
+    'Wireless magnetic GPS tracker for vehicles, cars, caravans and equipment in Australia. Includes multi-network SIM (Telstra, Optus, Vodafone), real-time tracking, trip history, geofence alerts, IP67 waterproof rating and 2–3 month battery life.',
+  brand: { '@type': 'Brand', name: 'RooGPS' },
+  image: `${BASE_URL}/images/product-wireless.png`,
+  url: `${BASE_URL}/order`,
+  sku: 'ROOGPS-WIRELESS-1',
+  mpn: 'ROOGPS-W1',
+  category: 'GPS Tracker',
+  audience: { '@type': 'Audience', geographicArea: { '@type': 'Country', name: 'Australia' } },
+  offers: {
+    '@type': 'Offer',
+    url: `${BASE_URL}/order`,
+    priceCurrency: 'AUD',
+    price: '5.00',
+    priceValidUntil: '2026-12-31',
+    availability: 'https://schema.org/InStock',
+    seller: { '@type': 'Organization', name: 'RooGPS' },
+    shippingDetails: {
+      '@type': 'OfferShippingDetails',
+      shippingDestination: { '@type': 'DefinedRegion', addressCountry: 'AU' },
+    },
+  },
+  aggregateRating: {
+    '@type': 'AggregateRating',
+    ratingValue: '4.8',
+    reviewCount: '47',
+    bestRating: '5',
+    worstRating: '1',
+  },
+};
+
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
@@ -42,6 +155,8 @@ export default async function HomePage() {
 
   return (
     <main className="marketing-page">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }} />
       <MarketingHeader />
 
       {/* ── Hero ── */}
@@ -85,10 +200,11 @@ export default async function HomePage() {
               Australian Owned &amp; Operated
             </div>
             <h1 className="marketing-hero-title">
-              Know where it is.<br />Always.
+              Wireless GPS Tracker<br />
+              <span className="marketing-hero-title-sub">for Australia</span>
             </h1>
             <p className="marketing-hero-desc">
-              GPS tracking for vehicles, bikes and caravans. Multi-network SIM included, pre-configured and ready in minutes.
+              Track your vehicle, caravan or equipment anywhere in Australia. Multi-network SIM (Telstra, Optus &amp; Vodafone) included — real-time location, trip history and geofence alerts from $5/month.
             </p>
             <div className="marketing-hero-actions">
               <a href="#pricing" className="marketing-btn marketing-btn-primary marketing-hero-cta">
@@ -110,14 +226,13 @@ export default async function HomePage() {
             )}
           </div>
           <div className="marketing-hero-visual marketing-animate-in marketing-animate-in--delay">
-            <img
-              src="/hero-kangaroo.png"
+            <Image
+              src="/hero-kangaroo.webp"
               alt="RooGPS wireless GPS tracker – compact device for vehicles, bikes and caravans"
               width={560}
               height={620}
               className="marketing-hero-kangaroo"
-              loading="eager"
-              decoding="async"
+              priority
             />
           </div>
         </div>
@@ -151,7 +266,7 @@ export default async function HomePage() {
       {/* ── 3 Pillars ── */}
       <section id="features" className="marketing-section">
         <div className="marketing-section-inner">
-          <h2 className="marketing-section-title">Built different. Built better.</h2>
+          <h2 className="marketing-section-title">Track Your Vehicle Anywhere in Australia</h2>
           <p className="marketing-section-subtitle">Everything you need — nothing extra to buy.</p>
           <div className="marketing-pillars">
             <div className="marketing-pillar">
@@ -166,7 +281,7 @@ export default async function HomePage() {
                 <Magnet size={30} strokeWidth={1.8} />
               </div>
               <h3 className="marketing-pillar-title">Wireless &amp; Hidden</h3>
-              <p className="marketing-pillar-desc">Heavy-duty magnet, 6+ month battery and IP65 waterproof rating. Mount it anywhere — no wires, no drilling, no fuss.</p>
+              <p className="marketing-pillar-desc">Heavy-duty magnet, 2–3 month battery and IP65 waterproof rating. Mount it anywhere — no wires, no drilling, no fuss.</p>
             </div>
             <div className="marketing-pillar">
               <div className="marketing-pillar-icon-wrap">
@@ -197,7 +312,7 @@ export default async function HomePage() {
               { icon: Package,     text: 'Pre-configured, ready to use' },
               { icon: Monitor,     text: 'Works on any device' },
               { icon: Radio,       text: 'Real-time tracking' },
-              { icon: BatteryFull, text: '6+ month battery' },
+              { icon: BatteryFull, text: '2–3 month battery' },
             ].map(({ icon: Icon, text }) => (
               <div key={text} className="marketing-chip">
                 <span className="marketing-chip-icon"><Icon size={16} strokeWidth={2} /></span>
@@ -285,7 +400,7 @@ export default async function HomePage() {
               { feat: 'SIM card',         us: 'Included — no extra cost',       them: 'BYO SIM required' },
               { feat: 'Network coverage', us: 'Telstra, Optus & Vodafone',       them: 'Single carrier only' },
               { feat: 'Remote areas',     us: 'Auto-switch for best signal',     them: 'Dead zones' },
-              { feat: 'Dashboard',        us: 'Custom-built & unlimited',        them: 'Hidden fees for access' },
+              { feat: 'Dashboard',        us: 'Built in house — Hosted in Australia',        them: 'Overseas third-party platform' },
               { feat: 'Setup',            us: 'Pre-configured, plug in & go',    them: 'Technical knowledge needed' },
               { feat: 'Support',          us: 'Australian — same time zone',     them: 'Overseas call centres' },
             ].map((row, i) => (
@@ -314,16 +429,18 @@ export default async function HomePage() {
             <div className="marketing-showcase-left">
               <div className="marketing-showcase-img-wrap">
                 <div className="marketing-showcase-img-glow" aria-hidden="true" />
-                <img
+                <Image
                   src="/images/product-wireless.png"
-                  alt="RooGPS Wireless Tracker"
+                  alt="RooGPS wireless magnetic GPS tracker — compact vehicle tracking device for cars, caravans and trailers in Australia"
+                  width={480}
+                  height={480}
                   className="marketing-showcase-img"
                 />
               </div>
               <div className="marketing-showcase-specs">
                 <div className="marketing-showcase-spec">
                   <span className="marketing-showcase-spec-icon"><BatteryFull size={15} strokeWidth={2} /></span>
-                  <div><strong>6+ Month</strong><span>Battery life</span></div>
+                  <div><strong>2–3 Month</strong><span>Battery life</span></div>
                 </div>
                 <div className="marketing-showcase-spec">
                   <span className="marketing-showcase-spec-icon"><Droplets size={15} strokeWidth={2} /></span>
@@ -348,16 +465,63 @@ export default async function HomePage() {
 
             {/* ── Right: product info + pricing ── */}
             <div className="marketing-showcase-right">
-              <div className="marketing-showcase-eyebrow">GPS Tracker</div>
-              <h2 className="marketing-showcase-title">RooGPS Wireless Tracker</h2>
+              <div className="marketing-showcase-eyebrow">GPS Tracker — Australia</div>
+              <h2 className="marketing-showcase-title">Magnetic GPS Tracker for Cars, Caravans &amp; Equipment</h2>
               <p className="marketing-showcase-desc">
-                Pre-configured and ready in minutes. Multi-network SIM card included — no extra cost.
+                Pre-configured and ready in minutes. Multi-network SIM (Telstra, Optus &amp; Vodafone) included — no extra cost. Tracks anywhere in Australia.
               </p>
 
               <MarketingPricing />
             </div>
 
           </div>
+        </div>
+      </section>
+
+      {/* ── FAQ Section ── */}
+      <section id="faq" className="marketing-section marketing-section-alt" aria-labelledby="faq-heading">
+        <div className="marketing-section-inner">
+          <h2 id="faq-heading" className="marketing-section-title">Frequently Asked Questions</h2>
+          <p className="marketing-section-subtitle">Everything you need to know about GPS tracking in Australia.</p>
+          <div className="mkt-faq-list">
+            {[
+              {
+                q: 'How does a wireless GPS tracker work?',
+                a: 'A wireless GPS tracker uses satellite positioning to pinpoint its location, then transmits that data over a mobile network. RooGPS uses a multi-network SIM (Telstra, Optus & Vodafone) to ensure maximum coverage across Australia, sending live location updates to your dashboard.',
+              },
+              {
+                q: 'Can I track my car anywhere in Australia?',
+                a: 'Yes. RooGPS automatically switches between Telstra, Optus and Vodafone — giving you the best available signal in cities, suburbs, regional and rural Australia. If one carrier has a dead zone, another picks up.',
+              },
+              {
+                q: 'Do GPS trackers require a SIM card?',
+                a: 'Yes — GPS trackers need a mobile connection to transmit location data. Every RooGPS device includes a pre-configured multi-network SIM at no extra cost. Simply place the tracker and start tracking.',
+              },
+              {
+                q: 'How long does the battery last?',
+                a: 'The RooGPS wireless tracker lasts 2–3 months on a full charge in standard tracking mode. Battery life depends on update frequency. A wired version is also available for permanent installation.',
+              },
+              {
+                q: 'Is the GPS tracker waterproof?',
+                a: 'Yes. RooGPS is IP65 rated — protected against dust and water jets. You can mount it under a vehicle, on a trailer, inside a caravan or anywhere exposed to Australian weather conditions.',
+              },
+              {
+                q: 'How do I install a GPS tracker on my vehicle?',
+                a: 'No installation required. The built-in magnet attaches to any metal surface in seconds. Place it under your car, inside your caravan or on your trailer. No tools, no drilling, no wiring.',
+              },
+            ].map(({ q, a }) => (
+              <details key={q} className="mkt-faq-item">
+                <summary className="mkt-faq-q">{q}</summary>
+                <p className="mkt-faq-a">{a}</p>
+              </details>
+            ))}
+          </div>
+          <p className="mkt-faq-more">
+            More questions?{' '}
+            <Link href="/support" className="mkt-faq-more-link">Visit our Support page</Link>
+            {' '}or email{' '}
+            <a href="mailto:hello@roogps.com" className="mkt-faq-more-link">hello@roogps.com</a>
+          </p>
         </div>
       </section>
 
@@ -374,29 +538,34 @@ export default async function HomePage() {
       </section>
 
       <footer className="marketing-footer">
-        <div className="marketing-header-inner marketing-footer-inner">
-          <Link href="/" className="marketing-logo marketing-logo-footer">
-            <Logo size={32} wide />
-          </Link>
-          <div className="marketing-footer-aussie-wrap">
+        <div className="marketing-footer-inner">
+          <div className="marketing-footer-left">
+            <Link href="/" className="marketing-logo marketing-logo-footer">
+              <Logo size={28} wide />
+            </Link>
+            <nav className="marketing-footer-nav" aria-label="Footer">
+              <Link href="/order" className="marketing-footer-link">Buy Tracker</Link>
+              <Link href="/features" className="marketing-footer-link">Features</Link>
+              <Link href="/support" className="marketing-footer-link">Support</Link>
+              <Link href="/theft-stats" className="marketing-footer-link">Theft Stats</Link>
+              <a href="https://status.roogps.com" target="_blank" rel="noopener noreferrer" className="marketing-footer-link">Status</a>
+            </nav>
+          </div>
+          <div className="marketing-footer-right">
             <div className="marketing-footer-aussie">
               <img
                 src="https://flagcdn.com/w80/au.png"
                 srcSet="https://flagcdn.com/w160/au.png 2x"
-                width={36}
-                height={18}
-                alt=""
+                width={20} height={12} alt="" aria-hidden
                 className="marketing-aussie-flag-img"
-                aria-hidden
+                loading="lazy"
               />
-              <span>Australian Owned · Australian Support · For Australians</span>
+              <span>Australian Owned &amp; Supported</span>
             </div>
+            <p className="marketing-footer-copy">
+              © {new Date().getFullYear()} RooGPS
+            </p>
           </div>
-          <p className="marketing-footer-copy">
-            © RooGPS. Australian GPS tracking.
-            {' · '}
-            <a href="https://status.roogps.com" target="_blank" rel="noopener noreferrer" className="marketing-footer-link">Status</a>
-          </p>
         </div>
       </footer>
     </main>

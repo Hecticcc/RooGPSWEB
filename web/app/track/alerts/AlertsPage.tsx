@@ -6,6 +6,7 @@ import { Battery, MapPin, Mail, MessageSquare, Search, Locate, ChevronLeft, Chev
 import { createClient } from '@/lib/supabase';
 import { getAuthHeaders } from '@/lib/api-auth';
 import AppLoadingIcon from '@/components/AppLoadingIcon';
+import { getDeviceCapabilities } from '@/lib/device-capabilities';
 
 const GeofencePickerMap = dynamic(() => import('@/components/GeofencePickerMap'), { ssr: false });
 
@@ -23,7 +24,7 @@ async function geocodeAddress(query: string): Promise<{ lat: number; lng: number
   return { lat, lng };
 }
 
-type Device = { id: string; name: string | null };
+type Device = { id: string; name: string | null; model_name?: string | null; latest_lat?: number | null; latest_lng?: number | null };
 type BatteryAlert = {
   id: string;
   device_id: string;
@@ -126,7 +127,7 @@ export default function AlertsPage() {
         const devList = await devRes.json();
         const batList = await batRes.json();
         const geoList = await geoRes.json();
-        setDevices(Array.isArray(devList) ? devList.map((d: Device) => ({ id: d.id, name: d.name })) : []);
+        setDevices(Array.isArray(devList) ? devList.map((d: Device) => ({ id: d.id, name: d.name, model_name: d.model_name ?? null, latest_lat: d.latest_lat, latest_lng: d.latest_lng })) : []);
         setBatteryAlerts(Array.isArray(batList) ? batList : []);
         setGeofences(Array.isArray(geoList) ? geoList : []);
       } catch (e) {
@@ -253,6 +254,15 @@ function BatteryTab({
   const [batteryType, setBatteryType] = useState<'main' | 'backup'>('main');
   const [batteryPage, setBatteryPage] = useState(1);
   const [editBatteryType, setEditBatteryType] = useState<'main' | 'backup'>('main');
+
+  // Derive wired status for the currently selected device
+  const selectedDevice = devices.find((d) => d.id === deviceId);
+  const selectedIsWired = getDeviceCapabilities(selectedDevice?.model_name).isWired;
+
+  // When switching devices, reset batteryType to 'main' if new device isn't wired
+  useEffect(() => {
+    if (!selectedIsWired) setBatteryType('main');
+  }, [deviceId, selectedIsWired]);
 
   useEffect(() => {
     if (devices.length && !deviceId) setDeviceId(devices[0].id);
@@ -390,7 +400,10 @@ function BatteryTab({
             onPageChange={setBatteryPage}
           />
           <ul className="dashboard-alerts-list">
-            {paginatedBatteryAlerts.map((a) => (
+            {paginatedBatteryAlerts.map((a) => {
+              const alertDevice = devices.find((d) => d.id === a.device_id);
+              const alertDeviceIsWired = getDeviceCapabilities(alertDevice?.model_name).isWired;
+              return (
               <li key={a.id}>
                 {editingId === a.id ? (
                   <div className="dashboard-alerts-form" style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 'none' }}>
@@ -398,7 +411,9 @@ function BatteryTab({
                       <label>Battery type</label>
                       <select value={editBatteryType} onChange={(e) => setEditBatteryType(e.target.value === 'backup' ? 'backup' : 'main')}>
                         <option value="main">Main battery</option>
-                        <option value="backup">Backup battery (wired trackers)</option>
+                        {alertDeviceIsWired && (
+                          <option value="backup">Backup battery</option>
+                        )}
                       </select>
                     </div>
                     <div className="dashboard-alerts-field">
@@ -469,7 +484,8 @@ function BatteryTab({
                   </>
                 )}
               </li>
-            ))}
+            );
+            })}
           </ul>
           <div style={{ marginTop: 20, marginBottom: 20, borderTop: '1px solid var(--border)', paddingTop: 20 }} />
         </>
@@ -492,7 +508,9 @@ function BatteryTab({
           <label>Battery type</label>
           <select value={batteryType} onChange={(e) => setBatteryType(e.target.value === 'backup' ? 'backup' : 'main')}>
             <option value="main">Main battery</option>
-            <option value="backup">Backup battery (wired trackers)</option>
+            {selectedIsWired && (
+              <option value="backup">Backup battery</option>
+            )}
           </select>
         </div>
         <div className="dashboard-alerts-field">
@@ -555,6 +573,8 @@ function GeoTab({
   const [editAlertType, setEditAlertType] = useState<'keep_in' | 'keep_out'>('keep_in');
   const [editNotifyEmail, setEditNotifyEmail] = useState(true);
   const [editNotifySms, setEditNotifySms] = useState(false);
+  const [editLat, setEditLat] = useState('');
+  const [editLng, setEditLng] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState('');
   const [name, setName] = useState('');
@@ -573,6 +593,23 @@ function GeoTab({
   useEffect(() => {
     if (devices.length && !deviceId) setDeviceId(devices[0].id);
   }, [devices, deviceId]);
+
+  // Centre the map on the first geofence, or fall back to the first tracker's location.
+  useEffect(() => {
+    if (lat !== '' || lng !== '') return; // user already set coords, don't override
+    const firstGeo = geofences[0];
+    if (firstGeo) {
+      setLat(String(firstGeo.center_lat));
+      setLng(String(firstGeo.center_lng));
+      return;
+    }
+    const firstDevice = devices.find((d) => d.latest_lat != null && d.latest_lng != null);
+    if (firstDevice?.latest_lat != null && firstDevice?.latest_lng != null) {
+      setLat(String(firstDevice.latest_lat));
+      setLng(String(firstDevice.latest_lng));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geofences, devices]);
 
   const geoTotalPages = Math.max(1, Math.ceil(geofences.length / ALERTS_PAGE_SIZE));
   const paginatedGeofences = geofences.slice(
@@ -680,12 +717,16 @@ function GeoTab({
     setEditAlertType(g.alert_type === 'keep_out' ? 'keep_out' : 'keep_in');
     setEditNotifyEmail(g.alert_email);
     setEditNotifySms(g.alert_sms === true);
+    setEditLat(String(g.center_lat));
+    setEditLng(String(g.center_lng));
   }
 
   function cancelEdit() {
     setEditingId(null);
     setEditName('');
     setEditRadius('500');
+    setEditLat('');
+    setEditLng('');
     setEditAlertType('keep_in');
     setEditNotifyEmail(true);
     setEditNotifySms(false);
@@ -713,6 +754,8 @@ function GeoTab({
         body: JSON.stringify({
           name: nameTrimmed,
           radius_meters: radiusNum,
+          center_lat: parseFloat(editLat) || undefined,
+          center_lng: parseFloat(editLng) || undefined,
           alert_type: editAlertType,
           alert_email: editNotifyEmail,
           alert_sms: editNotifySms,
@@ -726,6 +769,8 @@ function GeoTab({
       setEditingId(null);
       setEditName('');
       setEditRadius('500');
+      setEditLat('');
+      setEditLng('');
       setEditAlertType('keep_in');
       setEditNotifyEmail(true);
     } catch (e) {
@@ -748,244 +793,282 @@ function GeoTab({
   }
 
   return (
-    <section className="dashboard-alerts-section">
-      <h2 className="dashboard-alerts-section-title">Geo Alerts</h2>
-      <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 20 }}>
-        Create an area (center + radius). <strong>Keep In</strong>: notified when the tracker leaves the area. <strong>Keep Out</strong>: notified when the tracker enters the area. Each alert is for one device.
-      </p>
+    <section className="geo-alerts-page">
+      <div className="geo-alerts-header">
+        <h2 className="geo-alerts-header__title">Geo Alerts</h2>
+        <p className="geo-alerts-header__desc">
+          Define a zone on the map. <strong>Keep In</strong> — alert when the tracker leaves. <strong>Keep Out</strong> — alert when the tracker enters.
+        </p>
+      </div>
 
-      {geofences.length > 0 && (
-        <>
-          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Your geofences
-          </h3>
-          <PaginationBar
-            page={geoPage}
-            totalPages={geoTotalPages}
-            totalItems={geofences.length}
-            pageSize={ALERTS_PAGE_SIZE}
-            onPageChange={setGeoPage}
-          />
-          <ul className="dashboard-alerts-list">
-            {paginatedGeofences.map((g) => (
-              <li key={g.id}>
-                {editingId === g.id ? (
-                  <div className="dashboard-alerts-form" style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 'none' }}>
-                    <div className="dashboard-alerts-field">
-                      <label>Name</label>
+      <div className="geo-alerts-layout">
+
+        {/* ── Left: Add / Edit form ── */}
+        <div className="geo-alerts-form-col">
+          <div className="geo-alerts-panel">
+            <h3 className="geo-alerts-panel__title">
+              {editingId ? 'Edit geofence' : 'Add geofence'}
+            </h3>
+
+            {editingId ? (
+              /* ── Edit form ── */
+              <div className="geo-alerts-form">
+                <div className="geo-alerts-field">
+                  <label>Name</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Geofence name"
+                    required
+                  />
+                </div>
+                <div className="geo-alerts-field">
+                  <label>Radius (meters)</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <input
+                      type="range"
+                      className="geofence-radius-range"
+                      min={50} max={50000} step={100}
+                      value={Math.min(50000, Math.max(50, parseInt(editRadius, 10) || 50))}
+                      onChange={(e) => setEditRadius(e.target.value)}
+                      style={{
+                        flex: 1, minWidth: 120,
+                        ['--range-percent' as string]: `${((Math.min(50000, Math.max(50, parseInt(editRadius, 10) || 50)) - 50) / (50000 - 50)) * 100}%`,
+                      }}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--muted)', minWidth: 52 }}>
+                      {parseInt(editRadius, 10) || 0} m
+                    </span>
+                  </div>
+                  <input
+                    type="number" min={1} max={50000}
+                    value={editRadius}
+                    onChange={(e) => setEditRadius(e.target.value)}
+                    style={{ marginTop: 8 }}
+                  />
+                </div>
+                <div className="geo-alerts-field">
+                  <label>Alert type</label>
+                  <select
+                    value={editAlertType}
+                    onChange={(e) => setEditAlertType(e.target.value as 'keep_in' | 'keep_out')}
+                    className={`geofence-alert-type-select geofence-alert-type-select--${editAlertType}`}
+                  >
+                    <option value="keep_in">Keep in — notify when tracker leaves the area</option>
+                    <option value="keep_out">Keep out — notify when tracker enters the area</option>
+                  </select>
+                </div>
+                <div className="dashboard-alerts-notifications">
+                  <span className="dashboard-alerts-notifications-label">Notifications</span>
+                  <div className="dashboard-alerts-notifications-options">
+                    <label className="dashboard-alerts-check dashboard-alerts-notify-option">
+                      <input type="checkbox" checked={editNotifyEmail} onChange={(e) => setEditNotifyEmail(e.target.checked)} />
+                      <Mail size={16} aria-hidden /><span>Email</span>
+                    </label>
+                    <label className="dashboard-alerts-check dashboard-alerts-notify-option">
+                      <input type="checkbox" checked={editNotifySms} onChange={(e) => setEditNotifySms(e.target.checked)} />
+                      <MessageSquare size={16} aria-hidden /><span>SMS</span>
+                    </label>
+                  </div>
+                </div>
+                <GeofencePickerMap
+                  centerLat={editLat === '' || !Number.isFinite(parseFloat(editLat)) ? null : parseFloat(editLat)}
+                  centerLng={editLng === '' || !Number.isFinite(parseFloat(editLng)) ? null : parseFloat(editLng)}
+                  radiusMeters={parseInt(editRadius, 10) || 500}
+                  alertType={editAlertType}
+                  existingGeofences={geofences.filter((gf) => gf.id !== editingId)}
+                  onCenterChange={(latitude, longitude) => { setEditLat(String(latitude)); setEditLng(String(longitude)); }}
+                  onRadiusChange={(meters) => setEditRadius(String(meters))}
+                  showRadiusSlider={false}
+                />
+                <div className="geo-alerts-form__actions">
+                  <button
+                    type="button"
+                    className="geo-alerts-btn geo-alerts-btn--primary"
+                    disabled={savingId === editingId || !editName.trim()}
+                    onClick={() => saveEdit(editingId!)}
+                  >
+                    {savingId === editingId ? 'Saving…' : 'Save changes'}
+                  </button>
+                  <button type="button" className="geo-alerts-btn geo-alerts-btn--ghost" onClick={cancelEdit}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* ── Add form ── */
+              <form className="geo-alerts-form" onSubmit={addGeofence}>
+                <div className="geo-alerts-row">
+                  <div className="geo-alerts-field">
+                    <label>Device</label>
+                    <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)} required>
+                      {devices.length === 0 && <option value="">No devices</option>}
+                      {devices.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name || d.id}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="geo-alerts-field">
+                    <label>Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Home"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="geo-alerts-field">
+                  <label>Alert type</label>
+                  <select
+                    value={alertType}
+                    onChange={(e) => setAlertType(e.target.value as 'keep_in' | 'keep_out')}
+                    className={`geofence-alert-type-select geofence-alert-type-select--${alertType}`}
+                  >
+                    <option value="keep_in">Keep in — notify when tracker leaves the area</option>
+                    <option value="keep_out">Keep out — notify when tracker enters the area</option>
+                  </select>
+                </div>
+                <div className="geo-alerts-field geo-alerts-location-card">
+                  <label>Location & radius</label>
+                  <div className="dashboard-alerts-location-tools">
+                    <div className="dashboard-alerts-address-row">
+                      <Search size={16} className="dashboard-alerts-address-icon" aria-hidden />
                       <input
                         type="text"
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        placeholder="Geofence name"
-                        required
+                        placeholder="Search address (e.g. Melbourne VIC)"
+                        value={addressQuery}
+                        onChange={(e) => { setAddressQuery(e.target.value); setLocationError(null); }}
+                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleUseAddress())}
+                        className="dashboard-alerts-address-input"
                       />
-                    </div>
-                    <div className="dashboard-alerts-field">
-                      <label>Radius (meters)</label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                        <input
-                          type="range"
-                          className="geofence-radius-range"
-                          min={50}
-                          max={50000}
-                          step={100}
-                          value={Math.min(50000, Math.max(50, parseInt(editRadius, 10) || 50))}
-                          onChange={(e) => setEditRadius(e.target.value)}
-                          style={{
-                            flex: 1,
-                            minWidth: 120,
-                            ['--range-percent' as string]: `${((Math.min(50000, Math.max(50, parseInt(editRadius, 10) || 50)) - 50) / (50000 - 50)) * 100}%`,
-                          }}
-                        />
-                        <span style={{ fontSize: 13, color: 'var(--muted)', minWidth: 52 }}>
-                          {parseInt(editRadius, 10) || 0} m
-                        </span>
-                      </div>
-                      <input
-                        type="number"
-                        min={1}
-                        max={50000}
-                        value={editRadius}
-                        onChange={(e) => setEditRadius(e.target.value)}
-                        style={{ marginTop: 8 }}
-                      />
-                    </div>
-                    <div className="dashboard-alerts-field">
-                      <label>Alert type</label>
-                      <select
-                        value={editAlertType}
-                        onChange={(e) => setEditAlertType(e.target.value as 'keep_in' | 'keep_out')}
-                        className={`geofence-alert-type-select geofence-alert-type-select--${editAlertType}`}
-                      >
-                        <option value="keep_in">Keep in — notify when tracker leaves the area</option>
-                        <option value="keep_out">Keep out — notify when tracker enters the area</option>
-                      </select>
-                    </div>
-                    <div className="dashboard-alerts-notifications">
-                      <span className="dashboard-alerts-notifications-label">Notifications</span>
-                      <div className="dashboard-alerts-notifications-options">
-                        <label className="dashboard-alerts-check dashboard-alerts-notify-option">
-                          <input type="checkbox" checked={editNotifyEmail} onChange={(e) => setEditNotifyEmail(e.target.checked)} />
-                          <Mail size={16} aria-hidden />
-                          <span>Email</span>
-                        </label>
-                        <label className="dashboard-alerts-check dashboard-alerts-notify-option">
-                          <input type="checkbox" checked={editNotifySms} onChange={(e) => setEditNotifySms(e.target.checked)} />
-                          <MessageSquare size={16} aria-hidden />
-                          <span>SMS</span>
-                        </label>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
                       <button
                         type="button"
-                        className="dashboard-alerts-submit"
-                        disabled={savingId === g.id || !editName.trim()}
-                        onClick={() => saveEdit(g.id)}
+                        className="dashboard-alerts-location-btn"
+                        onClick={handleUseAddress}
+                        disabled={geocoding || !addressQuery.trim()}
                       >
-                        {savingId === g.id ? 'Saving…' : 'Save'}
-                      </button>
-                      <button type="button" className="dashboard-alerts-delete" onClick={cancelEdit}>
-                        Cancel
+                        {geocoding ? 'Searching…' : 'Use address'}
                       </button>
                     </div>
+                    <button
+                      type="button"
+                      className="dashboard-alerts-location-btn dashboard-alerts-location-btn--pinpoint"
+                      onClick={handleUseMyLocation}
+                      disabled={locating}
+                    >
+                      <Locate size={16} aria-hidden />
+                      {locating ? 'Getting location…' : 'Use my location'}
+                    </button>
                   </div>
-                ) : (
-                  <>
-                    <div>
-                      <div className="dashboard-alerts-geofence-name">{g.name}</div>
-                      <div className="dashboard-alerts-geofence-meta">
-                        {g.alert_type === 'keep_out' ? 'Keep out' : 'Keep in'} · {deviceName(g.device_id)} · {g.radius_meters} m · Email {g.alert_email ? 'on' : 'off'} · SMS {g.alert_sms ? 'on' : 'off'}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button type="button" className="dashboard-alerts-delete" onClick={() => startEdit(g)}>
-                        Edit
-                      </button>
-                      <button type="button" className="dashboard-alerts-delete" onClick={() => deleteGeofence(g.id)}>
-                        Delete
-                      </button>
-                    </div>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-          <div style={{ marginTop: 20, marginBottom: 20, borderTop: '1px solid var(--border)', paddingTop: 20 }} />
-        </>
-      )}
+                  {locationError && (
+                    <p className="dashboard-alerts-location-error" role="alert">{locationError}</p>
+                  )}
+                  <GeofencePickerMap
+                    centerLat={lat === '' || !Number.isFinite(parseFloat(lat)) ? null : parseFloat(lat)}
+                    centerLng={lng === '' || !Number.isFinite(parseFloat(lng)) ? null : parseFloat(lng)}
+                    radiusMeters={parseInt(radius, 10) || 500}
+                    alertType={alertType}
+                    existingGeofences={geofences}
+                    onCenterChange={(latitude, longitude) => { setLat(String(latitude)); setLng(String(longitude)); setLocationError(null); }}
+                    onRadiusChange={(meters) => setRadius(String(meters))}
+                    showRadiusSlider={true}
+                  />
+                </div>
+                <div className="dashboard-alerts-notifications">
+                  <span className="dashboard-alerts-notifications-label">How to notify you</span>
+                  <div className="dashboard-alerts-notifications-options">
+                    <label className="dashboard-alerts-check dashboard-alerts-notify-option">
+                      <input type="checkbox" checked={notifyEmail} onChange={(e) => setNotifyEmail(e.target.checked)} />
+                      <Mail size={16} aria-hidden /><span>Email</span>
+                    </label>
+                    <label className="dashboard-alerts-check dashboard-alerts-notify-option">
+                      <input type="checkbox" checked={notifySms} onChange={(e) => setNotifySms(e.target.checked)} />
+                      <MessageSquare size={16} aria-hidden /><span>SMS</span>
+                    </label>
+                  </div>
+                  <p className="dashboard-alerts-notifications-hint">Choose at least one. SMS uses your saved mobile number.</p>
+                </div>
+                <button
+                  type="submit"
+                  className="geo-alerts-btn geo-alerts-btn--primary"
+                  disabled={adding || devices.length === 0 || !name.trim() || !lat.trim() || !lng.trim()}
+                >
+                  {adding ? 'Adding…' : 'Add geofence'}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
 
-      <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-        Add geofence
-      </h3>
-      <form className="dashboard-alerts-form dashboard-alerts-form--full-width dashboard-alerts-geo-form" onSubmit={addGeofence}>
-        <div className="dashboard-alerts-geo-row">
-          <div className="dashboard-alerts-field">
-            <label>Device</label>
-            <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)} required>
-              {devices.length === 0 && <option value="">No devices</option>}
-              {devices.map((d) => (
-                <option key={d.id} value={d.id}>{d.name || d.id}</option>
-              ))}
-            </select>
-          </div>
-          <div className="dashboard-alerts-field">
-            <label>Name</label>
-            <input
-              type="text"
-              placeholder="e.g. Home"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </div>
-        </div>
-        <div className="dashboard-alerts-field">
-          <label>Alert type</label>
-          <select
-            value={alertType}
-            onChange={(e) => setAlertType(e.target.value as 'keep_in' | 'keep_out')}
-            className={`geofence-alert-type-select geofence-alert-type-select--${alertType}`}
-          >
-            <option value="keep_in">Keep in — notify when tracker leaves the area</option>
-            <option value="keep_out">Keep out — notify when tracker enters the area</option>
-          </select>
-        </div>
-        <div className="dashboard-alerts-field dashboard-alerts-location-card">
-          <label>Location & radius</label>
-          <div className="dashboard-alerts-location-tools">
-            <div className="dashboard-alerts-address-row">
-              <Search size={16} className="dashboard-alerts-address-icon" aria-hidden />
-              <input
-                type="text"
-                placeholder="Search address (e.g. Melbourne VIC)"
-                value={addressQuery}
-                onChange={(e) => { setAddressQuery(e.target.value); setLocationError(null); }}
-                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleUseAddress())}
-                className="dashboard-alerts-address-input"
-              />
-              <button
-                type="button"
-                className="dashboard-alerts-location-btn"
-                onClick={handleUseAddress}
-                disabled={geocoding || !addressQuery.trim()}
-              >
-                {geocoding ? 'Searching…' : 'Use address'}
-              </button>
+        {/* ── Right: Your geofences list ── */}
+        <div className="geo-alerts-list-col">
+          <div className="geo-alerts-panel">
+            <div className="geo-alerts-panel__header">
+              <h3 className="geo-alerts-panel__title">Your geofences</h3>
+              {geofences.length > 0 && (
+                <span className="geo-alerts-count">{geofences.length}</span>
+              )}
             </div>
-            <button
-              type="button"
-              className="dashboard-alerts-location-btn dashboard-alerts-location-btn--pinpoint"
-              onClick={handleUseMyLocation}
-              disabled={locating}
-            >
-              <Locate size={16} aria-hidden />
-              {locating ? 'Getting location…' : 'Use my location'}
-            </button>
+            {geofences.length === 0 ? (
+              <div className="geo-alerts-empty">
+                <MapPin size={32} strokeWidth={1.5} />
+                <p>No geofences yet.<br />Add one using the form.</p>
+              </div>
+            ) : (
+              <>
+                <PaginationBar
+                  page={geoPage}
+                  totalPages={geoTotalPages}
+                  totalItems={geofences.length}
+                  pageSize={ALERTS_PAGE_SIZE}
+                  onPageChange={setGeoPage}
+                />
+                <ul className="geo-alerts-list">
+                  {paginatedGeofences.map((g) => (
+                    <li key={g.id} className={`geo-alerts-item${editingId === g.id ? ' geo-alerts-item--editing' : ''}`}>
+                      <div className={`geo-alerts-item__type-dot geo-alerts-item__type-dot--${g.alert_type}`} />
+                      <div className="geo-alerts-item__body">
+                        <span className="geo-alerts-item__name">{g.name}</span>
+                        <div className="geo-alerts-item__tags">
+                          <span className={`geo-alerts-tag geo-alerts-tag--${g.alert_type}`}>
+                            {g.alert_type === 'keep_out' ? 'Keep out' : 'Keep in'}
+                          </span>
+                          <span className="geo-alerts-tag geo-alerts-tag--neutral">{deviceName(g.device_id)}</span>
+                          <span className="geo-alerts-tag geo-alerts-tag--neutral">{g.radius_meters} m</span>
+                        </div>
+                      </div>
+                      <div className="geo-alerts-item__notify">
+                        {g.alert_email && <span>Email</span>}
+                        {g.alert_sms && <span>SMS</span>}
+                      </div>
+                      <div className="geo-alerts-item__actions">
+                        <button
+                          type="button"
+                          className="geo-alerts-item-btn"
+                          onClick={() => startEdit(g)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="geo-alerts-item-btn geo-alerts-item-btn--danger"
+                          onClick={() => deleteGeofence(g.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
-          {locationError && (
-            <p className="dashboard-alerts-location-error" role="alert">{locationError}</p>
-          )}
-          <GeofencePickerMap
-            centerLat={lat === '' || !Number.isFinite(parseFloat(lat)) ? null : parseFloat(lat)}
-            centerLng={lng === '' || !Number.isFinite(parseFloat(lng)) ? null : parseFloat(lng)}
-            radiusMeters={parseInt(radius, 10) || 500}
-            alertType={alertType}
-            existingGeofences={geofences}
-            onCenterChange={(latitude, longitude) => {
-              setLat(String(latitude));
-              setLng(String(longitude));
-              setLocationError(null);
-            }}
-            onRadiusChange={(meters) => setRadius(String(meters))}
-            showRadiusSlider={true}
-          />
         </div>
-        <div className="dashboard-alerts-notifications">
-          <span className="dashboard-alerts-notifications-label">How to notify you</span>
-          <div className="dashboard-alerts-notifications-options">
-            <label className="dashboard-alerts-check dashboard-alerts-notify-option">
-              <input type="checkbox" checked={notifyEmail} onChange={(e) => setNotifyEmail(e.target.checked)} />
-              <Mail size={16} aria-hidden />
-              <span>Email</span>
-            </label>
-            <label className="dashboard-alerts-check dashboard-alerts-notify-option">
-              <input type="checkbox" checked={notifySms} onChange={(e) => setNotifySms(e.target.checked)} />
-              <MessageSquare size={16} aria-hidden />
-              <span>SMS</span>
-            </label>
-          </div>
-          <p className="dashboard-alerts-notifications-hint">Choose at least one. SMS uses your saved mobile number.</p>
-        </div>
-        <button
-          type="submit"
-          className="dashboard-alerts-submit"
-          disabled={adding || devices.length === 0 || !name.trim() || !lat.trim() || !lng.trim()}
-        >
-          {adding ? 'Adding…' : 'Add geofence'}
-        </button>
-      </form>
+
+      </div>
     </section>
   );
 }

@@ -370,6 +370,42 @@ export default function AdminUserViewPage() {
     setSubModalError(null);
   }
 
+  async function activateSubscription() {
+    if (!manageSubscription) return;
+    setSubModalSaving(true);
+    setSubModalError(null);
+    setSubModalSuccess(null);
+    try {
+      const res = await fetch(`/api/admin/orders/${encodeURIComponent(manageSubscription.order_id)}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_subscription', status: 'activated' }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSubModalError((d as { error?: string }).error ?? 'Failed to activate');
+        return;
+      }
+      setSubModalSuccess('Subscription activated.');
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              subscriptions: prev.subscriptions.map((sub) =>
+                sub.order_id === manageSubscription.order_id ? { ...sub, status: 'activated' } : sub
+              ),
+            }
+          : prev
+      );
+      setManageSubscription((prev) => prev ? { ...prev, status: 'activated' } : prev);
+    } catch {
+      setSubModalError('Failed to activate');
+    } finally {
+      setSubModalSaving(false);
+    }
+  }
+
   async function saveManageSubscription() {
     if (!manageSubscription) return;
     const priceVal = parseFloat(subModalPrice);
@@ -1092,6 +1128,25 @@ export default function AdminUserViewPage() {
             </label>
             {subModalError && <p style={{ color: 'var(--error)', marginBottom: '0.75rem', fontSize: '0.875rem' }}>{subModalError}</p>}
             {subModalSuccess && <p style={{ color: 'var(--success)', marginBottom: '0.75rem', fontSize: '0.875rem' }}>{subModalSuccess}</p>}
+            {manageSubscription.status === 'suspended' && (
+              <div style={{ marginBottom: '1rem', padding: '0.75rem 1rem', background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.25)', borderRadius: 8 }}>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--warn)', marginBottom: '0.5rem', fontWeight: 600 }}>
+                  This subscription is suspended.
+                </p>
+                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.75rem' }}>
+                  If the renewal date above has been updated and the account is no longer overdue, click Activate to restore access.
+                </p>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn--primary admin-btn--small"
+                  onClick={activateSubscription}
+                  disabled={subModalSaving}
+                  style={{ background: 'var(--success)', borderColor: 'var(--success)' }}
+                >
+                  {subModalSaving ? 'Activating…' : 'Activate subscription'}
+                </button>
+              </div>
+            )}
             <p style={{ marginBottom: '1rem', fontSize: '0.875rem' }}>
               <Link href={`/admin/orders/${manageSubscription.order_id}`} className="admin-btn" style={{ marginRight: '0.5rem' }} onClick={() => setManageSubscription(null)}>
                 View full order

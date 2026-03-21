@@ -1,6 +1,3 @@
-'use client';
-
-import { useState } from 'react';
 import {
   MapPin, Route, CircleDot, Shield, Bell, Link2,
   BadgeCheck, Headphones, Package, Monitor, Radio, BatteryFull,
@@ -24,28 +21,18 @@ const FEATURES = [
   { icon: Package,         text: 'Ready to use' },
   { icon: Monitor,         text: 'Any device' },
   { icon: Radio,           text: 'Real-time tracking' },
-  { icon: BatteryFull,     text: '6+ month battery' },
+  { icon: BatteryFull,     text: '2–3 month battery' },
 ];
 
 export default function MarketingFeaturesExpand() {
-  const [open, setOpen] = useState(false);
-
   return (
-    <div className="mkt-feat-expand">
-      <button
-        type="button"
-        className="mkt-feat-expand-toggle"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
+    <details className="mkt-feat-expand">
+      <summary className="mkt-feat-expand-toggle">
         <span>All features included</span>
-        <ChevronDown
-          size={14}
-          className={`mkt-feat-expand-chevron${open ? ' mkt-feat-expand-chevron--open' : ''}`}
-        />
-      </button>
+        <ChevronDown size={14} className="mkt-feat-expand-chevron" />
+      </summary>
 
-      <div className={`mkt-feat-expand-body${open ? ' mkt-feat-expand-body--open' : ''}`} aria-hidden={!open}>
+      <div className="mkt-feat-expand-body">
         <div className="mkt-feat-expand-list">
           {FEATURES.map(({ icon: Icon, text }) => (
             <div key={text} className="mkt-feat-expand-item">
@@ -55,6 +42,6 @@ export default function MarketingFeaturesExpand() {
           ))}
         </div>
       </div>
-    </div>
+    </details>
   );
 }

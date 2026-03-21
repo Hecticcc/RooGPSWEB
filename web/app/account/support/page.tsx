@@ -188,23 +188,23 @@ export default function SupportTicketsPage() {
                   <div className="support-page__card-main">
                     <span className="support-page__card-id">{t.ticket_number}</span>
                     <h2 className="support-page__card-subject">{t.subject}</h2>
-                    <div className="support-page__card-meta">
-                      <span
-                        className="support-page__card-status"
-                        style={{
-                          background: SUPPORT_TICKET_STATUS_COLORS[t.status as SupportTicketStatus]?.bg ?? 'var(--surface)',
-                          color: SUPPORT_TICKET_STATUS_COLORS[t.status as SupportTicketStatus]?.color ?? 'var(--muted)',
-                        }}
-                      >
-                        {SUPPORT_TICKET_STATUS_LABELS[t.status as SupportTicketStatus] ?? t.status}
-                      </span>
-                      <span className="support-page__card-priority">
-                        {SUPPORT_TICKET_PRIORITY_LABELS[t.priority as SupportTicketPriority] ?? t.priority}
-                      </span>
-                      <span className="support-page__card-date">{formatDate(t.updated_at)}</span>
-                    </div>
                   </div>
-                  <ChevronRight className="support-page__card-chevron" size={20} />
+                  <div className="support-page__card-meta">
+                    <span
+                      className="support-page__card-status"
+                      style={{
+                        background: SUPPORT_TICKET_STATUS_COLORS[t.status as SupportTicketStatus]?.bg ?? 'var(--surface)',
+                        color: SUPPORT_TICKET_STATUS_COLORS[t.status as SupportTicketStatus]?.color ?? 'var(--muted)',
+                      }}
+                    >
+                      {SUPPORT_TICKET_STATUS_LABELS[t.status as SupportTicketStatus] ?? t.status}
+                    </span>
+                    <span className="support-page__card-priority">
+                      {SUPPORT_TICKET_PRIORITY_LABELS[t.priority as SupportTicketPriority] ?? t.priority}
+                    </span>
+                    <span className="support-page__card-date">{formatDate(t.updated_at)}</span>
+                  </div>
+                  <ChevronRight className="support-page__card-chevron" size={18} />
                 </Link>
               </li>
             ))}

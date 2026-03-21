@@ -45,7 +45,7 @@ const POPUP_ICON_CLOCK =
 const POPUP_ICON_GPS =
   '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="3"/></svg>';
 const POPUP_ICON_BATTERY =
-  '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="6" width="18" height="12" rx="2"/><line x1="23" y1="10" x2="23" y2="14"/></svg>';
+  '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="6" width="18" height="12" rx="2"/><line x1="23" y1="10" x2="23" y2="14"/><line x1="5" y1="10" x2="5" y2="14"/><line x1="9" y1="10" x2="9" y2="14"/><line x1="13" y1="10" x2="13" y2="14"/></svg>';
 const POPUP_ICON_POWER =
   '<svg class="map-popup__icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>';
 
@@ -126,6 +126,8 @@ type Props = {
   onPopupClose?: () => void;
   /** Show battery voltage in popup (e.g. admin). Default false for user-facing map. */
   showVoltage?: boolean;
+  /** When set, flies to that marker and opens its popup. */
+  focusMarkerId?: string | null;
 };
 
 function buildPopupHtml(
@@ -134,13 +136,16 @@ function buildPopupHtml(
   lastSeenText: string,
   statusLine: string,
   address: string | null,
-  gpsLock: boolean | null | undefined
+  gpsLock: boolean | null | undefined,
+  lat: number,
+  lng: number
 ): string {
   const addressValue = address === null ? 'Loading…' : escapeHtml(address);
   const gpsRow =
     gpsLock != null
       ? `<div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_GPS}</span><span class="map-popup__label">GPS lock</span><span class="map-popup__value">${gpsLock ? 'Yes' : 'No'}</span></div>`
       : '';
+  const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
   return `
   <div class="map-popup">
     <header class="map-popup__header">
@@ -160,14 +165,21 @@ function buildPopupHtml(
       </div>
       ${gpsRow}
     </div>
+    <div class="map-popup__footer">
+      <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" class="map-popup__gmaps-btn" title="Open in Google Maps">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+      </a>
+    </div>
   </div>
 `;
 }
 
-export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose, showVoltage = false }: Props) {
+export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose, showVoltage = false, focusMarkerId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const markersByIdRef = useRef<Map<string, { marker: mapboxgl.Marker; data: MapMarker }>>(new Map());
+  const activePopupRef = useRef<mapboxgl.Popup | null>(null);
   const [mapStyle, setMapStyle] = useState<'dark' | 'satellite'>('dark');
 
   // Create map once; switch style with setStyle() to avoid teardown/reinit jitter
@@ -204,7 +216,47 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
   function addMarkersAndFit(map: mapboxgl.Map) {
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
+    markersByIdRef.current.clear();
     let currentPopup: mapboxgl.Popup | null = null;
+
+    function openPopupFor(m: MapMarker) {
+      if (currentPopup) { currentPopup.remove(); currentPopup = null; }
+      const name = m.name || m.id;
+      const powerRowsHtml = m.isWired
+        ? `<div class="map-popup__row map-popup__row--ext-power"><span class="map-popup__icon">${POPUP_ICON_POWER}</span><span class="map-popup__label">External Power</span><span class="map-popup__value">${m.externalPowerConnected === true ? 'Connected' : m.externalPowerConnected === false ? 'Disconnected' : '—'}</span></div>
+  <div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_BATTERY}</span><span class="map-popup__label">Backup Battery</span><span class="map-popup__value">${batteryBarsHtml(m.backupBatteryPercent)}</span></div>`
+        : `<div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_BATTERY}</span><span class="map-popup__label">Battery</span><span class="map-popup__value">${batteryBarsHtml(m.batteryPercent)}${showVoltage && m.batteryVoltageV != null ? ' <span class="map-popup__voltage">(' + escapeHtml(String(m.batteryVoltageV)) + ' V)</span>' : ''}</span></div>`;
+      const lastSeenText = m.lastSeen ? new Date(m.lastSeen).toLocaleString() : 'Never';
+      const statusLine = m.suspended
+        ? `<div class="map-popup__status map-popup__status--suspended">Suspended · Overdue on payment</div>`
+        : m.emergencyMode
+          ? `<div class="map-popup__status map-popup__status--emergency">Emergency Mode · 30s updates</div>`
+          : m.device_state === 'OFFLINE'
+            ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
+            : m.device_state === 'SLEEPING'
+              ? `<div class="map-popup__status map-popup__status--sleep">Sleep · Last known location</div>`
+              : m.offline
+                ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
+                : '';
+      const popupContent = buildPopupHtml(name, powerRowsHtml, lastSeenText, statusLine, null, m.gpsLock, m.lat, m.lng);
+      const popup = new mapboxgl.Popup({ anchor: 'bottom', offset: [0, -20], closeButton: true })
+        .setLngLat([m.lng, m.lat])
+        .setHTML(popupContent)
+        .addTo(map);
+      currentPopup = popup;
+      activePopupRef.current = popup;
+      popup.on('close', () => {
+        currentPopup = null;
+        activePopupRef.current = null;
+        onPopupClose?.();
+      });
+      reverseGeocode(m.lng, m.lat).then((address) => {
+        if (currentPopup !== popup) return;
+        const updated = buildPopupHtml(name, powerRowsHtml, lastSeenText, statusLine, address ?? '—', m.gpsLock, m.lat, m.lng);
+        popup.setHTML(updated);
+      });
+    }
+
     const valid = markers.filter((m) => typeof m.lat === 'number' && typeof m.lng === 'number');
     valid.forEach((m) => {
       const color = m.color && /^#[0-9A-Fa-f]{6}$/.test(m.color) ? m.color : '#f97316';
@@ -221,6 +273,7 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
       const marker = new mapboxgl.Marker({ element: el })
         .setLngLat([m.lng, m.lat])
         .addTo(map);
+      markersByIdRef.current.set(m.id, { marker, data: m });
       const markerEl = marker.getElement();
       if (markerEl) {
         markerEl.style.pointerEvents = 'auto';
@@ -228,44 +281,7 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
           e.stopPropagation();
           e.preventDefault();
           onMarkerClick?.(m.id);
-          if (currentPopup) {
-            currentPopup.remove();
-            currentPopup = null;
-          }
-          const name = m.name || m.id;
-          const powerRowsHtml = m.isWired
-            ? `<div class="map-popup__row map-popup__row--ext-power"><span class="map-popup__icon">${POPUP_ICON_POWER}</span><span class="map-popup__label">External Power</span><span class="map-popup__value">${m.externalPowerConnected === true ? 'Connected' : m.externalPowerConnected === false ? 'Disconnected' : '—'}</span></div>
-      <div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_BATTERY}</span><span class="map-popup__label">Backup Battery</span><span class="map-popup__value">${batteryBarsHtml(m.backupBatteryPercent)}</span></div>`
-            : `<div class="map-popup__row"><span class="map-popup__icon">${POPUP_ICON_BATTERY}</span><span class="map-popup__label">Battery</span><span class="map-popup__value">${batteryBarsHtml(m.batteryPercent)}${showVoltage && m.batteryVoltageV != null ? ' <span class="map-popup__voltage">(' + escapeHtml(String(m.batteryVoltageV)) + ' V)</span>' : ''}</span></div>`;
-          const lastSeenText = m.lastSeen
-            ? new Date(m.lastSeen).toLocaleString()
-            : 'Never';
-          const statusLine = m.suspended
-            ? `<div class="map-popup__status map-popup__status--suspended">Suspended · Overdue on payment</div>`
-            : m.emergencyMode
-              ? `<div class="map-popup__status map-popup__status--emergency">Emergency Mode · 30s updates</div>`
-              : m.device_state === 'OFFLINE'
-                ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
-                : m.device_state === 'SLEEPING'
-                  ? `<div class="map-popup__status map-popup__status--sleep">Sleep · Last known location</div>`
-                  : m.offline
-                    ? `<div class="map-popup__status map-popup__status--offline">Offline · Last known location</div>`
-                    : '';
-          const popupContent = buildPopupHtml(name, powerRowsHtml, lastSeenText, statusLine, null, m.gpsLock);
-          const popup = new mapboxgl.Popup({ anchor: 'bottom', offset: [-8, -24], closeButton: true })
-            .setLngLat([m.lng, m.lat])
-            .setHTML(popupContent)
-            .addTo(map);
-          currentPopup = popup;
-          popup.on('close', () => {
-            currentPopup = null;
-            onPopupClose?.();
-          });
-          reverseGeocode(m.lng, m.lat).then((address) => {
-            if (currentPopup !== popup) return;
-            const updated = buildPopupHtml(name, powerRowsHtml, lastSeenText, statusLine, address ?? '—', m.gpsLock);
-            popup.setHTML(updated);
-          });
+          openPopupFor(m);
         });
       }
       markersRef.current.push(marker);
@@ -297,6 +313,26 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
       map.once('style.load', run);
     }
   }, [markers, onMarkerClick, onPopupClose, mapStyle, showVoltage]);
+
+  // Fly to a marker and open its popup when focusMarkerId changes
+  useEffect(() => {
+    if (!focusMarkerId) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const entry = markersByIdRef.current.get(focusMarkerId);
+    if (!entry) return;
+    const { data: m } = entry;
+    // Clear any lingering padding from previous operations, then fly to centre
+    map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
+    map.flyTo({
+      center: [m.lng, m.lat],
+      zoom: Math.max(map.getZoom(), 14),
+      duration: 700,
+    });
+    // Open the popup after the fly animation settles
+    const el = entry.marker.getElement();
+    if (el) setTimeout(() => el.click(), 750);
+  }, [focusMarkerId]);
 
   if (!token) {
     return (

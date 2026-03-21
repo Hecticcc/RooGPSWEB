@@ -22,10 +22,12 @@ import {
   CreditCard,
   Headphones,
   Megaphone,
+  Map,
 } from 'lucide-react';
 
 const NAV = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/map', label: 'Map', icon: Map },
   { href: '/admin/support', label: 'Support', icon: Headphones },
   { href: '/admin/orders', label: 'Orders', icon: ShoppingCart },
   { href: '/admin/subscriptions', label: 'Subscriptions', icon: CreditCard },

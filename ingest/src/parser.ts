@@ -16,20 +16,20 @@ export function normalizeLine(rawLine: string): NormalizedLine | null {
   const rawPayload = raw;
   let body = raw.slice(2); // after "&&"
   let packetLength: number | null = null;
-  if (body.startsWith(':')) {
-    const commaIdx = body.indexOf(',');
-    if (commaIdx >= 0) {
-      const lenStr = body.slice(1, commaIdx).trim();
-      if (/^\d+$/.test(lenStr)) packetLength = parseInt(lenStr, 10);
-      body = body.slice(commaIdx + 1);
-    } else {
-      const lenStr = body.slice(1).trim();
-      if (/^\d+$/.test(lenStr)) packetLength = parseInt(lenStr, 10);
-      body = '';
-    }
+
+  // iStartek format: &&<packNo><packLen>,<body>
+  // packNo is a single non-digit character (e.g. 'A', 'c', ':', etc.)
+  // packLen is one or more digits immediately following
+  // e.g. "&&c125,..." or "&&A147,..." or "&&:129,..."
+  const headerMatch = body.match(/^(.?)(\d+),(.*)/s);
+  if (headerMatch) {
+    const lenStr = headerMatch[2];
+    packetLength = parseInt(lenStr, 10);
+    body = headerMatch[3] ?? '';
   } else if (body.startsWith(',')) {
     body = body.slice(1);
   }
+
   const tokens = body.split(',').map((s) => s.trim());
   return { tokens, packetLength, rawPayload };
 }

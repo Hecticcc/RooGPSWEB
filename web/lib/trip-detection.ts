@@ -90,10 +90,11 @@ export function getSegmentEndPointForPosition(segment: TripSegment, allPoints: L
   return best ?? lastInSegment;
 }
 
-/** When device doesn't report speed, derive from distance/time (so trips can still start). */
+/** Effective speed: max of device-reported speed and GPS-derived speed (distance÷time).
+ * Always derives from distance/time so max_speed_kmh reflects actual movement,
+ * even when the device's raw GPS speed reading underreports (e.g. 20 km/h on a freeway). */
 function getEffectiveSpeedKmh(p: LocationPoint, prev: LocationPoint | null): number {
   const reported = getSpeedKmh(p);
-  if (reported >= TRIP_START_SPEED_KMH) return reported;
   if (!prev?.latitude || !prev?.longitude || p.latitude == null || p.longitude == null) return reported;
   const dtSec = (toTs(pointTime(p)) - toTs(pointTime(prev))) / 1000;
   if (dtSec <= 0) return reported;

@@ -226,14 +226,18 @@ export default async function HomePage() {
             )}
           </div>
           <div className="marketing-hero-visual marketing-animate-in marketing-animate-in--delay">
-            <Image
-              src="/hero-kangaroo.webp"
-              alt="RooGPS wireless GPS tracker – compact device for vehicles, bikes and caravans"
-              width={560}
-              height={620}
-              className="marketing-hero-kangaroo"
-              priority
-            />
+            <picture>
+              <source media="(max-width: 767px)" srcSet="/hero-kangaroo-mobile.webp" type="image/webp" />
+              <img
+                src="/hero-kangaroo.webp"
+                alt="RooGPS wireless GPS tracker – compact device for vehicles, bikes and caravans"
+                width={560}
+                height={373}
+                className="marketing-hero-kangaroo"
+                fetchPriority="high"
+                decoding="async"
+              />
+            </picture>
           </div>
         </div>
       </section>

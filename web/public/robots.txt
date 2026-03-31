@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /account/
+Disallow: /track/
+Disallow: /devices/
+Disallow: /activate/
+Disallow: /share/
+Disallow: /login/
+Disallow: /register/
+
+Sitemap: https://www.roogps.com/sitemap.xml

@@ -26,13 +26,18 @@ function rowToCsvLine(loc: {
   latitude: number | null;
   longitude: number | null;
   speed_kph: number | null;
+  course_deg: number | null;
   gps_valid: boolean | null;
+  event_code: string | null;
   raw_payload: string;
   extra: Record<string, unknown> | null;
 }): string {
   const extra = (loc.extra ?? {}) as {
     battery?: { percent?: number; voltage_v?: number };
-    power?: { bat_hex?: string };
+    power?: { bat_hex?: string; ext_voltage_v?: number };
+    signal?: { gps?: { sats?: number; hdop?: number }; gsm?: { csq?: number } };
+    altitude_m?: number;
+    odometer_m?: number;
   };
   const fields = [
     formatDate(loc.received_at),
@@ -40,10 +45,18 @@ function rowToCsvLine(loc: {
     loc.latitude ?? '',
     loc.longitude ?? '',
     loc.speed_kph ?? '',
+    loc.course_deg ?? '',
     loc.gps_valid == null ? '' : loc.gps_valid ? 'Y' : 'N',
+    loc.event_code ?? '',
+    extra.signal?.gps?.sats ?? '',
+    extra.signal?.gps?.hdop ?? '',
+    extra.altitude_m ?? '',
+    extra.odometer_m ?? '',
     extra.battery?.percent ?? '',
     extra.battery?.voltage_v != null ? String(extra.battery.voltage_v) : '',
     extra.power?.bat_hex ?? '',
+    extra.power?.ext_voltage_v != null ? String(extra.power.ext_voltage_v) : '',
+    extra.signal?.gsm?.csq ?? '',
     loc.raw_payload,
   ];
   return fields.map(escapeCsvField).join(',');
@@ -132,7 +145,7 @@ export async function GET(
 
   const BATCH = 2000;
   const encoder = new TextEncoder();
-  const CSV_HEADER = 'Received (AU),GPS time,Lat,Lon,Speed,GPS valid,Battery %,Battery V,bat_hex,Raw\r\n';
+  const CSV_HEADER = 'Received (AU),GPS time,Lat,Lon,Speed (km/h),Course (°),GPS valid,Alm code,Sats,HDOP,Alt (m),Odo (m),Battery %,Battery V,bat_hex,Ext V,CSQ,Raw\r\n';
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -143,7 +156,7 @@ export async function GET(
         while (true) {
           let query = admin
             .from('locations')
-            .select('gps_time, received_at, latitude, longitude, speed_kph, gps_valid, raw_payload, extra')
+            .select('gps_time, received_at, latitude, longitude, speed_kph, course_deg, gps_valid, event_code, raw_payload, extra')
             .eq('device_id', deviceId)
             .order('received_at', { ascending: false })
             .range(offset, offset + BATCH - 1);

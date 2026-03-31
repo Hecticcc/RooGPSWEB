@@ -64,9 +64,44 @@ export async function GET(
     };
   });
 
+  // Derived speed: for each point, compute km/h from GPS distance÷time to the next point.
+  // Use max(reported, derived) — same logic as getEffectiveSpeedKmh in trip-detection.ts.
+  // This ensures waypoint speeds match what the trip summary shows (e.g. 61 km/h on a freeway)
+  // even when the device's raw GPS speed reading is lower than the actual movement speed.
+  function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371000;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  const enriched = listWithSpeed.map((p, i) => {
+    const reported = typeof p.speed_kph === 'number' && !Number.isNaN(p.speed_kph) ? p.speed_kph : null;
+    // Derive speed using the segment to the next point (better estimate of current movement speed)
+    const neighbour = listWithSpeed[i + 1] ?? listWithSpeed[i - 1];
+    let derived: number | null = null;
+    if (neighbour && p.occurred_at && neighbour.occurred_at) {
+      const dtSec = Math.abs(
+        (new Date(neighbour.occurred_at).getTime() - new Date(p.occurred_at).getTime()) / 1000
+      );
+      if (dtSec > 0) {
+        const distM = haversineM(p.lat, p.lon, neighbour.lat, neighbour.lon);
+        derived = Math.min(200, (distM / 1000) / (dtSec / 3600));
+      }
+    }
+    const best =
+      reported != null && derived != null ? Math.max(reported, derived) :
+      reported != null ? reported :
+      derived;
+    return { ...p, speed_kph: best != null ? Math.round(best) : p.speed_kph };
+  });
+
   // If trip_points exist (recompute has run), use them — they are the canonical, clean waypoints.
-  if (listWithSpeed.length >= 2) {
-    return NextResponse.json(listWithSpeed);
+  if (enriched.length >= 2) {
+    return NextResponse.json(enriched);
   }
 
   // Fallback: trip_points not yet populated (e.g. recompute hasn't run yet).
@@ -96,5 +131,5 @@ export async function GET(
     }
   }
 
-  return NextResponse.json(listWithSpeed);
+  return NextResponse.json(enriched);
 }

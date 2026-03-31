@@ -104,7 +104,32 @@ function gsmQualityLabel(csq: number): string {
   return 'unknown';
 }
 
-/** iStartek Protocol v2.2: field order for cmd 000/010/020 (after date-time at index 4). */
+/** iStartek Protocol v2.2 — GPRS Event Data Format (section 3)
+ *
+ * Full field order (comma-separated, after &&<pack-no><pack-len>,):
+ *   [0]  ID          — device IMEI
+ *   [1]  cmd         — command code (000=normal, 010=with-ack, 020=compressed, 030=heartbeat)
+ *   [2]  alm-code    — alarm code
+ *   [3]  alm-data    — alarm data (may be empty)
+ *   [4]  date-time   — DDMMYYHHMMSS UTC
+ *   [5]  fix_flag    — A=valid / V=invalid GPS fix
+ *   [6]  latitude    — decimal degrees
+ *   [7]  longitude   — decimal degrees
+ *   [8]  sat-quantity— number of satellites received   ← NOT speed
+ *   [9]  HDOP        — horizontal dilution of precision ← NOT speed
+ *   [10] speed       — GPS speed in km/h               ← SPEED IS HERE
+ *   [11] course      — movement direction 0-360°
+ *   [12] altitude    — metres
+ *   [13] odometer    — accumulated mileage in metres
+ *   [14] MCC|MNC|LAC|CI — cell network info
+ *   [15] CSQ-quality — GSM signal (0-31, 99=unknown)
+ *   [16] system-sta  — hex bitmask (bit2=GPS valid, bit3=ext power, bit5=stopped…)
+ *   [17] in-sta      — digital input status
+ *   [18] out-sta     — digital output status
+ *   [19] ext-V|bat-V — voltage block; last 2 hex chars of bat-V field are checksum
+ *   [20] procode     — protocol version (may be absent on shorter packets)
+ *   [21] checksum    — (may be absent; embedded in voltage block on PT60 packets)
+ */
 const PT60_CMD_POSITION_PARSED = ['000', '010', '020'] as const;
 const DATE_TIME_IDX = 4;
 const FIX_FLAG_IDX = 5;
@@ -235,6 +260,11 @@ function parsePositionBasedFields(
   empty.longitude = parseLatLon(lon, true);
   if (!isNaN(speedKmh) && speedKmh >= 0 && speedKmh <= 500) empty.speedKph = speedKmh;
   if (!isNaN(courseDeg) && courseDeg >= 0 && courseDeg <= 360) empty.courseDeg = courseDeg;
+
+  const altitudeRaw = parseFloat(tokens[ALTITUDE_IDX]);
+  const odometerRaw = parseFloat(tokens[ODOMETER_IDX]);
+  if (!isNaN(altitudeRaw)) empty.extra.altitude_m = altitudeRaw;
+  if (!isNaN(odometerRaw) && odometerRaw >= 0) empty.extra.odometer_m = odometerRaw;
 
   const satsNum = isNaN(satQuantity) ? 0 : Math.max(0, satQuantity);
   const hdopNum = isNaN(hdop) ? 0 : hdop;

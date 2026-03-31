@@ -130,6 +130,77 @@ assert(signalFord!.gps.sats === 15, 'Ford Ranger sats 15');
 assert(signalFord!.gps.hdop === 0.7, 'Ford Ranger hdop 0.7');
 assert(signalFord!.gsm.csq === 18, 'Ford Ranger CSQ from token 16');
 
+// ---------------------------------------------------------------------------
+// iStartek Protocol v2.2 §3 – GPRS field-order regression tests
+//
+// These four payloads were provided as ground-truth samples.  They are
+// 127-length (pack-len != 133) so they go through parser.ts, NOT packet-133.ts.
+//
+// Critical mapping to verify (field positions 0-based after header):
+//   [8]  = sat-quantity  ← 25 or 23 in these packets – MUST NOT be read as speed
+//   [9]  = HDOP          ← 0.6
+//   [10] = speed km/h    ← 0 (device is stationary at this location)
+//   [11] = course        ← 12
+//   [12] = altitude      ← 27 m
+//   [13] = odometer      ← 296157 m
+// ---------------------------------------------------------------------------
+
+// alm-code 36 (external power disconnect alarm), high sat count (25), speed 0
+const PROTO_L =
+  '&&l127,866069069232625,000,36,,260321065238,A,-38.093803,145.175578,25,0.6,0,12,27,296157,505|1|30A5|081A1F02,20,0037,00,00,0003|019679';
+const PROTO_Z =
+  '&&z127,866069069232625,000,36,,260321065238,A,-38.093803,145.175578,25,0.6,0,12,27,296157,505|1|30A5|081A1F02,20,0037,00,00,0003|019687';
+// alm-code 0 (normal), sat count 23, speed 0
+const PROTO_Y =
+  '&&y126,866069069232625,000,0,,260321065134,A,-38.093803,145.175573,23,0.6,0,12,27,296157,505|1|30A5|081A1F02,19,0017,00,00,0003|019848';
+const PROTO_K =
+  '&&k126,866069069232625,000,0,,260321065134,A,-38.093803,145.175573,23,0.6,0,12,27,296157,505|1|30A5|081A1F02,19,0017,00,00,0003|01983A';
+
+for (const [label, raw] of [
+  ['PROTO_L (alm36, sats=25)', PROTO_L],
+  ['PROTO_Z (alm36, sats=25)', PROTO_Z],
+  ['PROTO_Y (alm0,  sats=23)', PROTO_Y],
+  ['PROTO_K (alm0,  sats=23)', PROTO_K],
+] as [string, string][]) {
+  const p = parseIStartekLine(raw);
+  const sig = p.extra.signal as SignalExtra | undefined;
+
+  // Device identity
+  assert(p.deviceId === '866069069232625', `${label} deviceId: ${p.deviceId}`);
+
+  // GPS fix and coordinates
+  assert(p.gpsValid === true, `${label} gpsValid must be true`);
+  assert(p.latitude === -38.093803 || p.latitude === -38.093803, `${label} latitude: ${p.latitude}`);
+
+  // CRITICAL: sat-quantity is at position [8] – must NOT be confused with speed
+  const expectedSats = label.includes('sats=25') ? 25 : 23;
+  assert(sig != null, `${label} must have extra.signal`);
+  assert(sig!.gps.sats === expectedSats, `${label} sats must be ${expectedSats} (pos [8]), got: ${sig!.gps.sats}`);
+
+  // HDOP is at position [9]
+  assert(sig!.gps.hdop === 0.6, `${label} HDOP must be 0.6 (pos [9]), got: ${sig!.gps.hdop}`);
+
+  // Speed is at position [10] – must be 0, not 25/23 (those are sats!)
+  assert(p.speedKph === 0, `${label} speed must be 0 km/h (pos [10]), got: ${p.speedKph}`);
+  assert(sig!.gps.speed_kmh === 0, `${label} signal.speed_kmh must be 0, got: ${sig!.gps.speed_kmh}`);
+
+  // Course, altitude, odometer
+  assert(p.courseDeg === 12, `${label} course must be 12 (pos [11]), got: ${p.courseDeg}`);
+  assert((p.extra.altitude_m as number) === 27, `${label} altitude must be 27 m (pos [12]), got: ${p.extra.altitude_m}`);
+  assert((p.extra.odometer_m as number) === 296157, `${label} odometer must be 296157 m (pos [13]), got: ${p.extra.odometer_m}`);
+
+  // Battery: tailToken "0003|0196XX" → batV_hex=0196 → 0x0196=406 → 4.06V
+  // (exact % varies by sample; just confirm it's a reasonable voltage)
+  assert(
+    p.batteryVoltageV != null && p.batteryVoltageV >= 4.0 && p.batteryVoltageV <= 4.2,
+    `${label} batteryVoltageV ~4.06–4.08V, got: ${p.batteryVoltageV}`
+  );
+
+  // CSQ
+  const expectedCsq = label.includes('sats=25') ? 20 : 19;
+  assert(sig!.gsm.csq === expectedCsq, `${label} CSQ must be ${expectedCsq}, got: ${sig!.gsm.csq}`);
+}
+
 console.log('All parser tests passed.');
 console.log(
   JSON.stringify(

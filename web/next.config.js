@@ -38,7 +38,7 @@ const nextConfig = {
       },
       // Moderate cache for favicon and public assets
       {
-        source: '/:file(favicon\\.png|loading-logo\\.png|hero-kangaroo\\.webp|hero-kangaroo\\.png|theft-hero\\.png|bannerhero\\.png|LogoDark\\.png)',
+        source: '/:file(favicon\\.png|loading-logo\\.png|hero-kangaroo\\.webp|hero-kangaroo-mobile\\.webp|hero-kangaroo\\.png|theft-hero\\.png|bannerhero\\.png|LogoDark\\.png)',
         headers: [
           { key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' },
         ],

@@ -18,6 +18,7 @@ import { parseIStartekLine, parsePT60Line } from './parser';
 import { parsePacket133Line } from './packet-133';
 import { initNightGuard, runNightGuard, shutdownNightGuard } from './night-guard';
 import { initCarrierPoller, shutdownCarrierPoller } from './carrier-poller';
+import { createLocationPipeline, sleep, type ParsedLocationLike } from './location-pipeline';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -106,151 +107,30 @@ function appendFallback(raw: string) {
   }
 }
 
-let systemSettingsCache: { ingest_accept: boolean; at: number } | null = null;
-const SYSTEM_SETTINGS_TTL_MS = 60 * 1000;
-
-async function getIngestAccept(): Promise<boolean> {
-  if (!supabase) return false;
-  const now = Date.now();
-  if (systemSettingsCache && now - systemSettingsCache.at < SYSTEM_SETTINGS_TTL_MS) {
-    return systemSettingsCache.ingest_accept;
-  }
-  const { data, error } = await supabase.from('system_settings').select('ingest_accept').eq('id', 'default').maybeSingle();
-  if (error) {
-    lastError = `devices check: ${error.message}`;
-    lastErrorAt = Date.now();
-    systemSettingsCache = { ingest_accept: true, at: now };
-    return true;
-  }
-  if (!data) {
-    systemSettingsCache = { ingest_accept: true, at: now };
-    return true;
-  }
-  systemSettingsCache = { ingest_accept: !!data.ingest_accept, at: now };
-  return systemSettingsCache.ingest_accept;
-}
-
-/** Short-TTL cache so new devices are seen within TTL without restart; also limits DB load per device. */
-const deviceCache = new Map<string, { allowed: boolean; at: number }>();
-const DEVICE_CACHE_NEGATIVE_TTL_MS = Math.min(30000, Math.max(5000, Math.floor(DEVICE_CACHE_TTL_MS / 2)));
-
-async function ensureDeviceFresh(deviceId: string): Promise<boolean> {
-  if (!supabase) return false;
-  const { data, error } = await supabase.from('devices').select('id, ingest_disabled').eq('id', deviceId).maybeSingle();
-  if (error) {
-    errors++;
-    lastError = `devices check: ${error.message}`;
-    lastErrorAt = Date.now();
-    log('error', 'devices check failed', { err: error.message });
-    return false;
-  }
-  if (!data || data.ingest_disabled) return false;
-  return true;
-}
-
-async function ensureDevice(deviceId: string): Promise<boolean> {
-  const now = Date.now();
-  const cached = deviceCache.get(deviceId);
-  if (cached) {
-    const ttl = cached.allowed ? DEVICE_CACHE_TTL_MS : DEVICE_CACHE_NEGATIVE_TTL_MS;
-    if (now - cached.at < ttl) return cached.allowed;
-  }
-  const allowed = await ensureDeviceFresh(deviceId);
-  deviceCache.set(deviceId, { allowed, at: now });
-  return allowed;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// ── Duplicate-packet deduplication ────────────────────────────────────────────
-// The PT60 tracker sends 2+ packets per GPS fix with different message-type
-// prefixes (&&K, &&W, &&J, &&V …). All carry identical gps_time + coordinates.
-// Storing every packet doubles (or more) the location count and inflates trip
-// waypoint totals. We deduplicate by (device_id, gps_time) within a 60-second
-// window — the second packet is silently dropped and the device's last_seen_at
-// is still updated so the live-map "seen X ago" counter stays accurate.
-// PT60 sends duplicate message types (&&K, &&W, &&J, &&V) for the same GPS fix within
-// milliseconds of each other. 10 s is more than enough to catch those, while NOT catching
-// legitimate late-arriving pings (e.g. buffered packets flushed after a coverage gap) which
-// arrive minutes later and have different gps_time values anyway.
+// ── Duplicate-packet deduplication (see location-pipeline) ────────────────────
 const DEDUP_WINDOW_MS = 10_000;
-const dedupCache = new Map<string, number>(); // key → inserted_at ms
-let dedupSkipped = 0;
-
-function isDuplicatePacket(deviceId: string, gpsTime: string): boolean {
-  const key = `${deviceId}:${gpsTime}`;
-  const now = Date.now();
-  const last = dedupCache.get(key);
-  if (last !== undefined && now - last < DEDUP_WINDOW_MS) return true;
-  dedupCache.set(key, now);
-  // Prune stale entries so the map doesn't grow unboundedly
-  if (dedupCache.size > 5000) {
-    const cutoff = now - DEDUP_WINDOW_MS;
-    for (const [k, v] of dedupCache) {
-      if (v < cutoff) dedupCache.delete(k);
-    }
-  }
-  return false;
-}
-
-type ParsedLocationLike = { device_id: string; gps_time: string | null; gps_valid: boolean | null; latitude: number | null; longitude: number | null; speed_kph: number | null; course_deg: number | null; event_code: string | null; raw_payload: string; extra: Record<string, unknown> };
-
-async function insertLocation(parsed: ParsedLocationLike | null): Promise<boolean> {
-  if (!supabase || !parsed) return false;
-  const accept = await getIngestAccept();
-  if (!accept) {
-    log('info', 'ingest accept disabled, skipping insert');
-    return false;
-  }
-
-  // Drop duplicate packets (same device + same GPS timestamp seen within DEDUP_WINDOW_MS).
-  // Still update last_seen_at so the device shows as online even when the location row is skipped.
-  if (parsed.gps_time && isDuplicatePacket(parsed.device_id, parsed.gps_time)) {
-    dedupSkipped++;
-    log('debug', 'dedup: skipping duplicate packet', { device_id: parsed.device_id, gps_time: parsed.gps_time });
-    supabase.from('devices').update({ last_seen_at: new Date().toISOString() }).eq('id', parsed.device_id).then(
-      ({ error }) => { if (error) log('debug', 'last_seen_at update (dedup path) failed', { err: error.message }); }
-    );
-    return false;
-  }
-  const row: Record<string, unknown> = {
-    device_id: parsed.device_id,
-    gps_time: parsed.gps_time,
-    gps_valid: parsed.gps_valid,
-    latitude: parsed.latitude,
-    longitude: parsed.longitude,
-    speed_kph: parsed.speed_kph,
-    course_deg: parsed.course_deg,
-    event_code: parsed.event_code,
-    raw_payload: parsed.raw_payload,
-    extra: parsed.extra,
-  };
-  if (INGEST_SERVER_NAME) row.ingest_server = INGEST_SERVER_NAME;
-  const backoffMs = [100, 300, 900];
-  for (let attempt = 0; attempt < SUPABASE_RETRIES; attempt++) {
-    const { error: insertErr } = await supabase.from('locations').insert(row);
-    if (!insertErr) {
-      insertedRows++;
-      const { error: updateErr } = await supabase.from('devices').update({ last_seen_at: new Date().toISOString() }).eq('id', parsed.device_id);
-      if (updateErr) log('error', 'devices last_seen_at update failed (device may show offline)', { device_id: parsed.device_id, err: updateErr.message });
-      return true;
-    }
-    if (attempt < SUPABASE_RETRIES - 1) {
-      const delay = backoffMs[Math.min(attempt, backoffMs.length - 1)];
-      await sleep(delay);
-    } else {
-      errors++;
-      lastError = `locations insert: ${insertErr.message}`;
+const locationPipeline = createLocationPipeline({
+  supabase,
+  ingestServerName: INGEST_SERVER_NAME,
+  deviceCacheTtlMs: DEVICE_CACHE_TTL_MS,
+  supabaseRetries: SUPABASE_RETRIES,
+  dedupWindowMs: DEDUP_WINDOW_MS,
+  hooks: {
+    log,
+    appendFallback,
+    onLastError: (msg) => {
+      lastError = msg;
       lastErrorAt = Date.now();
-      log('error', 'locations insert failed after retries', { err: insertErr.message });
-      appendFallback(parsed.raw_payload);
-      return false;
-    }
-  }
-  return false;
-}
+    },
+    onInsertedRow: () => {
+      insertedRows++;
+    },
+    onErrorCount: () => {
+      errors++;
+    },
+  },
+});
+const { ensureDevice, ensureDeviceFresh, insertLocation, setDeviceCacheEntry, getDedupSkipped } = locationPipeline;
 
 function logParsedMessage(
   isStartek: ReturnType<typeof parseIStartekLine>,
@@ -327,14 +207,14 @@ function handleLine(line: string, socket?: net.Socket) {
       sleep(DEVICE_CHECK_RETRY_DELAY_MS).then(() => ensureDeviceFresh(parsed.device_id)).then((existsAfterRetry) => {
         if (shuttingDown) return;
         if (existsAfterRetry) {
-          deviceCache.set(parsed.device_id, { allowed: true, at: Date.now() });
+          setDeviceCacheEntry(parsed.device_id, true);
           runNightGuard(supabase, parsed);
           insertLocation(parsed).then((inserted) => {
             logParsedMessage(isStartek, inserted, inserted ? null : 'insert_failed');
           });
           return;
         }
-        deviceCache.set(parsed.device_id, { allowed: false, at: Date.now() });
+        setDeviceCacheEntry(parsed.device_id, false);
         rejectedUnknownDevice++;
         appendDeadletter(parsed.device_id, parsed.raw_payload);
         log('info', 'rejected unknown device', { device_id: parsed.device_id, raw: parsed.raw_payload });
@@ -488,7 +368,7 @@ const healthServer = http.createServer((req, res) => {
       connections,
       parsed_lines: parsedLines,
       inserted_rows: insertedRows,
-      dedup_skipped: dedupSkipped,
+      dedup_skipped: getDedupSkipped(),
       deadletter_writes: deadletterWrites,
       fallback_writes: fallbackWrites,
       rejected_unknown_device: rejectedUnknownDevice,

@@ -83,3 +83,56 @@ export async function sendSms(
 }
 
 export const SMS_MONTHLY_LIMIT = 30;
+
+export type SmsportalBalanceResult = {
+  configured: boolean;
+  ok: boolean;
+  /** SMSPortal credit balance (same units as sending SMS). */
+  balance?: number;
+  error?: string;
+};
+
+/**
+ * GET /v3/Balance — account credit balance.
+ * Ref: https://docs.smsportal.com/reference/balance_get
+ */
+export async function getSmsportalBalance(): Promise<SmsportalBalanceResult> {
+  if (!SMSPORTAL_CLIENT_ID || !SMSPORTAL_API_SECRET) {
+    return { configured: false, ok: false, error: 'SMSPortal not configured' };
+  }
+  const auth = Buffer.from(`${SMSPORTAL_CLIENT_ID}:${SMSPORTAL_API_SECRET}`).toString('base64');
+  const url = `${SMSPORTAL_BASE.replace(/\/$/, '')}/v3/Balance`;
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      return {
+        configured: true,
+        ok: false,
+        error: `SMSPortal ${res.status}: ${text.slice(0, 160)}`,
+      };
+    }
+    let data: Record<string, unknown> = {};
+    try {
+      data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+    } catch {
+      return { configured: true, ok: false, error: 'Invalid JSON from SMSPortal Balance' };
+    }
+    const raw = data.balance;
+    const balance = typeof raw === 'number' ? raw : typeof raw === 'string' ? parseFloat(raw) : NaN;
+    if (!Number.isFinite(balance)) {
+      return { configured: true, ok: false, error: 'Balance field missing or invalid' };
+    }
+    return { configured: true, ok: true, balance };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { configured: true, ok: false, error: msg };
+  }
+}

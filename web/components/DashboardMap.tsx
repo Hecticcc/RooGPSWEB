@@ -180,6 +180,15 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   const markersByIdRef = useRef<Map<string, { marker: mapboxgl.Marker; data: MapMarker }>>(new Map());
   const activePopupRef = useRef<mapboxgl.Popup | null>(null);
+  // Stable refs for callbacks — prevents addMarkersAndFit from re-running on every render
+  // just because the parent re-creates inline arrow functions.
+  const onMarkerClickRef = useRef(onMarkerClick);
+  const onPopupCloseRef = useRef(onPopupClose);
+  // Ref to the latest openPopupFor closure so the focusMarkerId effect can call it directly
+  // without going through el.click() (which would double-fire onMarkerClick and reopen the popup).
+  const openPopupForRef = useRef<((m: MapMarker) => void) | null>(null);
+  useEffect(() => { onMarkerClickRef.current = onMarkerClick; });
+  useEffect(() => { onPopupCloseRef.current = onPopupClose; });
   const [mapStyle, setMapStyle] = useState<'dark' | 'satellite'>('dark');
 
   // Create map once; switch style with setStyle() to avoid teardown/reinit jitter
@@ -248,7 +257,7 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
       popup.on('close', () => {
         currentPopup = null;
         activePopupRef.current = null;
-        onPopupClose?.();
+        onPopupCloseRef.current?.();
       });
       reverseGeocode(m.lng, m.lat).then((address) => {
         if (currentPopup !== popup) return;
@@ -256,6 +265,9 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
         popup.setHTML(updated);
       });
     }
+
+    // Keep latest closure accessible to the focusMarkerId effect
+    openPopupForRef.current = openPopupFor;
 
     const valid = markers.filter((m) => typeof m.lat === 'number' && typeof m.lng === 'number');
     valid.forEach((m) => {
@@ -280,8 +292,8 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
         markerEl.addEventListener('click', (e: Event) => {
           e.stopPropagation();
           e.preventDefault();
-          onMarkerClick?.(m.id);
           openPopupFor(m);
+          onMarkerClickRef.current?.(m.id);
         });
       }
       markersRef.current.push(marker);
@@ -312,9 +324,14 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
     } else {
       map.once('style.load', run);
     }
-  }, [markers, onMarkerClick, onPopupClose, mapStyle, showVoltage]);
+    // onMarkerClick / onPopupClose intentionally omitted — they are kept in refs (onMarkerClickRef /
+    // onPopupCloseRef) so changing them never recreates markers and never triggers double-popups.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markers, mapStyle, showVoltage]);
 
-  // Fly to a marker and open its popup when focusMarkerId changes
+  // Fly to a marker and open its popup when focusMarkerId changes.
+  // If the popup is already open (user clicked the marker directly on the map),
+  // just fly to centre it — do NOT reopen, which would cause a double popup.
   useEffect(() => {
     if (!focusMarkerId) return;
     const map = mapRef.current;
@@ -322,16 +339,16 @@ export default function DashboardMap({ markers = [], onMarkerClick, onPopupClose
     const entry = markersByIdRef.current.get(focusMarkerId);
     if (!entry) return;
     const { data: m } = entry;
-    // Clear any lingering padding from previous operations, then fly to centre
     map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
     map.flyTo({
       center: [m.lng, m.lat],
       zoom: Math.max(map.getZoom(), 14),
       duration: 700,
     });
-    // Open the popup after the fly animation settles
-    const el = entry.marker.getElement();
-    if (el) setTimeout(() => el.click(), 750);
+    // Popup already open means the user clicked the marker directly — skip reopen.
+    if (activePopupRef.current) return;
+    // Sidebar click path: open popup after the fly animation settles.
+    setTimeout(() => openPopupForRef.current?.(entry.data), 750);
   }, [focusMarkerId]);
 
   if (!token) {

@@ -90,6 +90,9 @@ The app has a protected **Admin** section at `/admin` for staff and above. Roles
 - **Web:** `ADMIN_RETENTION_DAYS` – optional; default 90 for retention cleanup job.  
 - **Web:** `SIMBASE_API_KEY` – optional; Bearer token for Simbase API to list SIM cards on admin Stock page.  
 - **Web:** `SIMBASE_API_URL` – optional; default `https://api.simbase.com/v2` (Simbase API base URL).  
+- **Web:** `SIMBASE_BALANCE_PATH` – optional; override Simbase balance URL path (default **`/account/balance`** per [Simbase API](https://developer.simbase.com/)). API key needs scope **`account:read`**. Response uses decimal strings for `balance`; currency from `currency`.  
+- **Web:** `SIMBASE_LOW_BALANCE_ALERT` – optional; warn on admin dashboard when Simbase balance is below this (default `25`).  
+- **Web:** `SMSPORTAL_LOW_CREDITS_ALERT` – optional; warn when SMSPortal `/v3/Balance` is below this (default `200` credits).  
 - **Web:** `NEXT_PUBLIC_APP_VERSION`, `GIT_COMMIT_SHA` (or `VERCEL_GIT_COMMIT_SHA`) – optional; shown on admin System page.
 
 ### Database (admin)

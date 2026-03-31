@@ -6,7 +6,9 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "npx ts-node src/parser.test.ts && npx ts-node src/packet-133.test.ts",
+    "start:jt808": "node dist/jt808-server.js",
+    "dev:jt808": "ts-node-dev --respawn src/jt808-server.ts",
+    "test": "npx ts-node src/parser.test.ts && npx ts-node src/packet-133.test.ts && npx ts-node src/jt808/codec.test.ts",
     "test:night-guard": "npx ts-node src/night-guard/night-guard.test.ts"
   },
   "dependencies": {

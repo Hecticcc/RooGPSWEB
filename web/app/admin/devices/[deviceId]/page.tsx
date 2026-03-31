@@ -136,17 +136,25 @@ function formatDate(iso: string | null): string {
 }
 
 function payloadsToCsv(rows: PayloadRow[]): string {
-  const headers = ['Received (AU)', 'GPS time', 'Lat', 'Lon', 'Speed', 'GPS valid', 'Battery %', 'Battery V', 'bat_hex', 'Raw'];
+  const headers = ['Received (AU)', 'GPS time', 'Lat', 'Lon', 'Speed (km/h)', 'Course (°)', 'GPS valid', 'Alm code', 'Sats', 'HDOP', 'Alt (m)', 'Odo (m)', 'Battery %', 'Battery V', 'bat_hex', 'Ext V', 'CSQ', 'Raw'];
   const csvRows = rows.map((p) => [
     formatDate(p.received_at),
     formatDate(p.gps_time),
     p.lat ?? '',
     p.lon ?? '',
     p.speed_kph ?? '',
+    p.course_deg ?? '',
     p.gps_valid == null ? '' : p.gps_valid ? 'Y' : 'N',
+    p.event_code ?? '',
+    p.sats ?? '',
+    p.hdop ?? '',
+    p.altitude_m ?? '',
+    p.odometer_m ?? '',
     p.battery_percent ?? '',
     p.battery_voltage_v != null ? `${p.battery_voltage_v}` : '',
     p.bat_hex ?? '',
+    p.ext_voltage_v != null ? `${p.ext_voltage_v}` : '',
+    p.csq ?? '',
     p.raw_payload,
   ]);
   return [headers.join(','), ...csvRows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\r\n');
@@ -169,11 +177,19 @@ type PayloadRow = {
   lat: number | null;
   lon: number | null;
   speed_kph: number | null;
+  course_deg: number | null;
   gps_valid: boolean | null;
+  event_code: string | null;
   raw_payload: string;
   battery_percent?: number | null;
   battery_voltage_v?: number | null;
   bat_hex?: string | null;
+  sats?: number | null;
+  hdop?: number | null;
+  altitude_m?: number | null;
+  odometer_m?: number | null;
+  ext_voltage_v?: number | null;
+  csq?: number | null;
 };
 
 type DeviceDetail = {
@@ -717,20 +733,31 @@ export default function AdminDeviceDetailPage() {
           )}
           </div>
         </div>
-        <p className="admin-time">Parsed fields: lat, lon, speed, battery % and voltage (iStartek v2.2 ext-V|bat-V), gps_valid. 20 per page.</p>
+        <p className="admin-time">
+          iStartek Protocol v2.2 §3 field order: lat [6] · lon [7] · <strong>sats [8]</strong> · HDOP [9] · <strong>speed [10]</strong> · course [11] · alt [12] · odo [13].
+          Battery from tailToken ext-V|bat-V. 20 per page.
+        </p>
         <div className="admin-table-wrap admin-table-wrap--scroll">
           <table className="admin-table">
             <thead>
               <tr>
                 <th>Received (AU)</th>
                 <th>GPS time</th>
+                <th>Alm</th>
                 <th>Lat</th>
                 <th>Lon</th>
-                <th>Speed</th>
+                <th title="Protocol field [10] — km/h">Speed</th>
+                <th title="Protocol field [11] — degrees">Course°</th>
                 <th>GPS valid</th>
+                <th title="Protocol field [8] — satellite count, NOT speed">Sats</th>
+                <th title="Protocol field [9] — horizontal dilution of precision">HDOP</th>
+                <th title="Protocol field [12] — metres">Alt (m)</th>
+                <th title="Protocol field [13] — accumulated metres">Odo (m)</th>
                 <th>Battery %</th>
                 <th>Battery V</th>
                 <th>bat_hex</th>
+                <th title="External / car voltage — non-null = plugged in">Ext V</th>
+                <th title="GSM signal quality 0-31">CSQ</th>
                 <th>Raw</th>
               </tr>
             </thead>
@@ -739,13 +766,21 @@ export default function AdminDeviceDetailPage() {
                 <tr key={p.id}>
                   <td className="admin-time">{formatDate(p.received_at)}</td>
                   <td className="admin-time">{formatDate(p.gps_time)}</td>
+                  <td className="admin-mono" style={{ fontSize: '0.85em' }}>{p.event_code ?? '—'}</td>
                   <td>{p.lat ?? '—'}</td>
                   <td>{p.lon ?? '—'}</td>
                   <td>{p.speed_kph ?? '—'}</td>
+                  <td>{p.course_deg ?? '—'}</td>
                   <td>{p.gps_valid == null ? '—' : p.gps_valid ? 'Y' : 'N'}</td>
+                  <td>{p.sats ?? '—'}</td>
+                  <td>{p.hdop ?? '—'}</td>
+                  <td>{p.altitude_m ?? '—'}</td>
+                  <td>{p.odometer_m ?? '—'}</td>
                   <td>{p.battery_percent ?? '—'}</td>
                   <td>{p.battery_voltage_v != null ? `${p.battery_voltage_v} V` : '—'}</td>
                   <td className="admin-mono" style={{ fontSize: '0.85em' }} title="Protocol bat-V hex (V×100)">{p.bat_hex ?? '—'}</td>
+                  <td>{p.ext_voltage_v != null ? `${p.ext_voltage_v} V` : '—'}</td>
+                  <td>{p.csq ?? '—'}</td>
                   <td className="admin-mono" style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }} title={p.raw_payload}>
                     {p.raw_payload}
                   </td>

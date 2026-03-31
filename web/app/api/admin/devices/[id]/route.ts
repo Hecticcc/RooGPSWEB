@@ -56,7 +56,7 @@ export async function GET(
 
   const { data: locations } = await admin
     .from('locations')
-    .select('id, gps_time, received_at, latitude, longitude, speed_kph, gps_valid, raw_payload, extra')
+    .select('id, gps_time, received_at, latitude, longitude, speed_kph, course_deg, gps_valid, event_code, raw_payload, extra')
     .eq('device_id', id)
     .order('received_at', { ascending: false })
     .range(from, to);
@@ -64,7 +64,10 @@ export async function GET(
   const payloads = (locations ?? []).map((loc) => {
     const extra = (loc.extra as {
       battery?: { percent?: number; voltage_v?: number };
-      power?: { bat_hex?: string };
+      power?: { bat_hex?: string; ext_voltage_v?: number };
+      signal?: { gps?: { sats?: number; hdop?: number }; gsm?: { csq?: number } };
+      altitude_m?: number;
+      odometer_m?: number;
     } | null) ?? null;
     return {
       id: loc.id,
@@ -73,11 +76,23 @@ export async function GET(
       lat: loc.latitude,
       lon: loc.longitude,
       speed_kph: loc.speed_kph,
+      course_deg: loc.course_deg ?? null,
       gps_valid: loc.gps_valid,
+      event_code: loc.event_code ?? null,
       raw_payload: loc.raw_payload,
+      // Battery (iStartek v2.2 tailToken ext-V|bat-V)
       battery_percent: extra?.battery?.percent ?? null,
       battery_voltage_v: extra?.battery?.voltage_v ?? null,
       bat_hex: extra?.power?.bat_hex ?? null,
+      // GPS signal (from extra.signal, parsed per Protocol v2.2 §3)
+      sats: extra?.signal?.gps?.sats ?? null,
+      hdop: extra?.signal?.gps?.hdop ?? null,
+      // Altitude and odometer (parsed from positions [12] and [13])
+      altitude_m: extra?.altitude_m ?? null,
+      odometer_m: extra?.odometer_m ?? null,
+      // External voltage (non-null means car power is connected)
+      ext_voltage_v: extra?.power?.ext_voltage_v ?? null,
+      csq: extra?.signal?.gsm?.csq ?? null,
     };
   });
 

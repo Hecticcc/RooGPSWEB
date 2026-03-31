@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
 import { requireRole, createServiceRoleClient } from '@/lib/admin-auth';
+import { computeDeviceState } from '@/lib/device-state';
 
 const INGEST_HEALTH_URL = process.env.INGEST_HEALTH_URL ?? '';
 
-/** Consider device online if last_seen within this window. Must be > GPS ping interval (e.g. 10 min) so we don't mark offline between pings. */
-const ONLINE_THRESHOLD_MS = 20 * 60 * 1000; // 20 min
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 export async function GET(request: Request) {
@@ -22,7 +21,6 @@ export async function GET(request: Request) {
 
   const now = new Date();
   const since24h = new Date(now.getTime() - ONE_DAY_MS).toISOString();
-  const onlineCutoff = new Date(now.getTime() - ONLINE_THRESHOLD_MS).toISOString();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const currentYearPrefix = `${now.getFullYear()}-`;
 
@@ -38,7 +36,7 @@ export async function GET(request: Request) {
     smsUsageRes,
   ] = await Promise.all([
     admin.from('user_roles').select('*', { count: 'exact', head: true }),
-    admin.from('devices').select('id, last_seen_at'),
+    admin.from('devices').select('id, last_seen_at, moving_interval_seconds'),
     admin.from('locations').select('*', { count: 'exact', head: true }).gte('received_at', since24h),
     admin.from('locations').select('received_at').order('received_at', { ascending: false }).limit(1).maybeSingle(),
     admin.from('tracker_stock').select('*', { count: 'exact', head: true }),
@@ -51,8 +49,22 @@ export async function GET(request: Request) {
   const totalUsers = (usersCountRes as { count?: number })?.count ?? 0;
   const devices = devicesRes.data ?? [];
   const totalDevices = devices.length;
-  const onlineDevices = devices.filter((d) => d.last_seen_at && d.last_seen_at >= onlineCutoff).length;
-  const offlineDevices = totalDevices - onlineDevices;
+
+  // Use the same computeDeviceState logic as the rest of the app so sleeping
+  // devices are not incorrectly shown as offline.
+  let onlineDevices = 0;
+  let sleepingDevices = 0;
+  let offlineDevices = 0;
+  for (const d of devices) {
+    const { device_state } = computeDeviceState({
+      last_seen_at: d.last_seen_at,
+      moving_interval_seconds: (d as { moving_interval_seconds?: number | null }).moving_interval_seconds ?? null,
+    });
+    if (device_state === 'ONLINE') onlineDevices++;
+    else if (device_state === 'SLEEPING') sleepingDevices++;
+    else offlineDevices++;
+  }
+
   const locationsLast24h = (locationsCountRes as { count?: number })?.count ?? 0;
 
   let deadletterCount: number | null = null;
@@ -98,6 +110,7 @@ export async function GET(request: Request) {
     total_users: totalUsers,
     total_devices: totalDevices,
     online_devices: onlineDevices,
+    sleeping_devices: sleepingDevices,
     offline_devices: offlineDevices,
     locations_last_24h: locationsLast24h,
     deadletter_count: deadletterCount,

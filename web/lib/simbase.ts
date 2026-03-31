@@ -341,3 +341,106 @@ export async function listSimbaseSms(
     return { sms: [], cursor: null, has_more: false, count: 0 };
   }
 }
+
+export type SimbaseBalanceResult = {
+  configured: boolean;
+  ok: boolean;
+  balance?: number;
+  currency?: string;
+  error?: string;
+};
+
+/**
+ * Simbase API v2 — Retrieve Balance (GET /account/balance).
+ * Ref: Simbase developer docs — requires scope `account:read`.
+ * Monetary fields are decimal strings in JSON; we parse `balance` to a number for display.
+ *
+ * Example response:
+ * `{ "balance": "10.5000", "currency": "EUR", "auto_top_up_amount": "50.00", ... }`
+ */
+function parseSimbaseAccountBalanceResponse(data: unknown): { amount: number; currency?: string } | null {
+  if (data == null || typeof data !== 'object') return null;
+  const o = data as Record<string, unknown>;
+  const raw = o.balance;
+  let amount: number;
+  if (typeof raw === 'string') {
+    amount = parseFloat(raw.trim());
+  } else if (typeof raw === 'number' && Number.isFinite(raw)) {
+    amount = raw;
+  } else {
+    return null;
+  }
+  if (!Number.isFinite(amount)) return null;
+  const currency =
+    typeof o.currency === 'string' && o.currency.length >= 3 && o.currency.length <= 8
+      ? o.currency.trim()
+      : undefined;
+  return { amount, currency };
+}
+
+/** Default path per Simbase docs. Override with SIMBASE_BALANCE_PATH if needed. */
+const SIMBASE_DEFAULT_BALANCE_PATH = '/account/balance';
+
+/**
+ * Current Simbase account balance (GET /account/balance by default).
+ * Set `SIMBASE_BALANCE_PATH` only if you must use a different path (must still return `balance` + `currency` shape).
+ */
+export async function getSimbaseBalance(): Promise<SimbaseBalanceResult> {
+  if (!SIMBASE_API_KEY) {
+    return { configured: false, ok: false, error: 'Simbase not configured' };
+  }
+  const base = SIMBASE_API_BASE.replace(/\/$/, '');
+  const envPath = (process.env.SIMBASE_BALANCE_PATH ?? '').trim();
+  const path = envPath
+    ? envPath.startsWith('/')
+      ? envPath
+      : `/${envPath}`
+    : SIMBASE_DEFAULT_BALANCE_PATH;
+
+  const headers: HeadersInit = {
+    Authorization: `Bearer ${SIMBASE_API_KEY}`,
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+
+  const url = `${base}${path}`;
+  try {
+    const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(12000) });
+    const text = await res.text();
+    if (!res.ok) {
+      const hint =
+        res.status === 403
+          ? ' Ensure the API key has scope account:read.'
+          : '';
+      return {
+        configured: true,
+        ok: false,
+        error: `Simbase ${res.status}: ${text.slice(0, 160)}${hint}`,
+      };
+    }
+    let data: unknown;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      return { configured: true, ok: false, error: 'Invalid JSON from Simbase balance endpoint' };
+    }
+    const parsed = parseSimbaseAccountBalanceResponse(data);
+    if (!parsed) {
+      return {
+        configured: true,
+        ok: false,
+        error:
+          'Response missing `balance` (decimal string per Simbase docs). Check SIMBASE_BALANCE_PATH if using a custom URL.',
+      };
+    }
+    return {
+      configured: true,
+      ok: true,
+      balance: parsed.amount,
+      ...(parsed.currency ? { currency: parsed.currency } : {}),
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { configured: true, ok: false, error: msg };
+  }
+}

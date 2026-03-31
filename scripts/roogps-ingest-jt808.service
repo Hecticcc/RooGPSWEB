@@ -1,0 +1,19 @@
+[Unit]
+Description=RooGPS JT808 TCP Ingest (standalone)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/roogps-jt808/ingest
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/roogps-jt808/ingest/.env
+ExecStart=/usr/bin/node dist/jt808-server.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

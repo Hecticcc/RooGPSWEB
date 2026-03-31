@@ -9,6 +9,17 @@ This is a **second TCP process** alongside the main line-based ingest (`ingest/d
 | JT808 TCP | `INGEST_JT808_PORT` | 8012 |
 | Health HTTP | `HEALTH_JT808_PORT` | 8091 |
 
+## Dedicated JT808 VPS (this project)
+
+Configure the tracker SMS / platform settings to send TCP to this host (default JT808 port **8012**):
+
+| | |
+|--|--|
+| **TCP (trackers)** | `45.77.235.90:8012` |
+| **Health check** | `http://45.77.235.90:8091/` |
+
+If the VPS IP changes, update this table and the device server settings.
+
 ## Run locally
 
 From repo root (after `npm run build --prefix ingest`):
@@ -55,7 +66,7 @@ Register the device in Admin with **Device ID** equal to the IMEI/terminal ID th
 
 Paste **[`scripts/vultr-startup-jt808.sh`](../scripts/vultr-startup-jt808.sh)** into **Server → Settings → Startup Script**. The script is pre-filled with this repo’s Supabase project URL (`emkgmhhdjjsdngzrpwop`), GitHub `Hecticcc/RooGPSWEB`, branch `main`, ports **8012** / **8091**, and server name **GAT24-test**. You must still:
 
-1. Replace **`PASTE_SERVICE_ROLE_KEY`** with your Supabase **service role** key (Dashboard → Project Settings → API).
+1. In the script, find **`SUPABASE_SERVICE_ROLE_KEY="PASTE_SERVICE_ROLE_KEY_HERE"`** and replace **`PASTE_SERVICE_ROLE_KEY_HERE`** with your real key (Supabase - Project Settings - API - `service_role`).
 2. Set **`GITHUB_PAT_B64`** to the output of `echo -n 'YOUR_GITHUB_PAT' | base64 -w0` (private repo clone), **or** set **`CODE_ZIP_URL`** to a downloadable zip of the repo (then leave `GITHUB_PAT_B64` empty).
 
 Do not commit real keys into git; edit only in the Vultr textarea before saving.

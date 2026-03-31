@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
-# RooGPS JT808 ingest only (GAT24 / binary TCP) — Vultr Startup Script
+# RooGPS JT808 ingest only (GAT24 / binary TCP) - Vultr Startup Script
 # Paste into Vultr: Server > Settings > Startup Script. Edit variables below.
 # Does NOT install line ingest (8011) or web app. Isolated from scripts/vultr-startup.sh.
 # Code: CODE_ZIP_URL or private Git clone (same pattern as main startup script).
 
 set -e
 
-# === RooGPSWEB — pre-filled (Supabase project + GitHub repo). Paste into Vultr Startup Script. ===
-# 1) Replace PASTE_SERVICE_ROLE_KEY with your Supabase service role key (Dashboard → Settings → API).
-# 2) Code: either set CODE_ZIP_URL to a zip URL, OR set GITHUB_PAT_B64 to:  echo -n 'YOUR_GITHUB_PAT' | base64 -w0
-#    (leave both empty only after you fill one of them — zip URL needs no GitHub).
+# ========== EDIT THIS BLOCK BEFORE YOU SAVE IN VULTR ==========
+#
+# 1) On the line that says PASTE_SERVICE_ROLE_KEY_HERE - delete that text and put your
+#    real key inside the quotes. Same key as your other ingest server. Get it from:
+#    Supabase -> Project Settings -> API -> service_role (secret)
+#
+# 2) Get the repo onto the server - pick ONE:
+#    - Leave CODE_ZIP_URL empty and put your GitHub PAT as base64 in GITHUB_PAT_B64, OR
+#    - Put a zip download URL in CODE_ZIP_URL and leave GITHUB_PAT_B64 empty.
+#
 SUPABASE_URL="https://emkgmhhdjjsdngzrpwop.supabase.co"
-SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVta2dtaGhkampzZG5nenJwd29wIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTgxMDAxMSwiZXhwIjoyMDg3Mzg2MDExfQ.sskzG3yBHp_puq5UZ1q9K9xiRDaGPcc-AdendNiAFRk
+SUPABASE_SERVICE_ROLE_KEY="PASTE_SERVICE_ROLE_KEY_HERE"
+
 CODE_ZIP_URL=""
 GITHUB_PAT_B64=""
+
 GIT_REPO_OWNER="Hecticcc"
 GIT_REPO_NAME="RooGPSWEB"
 GIT_BRANCH="main"
@@ -22,10 +30,10 @@ HEALTH_JT808_PORT="8091"
 INGEST_JT808_SERVER_NAME="GAT24-test"
 JT808_AUTH_CODE="123456"
 REPO_DIR="/opt/roogps-jt808"
-# ============================================================================================
+# ========== END EDIT ==========
 
-if [[ "$SUPABASE_SERVICE_ROLE_KEY" == "PASTE_SERVICE_ROLE_KEY" || -z "$SUPABASE_SERVICE_ROLE_KEY" ]]; then
-  echo "Error: Edit this script and replace PASTE_SERVICE_ROLE_KEY with your Supabase service role key."
+if [[ "$SUPABASE_SERVICE_ROLE_KEY" == "PASTE_SERVICE_ROLE_KEY_HERE" ]]; then
+  echo "Error: You must edit SUPABASE_SERVICE_ROLE_KEY above - replace PASTE_SERVICE_ROLE_KEY_HERE with your real Supabase service role key."
   exit 1
 fi
 
@@ -51,7 +59,7 @@ fi
 
 export SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY
 
-echo "=== RooGPS JT808 ingest only — Vultr first-boot ==="
+echo "=== RooGPS JT808 ingest only - Vultr first-boot ==="
 
 echo "[1/7] Apt: curl, unzip, git if needed..."
 apt-get update -qq

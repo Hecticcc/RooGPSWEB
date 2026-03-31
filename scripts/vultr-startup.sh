@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RooGPS line ingest (8011) — Vultr Startup Script
+# RooGPS line ingest (8011) - Vultr Startup Script
 # For a dedicated JT808/GAT24-only VPS (no line ingest), use scripts/vultr-startup-jt808.sh instead.
 # Paste into Vultr: Server > Settings > Startup Script. Set the variables below.
 # Get code either by CODE_ZIP_URL (no GitHub) or GIT_REPO_URL (clone).
